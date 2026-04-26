@@ -73,7 +73,7 @@ export default function DashboardPage() {
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={false} /></div>
           <div><SidebarLink icon={<MapIcon size={24} />} label="Heatmap" active={false} /></div>
           <div><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={false} /></div>
-          <div><SidebarLink icon={<Users size={24} />} label="Users" active={false} /></div>
+          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={false} /></div>
         </nav>
       </aside>
 
@@ -82,6 +82,7 @@ export default function DashboardPage() {
 
         <div className="flex-1 bg-gray-200 flex flex-col rounded-t-xl overflow-hidden mx-2 mb-2 shadow-2xl relative">
           
+          {/* RED HEADER */}
           <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
             <div className="flex items-center gap-4">
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
@@ -89,7 +90,7 @@ export default function DashboardPage() {
                 <span onClick={() => navigate('/dashboard')} className="bg-[#8b2323] px-5 py-1.5 rounded-md text-sm font-bold shadow-inner cursor-pointer">Dashboard</span>
                 <span onClick={() => navigate('/reports')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Reports</span>
                 <span className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Analytics</span>
-                <span className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Users</span>
+                <span onClick={() => navigate('/users')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Users</span>
               </div>
             </div>
             <div className="flex items-center gap-2 pr-4">

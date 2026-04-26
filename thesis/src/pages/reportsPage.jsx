@@ -90,7 +90,7 @@ export default function ReportsPage() {
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={true} /></div>
           <div><SidebarLink icon={<MapIcon size={24} />} label="Heatmap" active={false} /></div>
           <div><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={false} /></div>
-          <div><SidebarLink icon={<Users size={24} />} label="Users" active={false} /></div>
+          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={false} /></div>
           
           <div className="mt-8 border-t border-white/10 pt-4">
             <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={false} /></div>
@@ -111,7 +111,7 @@ export default function ReportsPage() {
                 <span onClick={() => navigate('/dashboard')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Dashboard</span>
                 <span onClick={() => navigate('/reports')} className="bg-[#8b2323] px-5 py-1.5 rounded-md text-sm font-bold shadow-inner cursor-pointer">Reports</span>
                 <span className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Analytics</span>
-                <span className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Users</span>
+                <span onClick={() => navigate('/users')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Users</span>
               </div>
             </div>
             <div className="flex items-center gap-2 pr-4">
