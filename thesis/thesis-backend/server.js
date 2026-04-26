@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 // ==========================================
-// DATABASE CONNECTION
+// DATABASE CONNECTION (XAMPP MySQL)
 // ==========================================
 const pool = mysql.createPool({
   host: 'localhost',
@@ -40,11 +40,14 @@ app.get('/api/reports/recent', async (req, res) => {
 
 app.post('/api/reports', async (req, res) => {
   try {
-    const { type, location } = req.body;
+    const { type, location, reporter } = req.body;
+    const finalReporter = reporter || 'System Admin'; 
     const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
-    const query = 'INSERT INTO reports (type, location, date, status) VALUES (?, ?, ?, ?)';
-    const [result] = await pool.query(query, [type, location, today, 'Pending']);
-    res.status(201).json({ id: result.insertId, type, location, date: today, status: 'Pending' });
+    
+    const query = 'INSERT INTO reports (type, location, date, status, reporter) VALUES (?, ?, ?, ?, ?)';
+    const [result] = await pool.query(query, [type, location, today, 'Pending', finalReporter]);
+    
+    res.status(201).json({ id: result.insertId, type, location, date: today, status: 'Pending', reporter: finalReporter });
   } catch (error) { res.status(500).json({ error: 'Database error' }); }
 });
 
@@ -72,55 +75,33 @@ app.get('/api/analytics', async (req, res) => {
 });
 
 // ==========================================
-// USERS API ENDPOINTS (NEW)
+// USERS API ENDPOINTS
 // ==========================================
-
-// 1. Get all users
 app.get('/api/users', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM users ORDER BY id ASC');
     res.json(rows);
-  } catch (error) {
-    console.error("Error fetching users:", error);
-    res.status(500).json({ error: 'Database error' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Database error' }); }
 });
 
-// 2. Create a new user
 app.post('/api/users', async (req, res) => {
   try {
     const { name, email, phone, role } = req.body;
     const joinedDate = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
-    
     const query = 'INSERT INTO users (name, email, phone, role, status, joined) VALUES (?, ?, ?, ?, ?, ?)';
     const [result] = await pool.query(query, [name, email, phone, role, 'Active', joinedDate]);
-    
     res.status(201).json({ id: result.insertId, name, email, phone, role, status: 'Active', joined: joinedDate });
-  } catch (error) {
-    console.error("Error creating user:", error);
-    res.status(500).json({ error: 'Database error' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Database error' }); }
 });
 
-// 3. Update User Status (Suspend/Activate)
 app.put('/api/users/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
-    // Safety check: Prevent modifying ID 1 (Main Admin)
-    if (parseInt(id) === 1) {
-      return res.status(403).json({ error: 'Cannot modify the root admin account' });
-    }
-
+    if (parseInt(id) === 1) return res.status(403).json({ error: 'Cannot modify root admin' });
     await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
     res.json({ message: 'User status updated' });
-  } catch (error) {
-    console.error("Error updating user status:", error);
-    res.status(500).json({ error: 'Database error' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Database error' }); }
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ MySQL Backend Server running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ MySQL Backend Server running on http://localhost:${PORT}`));

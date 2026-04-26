@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, Map as MapIcon, BarChart3, Users, Smartphone, Menu, UserCircle, Search, Plus, Shield, ShieldAlert, X, Edit, Trash2, Eye, Ban, CheckCircle2 } from 'lucide-react';
+import { LayoutGrid, FileText, Map as MapIcon, BarChart3, Users, Smartphone, Menu, UserCircle, Search, Plus, Shield, ShieldAlert, X, Eye, Ban, CheckCircle2 } from 'lucide-react';
 
 export default function UsersPage() {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -11,95 +11,61 @@ export default function UsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // UPDATED: Default role is now 'User'
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', role: 'User' });
   const [selectedUser, setSelectedUser] = useState(null);
 
-  // ==========================================
-  // FETCH USERS ON LOAD
-  // ==========================================
   const fetchUsers = async () => {
     try {
       const response = await fetch('http://localhost:3000/api/users');
       const data = await response.json();
       setUsers(data);
       setIsLoading(false);
-    } catch (error) {
-      console.error("Failed to fetch users:", error);
-      setIsLoading(false);
-    }
+    } catch (error) { setIsLoading(false); }
   };
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  // ==========================================
-  // HANDLERS (Connected to Database)
-  // ==========================================
+  useEffect(() => { fetchUsers(); }, []);
 
   const handleAddUser = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
     try {
       const response = await fetch('http://localhost:3000/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-
       if (response.ok) {
         setIsAddModalOpen(false);
-        setFormData({ name: '', email: '', phone: '', role: 'User' }); // Reset to 'User'
+        setFormData({ name: '', email: '', phone: '', role: 'User' }); 
         fetchUsers(); 
       }
-    } catch (error) {
-      console.error("Failed to add user:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (error) { console.error("Failed to add user:", error); } 
+    finally { setIsSubmitting(false); }
   };
 
-  const handleViewUser = (user) => {
-    setSelectedUser(user);
-    setIsViewModalOpen(true);
-  };
+  const handleViewUser = (user) => { setSelectedUser(user); setIsViewModalOpen(true); };
 
   const handleToggleStatus = async (userId, currentStatus, role) => {
     if (role === 'System Admin' && userId === 1) return;
-
     const newStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
-
     try {
       const response = await fetch(`http://localhost:3000/api/users/${userId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
-
-      if (response.ok) {
-        setUsers(users.map(user => user.id === userId ? { ...user, status: newStatus } : user));
-      }
-    } catch (error) {
-      console.error("Failed to toggle status:", error);
-    }
+      if (response.ok) setUsers(users.map(user => user.id === userId ? { ...user, status: newStatus } : user));
+    } catch (error) { console.error("Failed to toggle status:", error); }
   };
 
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = users.filter(user => user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
-      
-      {/* SIDEBAR */}
       <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         <nav className="flex flex-col mt-6">
@@ -108,16 +74,13 @@ export default function UsersPage() {
           <div><SidebarLink icon={<MapIcon size={24} />} label="Heatmap" active={false} /></div>
           <div><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={false} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={true} /></div>
-          
           <div className="mt-8 border-t border-white/10 pt-4">
             <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={false} /></div>
           </div>
         </nav>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col overflow-hidden">
-
         <div className="flex-1 bg-[#f0f0f0] flex flex-col rounded-t-md overflow-hidden mx-2 mb-2 shadow-2xl">
           
           <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
@@ -137,31 +100,17 @@ export default function UsersPage() {
           </header>
 
           <div className="p-8 flex-1 overflow-y-auto">
-            
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-80 overflow-hidden">
                 <Search size={18} className="text-gray-400 ml-4" />
-                <input 
-                  type="text" placeholder="Search name or email..." 
-                  value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none"
-                />
+                <input type="text" placeholder="Search name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" />
               </div>
-              
-              <button 
-                onClick={() => setIsAddModalOpen(true)}
-                className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
-              >
-                <Plus size={20} /> Add New User
-              </button>
+              <button onClick={() => setIsAddModalOpen(true)} className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm"><Plus size={20} /> Add New User</button>
             </div>
 
             <div className="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
               <div className="px-6 py-5 flex items-center justify-between border-b border-gray-200">
-                <div className="flex items-center gap-3">
-                  <div className="bg-black text-white rounded-full p-1.5"><Shield size={18} /></div>
-                  <h2 className="font-bold text-xl text-gray-900 tracking-tight">System & App Users</h2>
-                </div>
+                <div className="flex items-center gap-3"><div className="bg-black text-white rounded-full p-1.5"><Shield size={18} /></div><h2 className="font-bold text-xl text-gray-900">System & App Users</h2></div>
                 <span className="text-sm text-gray-400 font-medium">{filteredUsers.length} Users</span>
               </div>
 
@@ -176,61 +125,19 @@ export default function UsersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {isLoading ? (
-                      <tr><td colSpan="4" className="py-8 text-center text-gray-400 font-bold">Loading secure database...</td></tr>
-                    ) : filteredUsers.length === 0 ? (
-                      <tr><td colSpan="4" className="py-8 text-center text-gray-400">No users found.</td></tr>
-                    ) : (
-                      filteredUsers.map((user) => (
-                        <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
-                          
-                          <td className="py-4 px-8">
-                            <div className="flex items-center gap-3">
-                              <UserCircle size={32} className="text-gray-400" />
-                              <div>
-                                <div className="font-bold text-gray-800">{user.name}</div>
-                                <div className="text-xs text-gray-500 font-medium">{user.email}</div>
-                              </div>
-                            </div>
-                          </td>
-                          
-                          {/* UPDATED: Dynamic Role Badges including 'User' */}
-                          <td className="py-4 px-8">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                              user.role === 'System Admin' ? 'bg-purple-50 text-purple-700 border-purple-200' : 
-                              user.role === 'Dispatcher' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                              user.role === 'Responder' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                              'bg-gray-100 text-gray-600 border-gray-300' // Clean gray badge for normal app users
-                            }`}>
-                              {user.role}
-                            </span>
-                          </td>
-                          
-                          <td className="py-4 px-8">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${user.status === 'Active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                              <span className={`text-sm font-bold ${user.status === 'Active' ? 'text-gray-700' : 'text-red-600'}`}>{user.status}</span>
-                            </div>
-                          </td>
-                          
-                          <td className="py-4 px-8 text-right">
-                            <button onClick={() => handleViewUser(user)} className="text-gray-400 hover:text-blue-600 p-2 transition-colors" title="View Details">
-                              <Eye size={18} />
-                            </button>
-
-                            <button 
-                              onClick={() => handleToggleStatus(user.id, user.status, user.role)}
-                              disabled={user.role === 'System Admin' && user.id === 1}
-                              className={`p-2 transition-colors ml-2 ${user.role === 'System Admin' && user.id === 1 ? 'text-gray-200 cursor-not-allowed' : user.status === 'Active' ? 'text-gray-400 hover:text-red-600' : 'text-red-500 hover:text-green-600'}`}
-                              title={user.status === 'Active' ? "Suspend Account" : "Reactivate Account"}
-                            >
-                              {user.status === 'Active' ? <Ban size={18} /> : <CheckCircle2 size={18} />}
-                            </button>
-                          </td>
-                          
-                        </tr>
-                      ))
-                    )}
+                    {isLoading ? <tr><td colSpan="4" className="py-8 text-center text-gray-400 font-bold">Loading secure database...</td></tr> : filteredUsers.map((user) => (
+                      <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                        <td className="py-4 px-8"><div className="flex items-center gap-3"><UserCircle size={32} className="text-gray-400" /><div><div className="font-bold text-gray-800">{user.name}</div><div className="text-xs text-gray-500 font-medium">{user.email}</div></div></div></td>
+                        <td className="py-4 px-8"><span className={`px-3 py-1 rounded-full text-xs font-bold border ${user.role === 'System Admin' ? 'bg-purple-50 text-purple-700 border-purple-200' : user.role === 'Dispatcher' ? 'bg-blue-50 text-blue-700 border-blue-200' : user.role === 'Responder' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>{user.role}</span></td>
+                        <td className="py-4 px-8"><div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${user.status === 'Active' ? 'bg-green-500' : 'bg-red-500'}`}></div><span className={`text-sm font-bold ${user.status === 'Active' ? 'text-gray-700' : 'text-red-600'}`}>{user.status}</span></div></td>
+                        <td className="py-4 px-8 text-right">
+                          <button onClick={() => handleViewUser(user)} className="text-gray-400 hover:text-blue-600 p-2" title="View Details"><Eye size={18} /></button>
+                          <button onClick={() => handleToggleStatus(user.id, user.status, user.role)} disabled={user.role === 'System Admin' && user.id === 1} className={`p-2 ml-2 ${user.role === 'System Admin' && user.id === 1 ? 'text-gray-200 cursor-not-allowed' : user.status === 'Active' ? 'text-gray-400 hover:text-red-600' : 'text-red-500 hover:text-green-600'}`} title={user.status === 'Active' ? "Suspend Account" : "Reactivate Account"}>
+                            {user.status === 'Active' ? <Ban size={18} /> : <CheckCircle2 size={18} />}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -239,73 +146,39 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* VIEW USER MODAL */}
       {isViewModalOpen && selectedUser && (
         <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-gray-800 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold text-lg flex items-center gap-2"><UserCircle size={20} /> User Profile</h3>
-              <X size={20} className="cursor-pointer hover:opacity-80" onClick={() => setIsViewModalOpen(false)} />
-            </div>
+            <div className="bg-gray-800 p-4 flex justify-between items-center text-white"><h3 className="font-bold text-lg flex items-center gap-2"><UserCircle size={20} /> User Profile</h3><X size={20} className="cursor-pointer hover:opacity-80" onClick={() => setIsViewModalOpen(false)} /></div>
             <div className="p-6">
-              <div className="flex items-center gap-4 border-b border-gray-100 pb-6 mb-6">
-                <div className="bg-gray-100 p-3 rounded-full text-gray-500"><UserCircle size={48} /></div>
-                <div>
-                  <h2 className="text-2xl font-black text-gray-800 tracking-tight">{selectedUser.name}</h2>
-                  <p className="text-gray-500 font-medium">{selectedUser.role}</p>
-                </div>
-              </div>
+              <div className="flex items-center gap-4 border-b border-gray-100 pb-6 mb-6"><div className="bg-gray-100 p-3 rounded-full text-gray-500"><UserCircle size={48} /></div><div><h2 className="text-2xl font-black text-gray-800 tracking-tight">{selectedUser.name}</h2><p className="text-gray-500 font-medium">{selectedUser.role}</p></div></div>
               <div className="space-y-4">
                 <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address</label><p className="text-gray-800 font-medium">{selectedUser.email}</p></div>
                 <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number</label><p className="text-gray-800 font-medium">{selectedUser.phone}</p></div>
                 <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Account Status</label><p className={`font-bold ${selectedUser.status === 'Active' ? 'text-green-600' : 'text-red-600'}`}>{selectedUser.status}</p></div>
                 <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Date Joined</label><p className="text-gray-800 font-medium">{selectedUser.joined}</p></div>
               </div>
-              <div className="mt-8 flex justify-end">
-                <button onClick={() => setIsViewModalOpen(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-2 rounded-lg font-bold transition-colors">Close</button>
-              </div>
+              <div className="mt-8 flex justify-end"><button onClick={() => setIsViewModalOpen(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-2 rounded-lg font-bold">Close</button></div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ADD USER MODAL */}
       {isAddModalOpen && (
         <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-[#b32d2d] p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold text-lg flex items-center gap-2"><ShieldAlert size={20} /> Register User</h3>
-              <X size={20} className="cursor-pointer hover:opacity-80" onClick={() => setIsAddModalOpen(false)} />
-            </div>
+            <div className="bg-[#b32d2d] p-4 flex justify-between items-center text-white"><h3 className="font-bold text-lg flex items-center gap-2"><ShieldAlert size={20} /> Register User</h3><X size={20} className="cursor-pointer hover:opacity-80" onClick={() => setIsAddModalOpen(false)} /></div>
             <form onSubmit={handleAddUser} className="p-6">
-              <div className="mb-4">
-                <label className="block text-sm font-bold text-gray-700 mb-2">Full Name</label>
-                <input type="text" required placeholder="e.g. Juan Dela Cruz" className="w-full border border-gray-300 rounded-lg p-3 text-gray-700 focus:outline-none focus:border-[#b32d2d]" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label>
-                <input type="email" required placeholder="name@email.com" className="w-full border border-gray-300 rounded-lg p-3 text-gray-700 focus:outline-none focus:border-[#b32d2d]" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-bold text-gray-700 mb-2">Phone Number</label>
-                <input type="text" required placeholder="09XX-XXX-XXXX" className="w-full border border-gray-300 rounded-lg p-3 text-gray-700 focus:outline-none focus:border-[#b32d2d]" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
-              </div>
+              <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">Full Name</label><input type="text" required placeholder="e.g. Juan Dela Cruz" className="w-full border border-gray-300 rounded-lg p-3" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} /></div>
+              <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label><input type="email" required placeholder="name@email.com" className="w-full border border-gray-300 rounded-lg p-3" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+              <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">Phone Number</label><input type="text" required placeholder="09XX-XXX-XXXX" className="w-full border border-gray-300 rounded-lg p-3" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} /></div>
               <div className="mb-8">
                 <label className="block text-sm font-bold text-gray-700 mb-2">Assign Role</label>
-                {/* UPDATED: 'User' added to the very top of the list */}
-                <select className="w-full border border-gray-300 rounded-lg p-3 text-gray-700 bg-gray-50 focus:outline-none focus:border-[#b32d2d]" value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})}>
-                  <option>User</option>
-                  <option>Dispatcher</option>
-                  <option>Responder</option>
-                  <option>System Admin</option>
+                <select className="w-full border border-gray-300 rounded-lg p-3 bg-gray-50" value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})}>
+                  <option>User</option><option>Dispatcher</option><option>Responder</option><option>System Admin</option>
                 </select>
               </div>
-              <div className="flex gap-3 justify-end">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 rounded-lg font-bold text-gray-600 hover:bg-gray-100 transition-colors">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-6 py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50">
-                  {isSubmitting ? 'Saving...' : 'Register'}
-                </button>
-              </div>
+              <div className="flex gap-3 justify-end"><button type="button" onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 rounded-lg font-bold text-gray-600 hover:bg-gray-100">Cancel</button><button type="submit" disabled={isSubmitting} className="bg-[#b32d2d] text-white px-6 py-2.5 rounded-lg font-bold disabled:opacity-50">{isSubmitting ? 'Saving...' : 'Register'}</button></div>
             </form>
           </div>
         </div>
@@ -315,10 +188,5 @@ export default function UsersPage() {
 }
 
 function SidebarLink({ icon, label, active }) {
-  return (
-    <div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}>
-      <span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span>
-      <span className="text-[16px] tracking-tight">{label}</span>
-    </div>
-  );
+  return (<div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}><span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span><span className="text-[16px] tracking-tight">{label}</span></div>);
 }
