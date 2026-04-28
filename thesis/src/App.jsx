@@ -5,6 +5,7 @@ import DashboardPage from './pages/DashboardPage';
 import ReportsPage from './pages/ReportsPage';
 import MockDataPage from './pages/MockDataPage';
 import UsersPage from './pages/UsersPage';
+import AnalyticsPage from './pages/analyticsPage';
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/mock-entry" element={<MockDataPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/analytics" element={<AnalyticsPage/>}/>
       </Routes>
     </BrowserRouter>
   );

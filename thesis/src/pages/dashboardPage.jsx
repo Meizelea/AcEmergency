@@ -3,6 +3,47 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { LayoutGrid, FileText, Map as MapIcon, BarChart3, Users, Smartphone, Menu, UserCircle } from 'lucide-react';
 import { BarChart, Bar, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis } from 'recharts';
 
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// ==========================================
+// MAP HELPERS (Angeles City)
+// ==========================================
+const barangayCoords = {
+  'Balibago': [15.1667, 120.5833],
+  'Cutcut': [15.1333, 120.5667],
+  'Pampang': [15.1450, 120.5600],
+  'Malabanias': [15.1600, 120.5750],
+  'Amsic': [15.1550, 120.5650],
+  'Cutud': [15.1500, 120.6100],
+  'Margot': [15.1660, 120.5330],
+  'Sapangbato': [15.1500, 120.5160]
+};
+
+const angelesCityBounds = [
+  [15.0800, 120.4800], 
+  [15.2200, 120.6500]  
+];
+
+// Upgraded with pulsing radar classes
+const createStatusIcon = (status) => {
+  let bgColor = '#facc15'; 
+  let pulseClass = 'pulse-yellow'; // CSS animation for Pending
+
+  if (status === 'Responding') {
+    bgColor = '#ef4444';
+    pulseClass = 'pulse-red'; // CSS animation for Responding
+  }
+  
+  return L.divIcon({
+    className: 'custom-map-marker',
+    html: `<div class="${pulseClass}" style="background-color: ${bgColor}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white;"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+};
+
 export default function DashboardPage() {
   const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
@@ -18,14 +59,19 @@ export default function DashboardPage() {
       try {
         const analyticsRes = await fetch('http://localhost:3000/api/analytics');
         const analyticsData = await analyticsRes.json();
-        const reportsRes = await fetch('http://localhost:3000/api/reports/recent');
+        
+        // FETCH ALL REPORTS (Not just recent) so we can separate Active from History
+        const reportsRes = await fetch('http://localhost:3000/api/reports');
         const reportsData = await reportsRes.json();
 
         setBarData(analyticsData.barChart);
         setPieData(analyticsData.pieChart);
         setReports(reportsData); 
         setIsLoading(false);
-      } catch (error) { setIsLoading(false); }
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+        setIsLoading(false);
+      }
     };
     fetchDashboardData();
   }, []);
@@ -37,39 +83,76 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
+
       if (response.ok) {
-        setReports(reports.map(report => report.id === reportId ? { ...report, status: newStatus } : report));
+        // Instantly updates the array, which instantly moves it to History!
+        setReports(prevReports => prevReports.map(report => 
+            report.id === reportId ? { ...report, status: newStatus } : report
+        ));
       }
-    } catch (error) { console.error("Failed to update status:", error); }
+    } catch (error) {
+      console.error("Failed to update status:", error);
+    }
   };
+
+  // ==========================================
+  // SMART FILTERING LOGIC
+  // ==========================================
+  // Active = Anything NOT resolved
+  const activeReports = reports.filter(r => r.status !== 'Resolved');
+  
+  // History = Only resolved (Limited to top 10 so the list doesn't get infinitely long)
+  const historyReports = reports.filter(r => r.status === 'Resolved').slice(0, 10);
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a]">
+      
+      {/* INLINE CSS FOR MAP RADAR PULSE */}
+      <style>{`
+        .pulse-yellow { animation: pulseY 2s infinite; }
+        .pulse-red { animation: pulseR 1.5s infinite; }
+        
+        @keyframes pulseY {
+          0% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); }
+          70% { box-shadow: 0 0 0 15px rgba(250, 204, 21, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+        }
+        @keyframes pulseR {
+          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); }
+          70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+      `}</style>
+
+      {/* UNIVERSAL SIDEBAR */}
       <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         <nav className="flex flex-col mt-6">
-          <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={true} /></div>
-          <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={false} /></div>
-          <div><SidebarLink icon={<MapIcon size={24} />} label="Heatmap" active={false} /></div>
-          <div><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={false} /></div>
-          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={false} /></div>
+          <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
+          <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
+          <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
+          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+          
           <div className="mt-8 border-t border-white/10 pt-4">
-            <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={false} /></div>
+            <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
           </div>
         </nav>
       </aside>
 
+      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col overflow-hidden">
+
         <div className="flex-1 bg-gray-200 flex flex-col rounded-t-xl overflow-hidden mx-2 mb-2 shadow-2xl relative">
           
+          {/* UNIVERSAL RED HEADER */}
           <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
             <div className="flex items-center gap-4">
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
               <div className="flex gap-2 items-center">
-                <span onClick={() => navigate('/dashboard')} className="bg-[#8b2323] px-5 py-1.5 rounded-md text-sm font-bold shadow-inner cursor-pointer">Dashboard</span>
-                <span onClick={() => navigate('/reports')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Reports</span>
-                <span className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Analytics</span>
-                <span onClick={() => navigate('/users')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Users</span>
+                <span onClick={() => navigate('/dashboard')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/dashboard' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Dashboard</span>
+                <span onClick={() => navigate('/reports')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/reports' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Reports</span>
+                <span onClick={() => navigate('/analytics')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/analytics' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Analytics</span>
+                <span onClick={() => navigate('/users')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/users' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Users</span>
               </div>
             </div>
             <div className="flex items-center gap-2 pr-4">
@@ -79,15 +162,44 @@ export default function DashboardPage() {
           </header>
 
           <main className="flex-1 grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
-            <section className="col-span-8 bg-white relative overflow-hidden">
-              <div className="absolute inset-0 bg-[#f8f8f8] flex items-center justify-center">
-                <span className="text-gray-300 italic font-bold text-lg">Angeles City Map Placeholder</span>
-              </div>
+            
+            {/* LOCKED DYNAMIC MAP */}
+            <section className="col-span-8 bg-white relative overflow-hidden z-0">
+              <MapContainer 
+                center={[15.1440, 120.5880]} 
+                zoom={13} minZoom={12} 
+                maxBounds={angelesCityBounds} maxBoundsViscosity={1.0} 
+                style={{ height: '100%', width: '100%' }} zoomControl={false} 
+              >
+                <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                
+                {/* MAP ONLY SHOWS ACTIVE REPORTS NOW */}
+                {activeReports.map((report) => {
+                  const coords = barangayCoords[report.location];
+                  if (coords) {
+                    const offsetLat = coords[0] + (Math.random() - 0.5) * 0.005;
+                    const offsetLng = coords[1] + (Math.random() - 0.5) * 0.005;
+                    return (
+                      <Marker key={`map-${report.id}`} position={[offsetLat, offsetLng]} icon={createStatusIcon(report.status)}>
+                        <Popup className="font-sans">
+                          <div className="font-bold text-gray-800">{report.type}</div>
+                          <div className="text-xs text-gray-500">Brgy. {report.location}</div>
+                          <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${report.status === 'Responding' ? 'text-red-600' : 'text-yellow-600'}`}>
+                            {report.status}
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  }
+                  return null; 
+                })}
+              </MapContainer>
             </section>
 
+            {/* CHARTS */}
             <section className="col-span-4 bg-white p-6 flex flex-col overflow-y-auto">
               <h3 className="font-bold text-gray-800 text-lg mb-4">Reports Overview</h3>
-              {isLoading ? (<div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading...</div>) : (
+              {isLoading ? (<div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>) : (
                 <>
                   <div className="h-[180px] w-full border-b border-gray-50 pb-6">
                     <ResponsiveContainer><BarChart data={barData} margin={{left: -25}}><XAxis dataKey="d" tick={{fontSize: 10, fill: '#999'}} axisLine={false} tickLine={false} /><YAxis tick={{fontSize: 10, fill: '#999'}} axisLine={false} tickLine={false} /><Bar dataKey="v" fill="#bae6fd" radius={[2, 2, 0, 0]} /></BarChart></ResponsiveContainer>
@@ -102,21 +214,45 @@ export default function DashboardPage() {
               )}
             </section>
 
+            {/* ACTIVE REPORTS LIST */}
             <section className="col-span-8 bg-[#fafafa] p-8 overflow-y-auto">
-              <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase border-b border-gray-200 pb-4 mb-6">Active Reports</h2>
+              <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase border-b border-gray-200 pb-4 mb-6 flex justify-between items-center">
+                <span>Active Reports</span>
+                <span className="text-sm bg-red-100 text-red-600 px-3 py-1 rounded-full font-bold">{activeReports.length} Ongoing</span>
+              </h2>
+              
               <div className="space-y-1">
-                {isLoading ? <p className="text-gray-400">Loading...</p> : reports.map(report => (
-                  <ReportItem key={report.id} id={report.id} title={report.type} subtitle={`Reported by: ${report.reporter || 'System Admin'} • Brgy. ${report.location} - ${report.date}`} status={report.status} onStatusChange={handleStatusUpdate} />
-                ))}
+                {isLoading ? (
+                  <p className="text-gray-400 font-bold py-4">Loading active reports...</p>
+                ) : activeReports.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-green-500 font-bold text-lg">All Clear!</div>
+                    <p className="text-gray-400 text-sm">No active emergencies at the moment.</p>
+                  </div>
+                ) : (
+                  activeReports.map((report) => (
+                    <ReportItem key={report.id} id={report.id} title={report.type} subtitle={`Reported by: ${report.reporter || 'System Admin'} • Brgy. ${report.location} - ${report.date}`} status={report.status} onStatusChange={handleStatusUpdate} />
+                  ))
+                )}
               </div>
             </section>
 
-            <section className="col-span-4 bg-white p-8 overflow-y-auto">
-              <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Report History</h3>
+            {/* REPORT HISTORY (RESOLVED ONLY) */}
+            <section className="col-span-4 bg-white p-8 overflow-y-auto border-l border-gray-200">
+              <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Recent History</h3>
               <div className="space-y-0">
-                {isLoading ? <p className="text-gray-400">Loading...</p> : reports.map(report => (<HistoryRow key={report.id} label={report.type} time={report.date} />))}
+                {isLoading ? (
+                  <p className="text-gray-400 font-bold py-4">Loading history...</p>
+                ) : historyReports.length === 0 ? (
+                   <p className="text-gray-400 py-4 text-sm text-center">No resolved reports yet.</p>
+                ) : (
+                  historyReports.map((report) => (
+                    <HistoryRow key={report.id} label={report.type} location={`Brgy. ${report.location}`} time={report.date} />
+                  ))
+                )}
               </div>
             </section>
+
           </main>
         </div>
       </div>
@@ -124,14 +260,20 @@ export default function DashboardPage() {
   );
 }
 
+// ==========================================
+// SHARED UI COMPONENTS
+// ==========================================
 function SidebarLink({ icon, label, active }) {
   return (<div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}><span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span><span className="text-[16px] tracking-tight">{label}</span></div>);
 }
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
   return (
-    <div className="border-b border-gray-200 py-6 flex items-center justify-between hover:bg-white/80 px-2 transition-all">
-      <div><div className="font-bold text-gray-900 text-lg tracking-tight">{title}</div><div className="text-sm text-gray-400 font-medium">{subtitle}</div></div>
+    <div className="border border-gray-200 bg-white rounded-lg p-4 mb-3 flex items-center justify-between shadow-sm">
+      <div>
+        <div className="font-bold text-gray-900 text-lg tracking-tight">{title}</div>
+        <div className="text-sm text-gray-400 font-medium mt-1">{subtitle}</div>
+      </div>
       <div className="flex gap-2">
         <StatusButton label="Pending" currentStatus={status} onClick={() => onStatusChange(id, 'Pending')} />
         <StatusButton label="Responding" currentStatus={status} onClick={() => onStatusChange(id, 'Responding')} />
@@ -143,15 +285,26 @@ function ReportItem({ id, title, subtitle, status, onStatusChange }) {
 
 function StatusButton({ label, currentStatus, onClick }) {
   const isActive = currentStatus === label;
-  let colorClass = "bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200 cursor-pointer";
+  let colorClass = "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100 cursor-pointer";
+  
   if (isActive) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
     if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
   }
-  return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-1.5 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive && 'active:scale-95'}`}>{label}</button>);
+
+  return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive && 'active:scale-95'}`}>{label}</button>);
 }
 
-function HistoryRow({ label, time }) {
-  return (<div className="border-b border-gray-50 py-5 flex justify-between items-center group px-2"><span className="font-bold text-gray-700">{label}</span><span className="text-[10px] font-bold text-gray-300">{time}</span></div>);
-} 
+// Upgraded history row to include location
+function HistoryRow({ label, location, time }) {
+  return (
+    <div className="border-b border-gray-50 py-4 flex justify-between items-center group px-2 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
+      <div>
+        <div className="font-bold text-gray-700 group-hover:text-[#b32d2d] transition-colors">{label}</div>
+        <div className="text-[10px] text-gray-400 font-medium">{location}</div>
+      </div>
+      <span className="text-[10px] font-bold text-gray-300 group-hover:text-gray-400">{time}</span>
+    </div>
+  );
+}
