@@ -23,13 +23,12 @@ export default function AdminLogin() {
       const data = await response.json();
 
       if (response.ok) {
-        // Success! Save user data to localStorage so the app remembers who is logged in
+        // Success! Save user data to localStorage
         localStorage.setItem('ac_user', JSON.stringify(data.user));
         
         // Send them to the dashboard
         navigate('/dashboard');
       } else {
-        // Show the error message from the backend (e.g., "Invalid email", "Access denied")
         setError(data.error);
       }
     } catch (err) {

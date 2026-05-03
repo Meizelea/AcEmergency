@@ -1,7 +1,9 @@
+import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 
 const ProtectedRoute = () => {
-  const isAuthenticated = localStorage.getItem('isAdminLoggedIn') === 'true';
+  // Checks for the exact 'ac_user' key set by your login API
+  const isAuthenticated = localStorage.getItem('ac_user') !== null;
 
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };
