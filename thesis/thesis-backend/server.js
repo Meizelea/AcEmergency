@@ -105,3 +105,36 @@ app.put('/api/users/:id/status', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`✅ MySQL Backend Server running on http://localhost:${PORT}`));
+
+// ==========================================
+// AUTHENTICATION (LOGIN)
+// ==========================================
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Search for a user with the matching email, password, and an 'Active' status
+    const query = 'SELECT * FROM users WHERE email = ? AND password = ? AND status = "Active"';
+    const [users] = await pool.query(query, [email, password]);
+
+    // If a user is found...
+    if (users.length > 0) {
+      const user = users[0];
+      
+      // Security Check: Only let Admins or Dispatchers into the web dashboard
+      if (user.role === 'System Admin' || user.role === 'Dispatcher') {
+        res.json({ 
+          success: true, 
+          user: { id: user.id, name: user.name, role: user.role, email: user.email } 
+        });
+      } else {
+        res.status(403).json({ error: 'Access denied. Dashboard is for Admins/Dispatchers only.' });
+      }
+    } else {
+      res.status(401).json({ error: 'Invalid email or password.' });
+    }
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: 'Database error during login' });
+  }
+});
