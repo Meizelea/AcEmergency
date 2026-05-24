@@ -11,6 +11,7 @@ import MockDataPage from './pages/MockDataPage';
 import UsersPage from './pages/UsersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import HeatmapPage from './pages/HeatmapPage'; 
+import EmergencyUnitsPage from './pages/emergencyUnits';
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/heatmap" element={<HeatmapPage />} />
+          <Route path="/emergency-units" element={<EmergencyUnitsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

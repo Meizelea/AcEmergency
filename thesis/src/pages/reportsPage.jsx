@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, Map as MapIcon, BarChart3, Users, Smartphone, Menu, UserCircle, Calendar, AlertCircle, ChevronDown } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, Calendar, AlertCircle, ChevronDown } from 'lucide-react';
 
 export default function ReportsPage() {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -15,14 +15,24 @@ export default function ReportsPage() {
   const [filterLocation, setFilterLocation] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
 
+  // Helper to format raw timestamps to a human-friendly format
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Unknown';
+    const d = new Date(dateString);
+    return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
+  };
+
   useEffect(() => {
     const fetchReports = async () => {
       try {
         const response = await fetch('http://localhost:3000/api/reports');
         const data = await response.json();
-        setReports(data);
+        setReports(Array.isArray(data) ? data : []);
         setIsLoading(false);
-      } catch (error) { setIsLoading(false); }
+      } catch (error) { 
+        console.error("Failed to fetch reports log:", error);
+        setIsLoading(false); 
+      }
     };
     fetchReports();
   }, []);
@@ -37,19 +47,29 @@ export default function ReportsPage() {
       if (response.ok) {
         setReports(reports.map(report => report.id === reportId ? { ...report, status: newStatus } : report));
       }
-    } catch (error) { console.error("Failed to update status:", error); }
+    } catch (error) { 
+      console.error("Failed to update status:", error); 
+    }
   };
 
-  const uniqueDates = [...new Set(reports.map(r => r.date))];
-  const uniqueTypes = [...new Set(reports.map(r => r.type))];
-  const uniqueLocations = [...new Set(reports.map(r => r.location))];
+  // Extract unique arrays using our safe database keys with layout fallbacks
+  const uniqueDates = [...new Set(reports.map(r => formatDate(r.created_at)))].filter(Boolean);
+  const uniqueTypes = [...new Set(reports.map(r => r.description || 'Emergency Dispatch'))].filter(Boolean);
+  const uniqueLocations = [...new Set(reports.map(r => r.barangay || r.location))].filter(Boolean);
   const uniqueStatuses = ['Pending', 'Responding', 'Resolved'];
 
   const filteredReports = reports.filter(report => {
-    return (filterDate === 'All' || report.date === filterDate) &&
-           (filterType === 'All' || report.type === filterType) &&
-           (filterLocation === 'All' || report.location === filterLocation) &&
-           (filterStatus === 'All' || report.status === filterStatus);
+    const reportDate = formatDate(report.created_at);
+    const reportType = report.description || 'Emergency Dispatch';
+    const reportLocation = report.barangay || report.location;
+    
+    // Normalize status mapping checks (e.g., 'submitted' visually displays as 'Pending')
+    const currentStatus = report.status === 'submitted' ? 'Pending' : report.status;
+
+    return (filterDate === 'All' || reportDate === filterDate) &&
+           (filterType === 'All' || reportType === filterType) &&
+           (filterLocation === 'All' || reportLocation === filterLocation) &&
+           (filterStatus === 'All' || currentStatus?.toLowerCase() === filterStatus?.toLowerCase());
   });
 
   return (
@@ -81,6 +101,7 @@ export default function ReportsPage() {
                 <span onClick={() => navigate('/reports')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/reports' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Reports</span>
                 <span onClick={() => navigate('/analytics')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/analytics' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Analytics</span>
                 <span onClick={() => navigate('/users')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/users' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Users</span>
+                <span onClick={() => navigate('/emergency-units')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Emergency Units</span>
               </div>
             </div>
             <div className="flex items-center gap-2 pr-4">
@@ -110,24 +131,44 @@ export default function ReportsPage() {
                   <thead>
                     <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-sm">
                       <th className="py-4 px-8 font-bold w-24">ID</th>
-                      <th className="py-4 px-8 font-bold">Reporter</th>
-                      <th className="py-4 px-8 font-bold">Type</th>
+                      <th className="py-4 px-8 font-bold">Reporter ID</th>
+                      <th className="py-4 px-8 font-bold">Details / Type</th>
                       <th className="py-4 px-8 font-bold">Location</th>
                       <th className="py-4 px-8 font-bold">Date</th>
                       <th className="py-4 px-8 font-bold w-72">Action / Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {isLoading ? <tr><td colSpan="6" className="py-8 text-center text-gray-400">Loading...</td></tr> : filteredReports.map((row) => (
-                      <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                        <td className="py-5 px-8 text-sm font-bold text-gray-500">#{row.id}</td>
-                        <td className="py-5 px-8"><div className="flex items-center gap-2"><UserCircle size={16} className="text-gray-400" /><span className="text-sm font-bold text-gray-700">{row.reporter || 'System Admin'}</span></div></td>
-                        <td className="py-5 px-8 text-sm font-bold text-gray-800">{row.type}</td>
-                        <td className="py-5 px-8 text-sm font-medium text-gray-600">Brgy. {row.location}</td>
-                        <td className="py-5 px-8 text-sm font-medium text-gray-500">{row.date}</td>
-                        <td className="py-4 px-8"><div className="flex gap-2"><StatusButton label="Pending" currentStatus={row.status} onClick={() => handleStatusUpdate(row.id, 'Pending')} /><StatusButton label="Responding" currentStatus={row.status} onClick={() => handleStatusUpdate(row.id, 'Responding')} /><StatusButton label="Resolved" currentStatus={row.status} onClick={() => handleStatusUpdate(row.id, 'Resolved')} /></div></td>
-                      </tr>
-                    ))}
+                    {isLoading ? (
+                      <tr><td colSpan="6" className="py-8 text-center text-gray-400">Loading...</td></tr>
+                    ) : filteredReports.length === 0 ? (
+                      <tr><td colSpan="6" className="py-8 text-center text-gray-400 font-medium">No matching report items found.</td></tr>
+                    ) : (
+                      filteredReports.map((row) => {
+                        const rowStatus = row.status === 'submitted' ? 'Pending' : row.status;
+                        return (
+                          <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                            <td className="py-5 px-8 text-sm font-bold text-gray-500">#{row.id}</td>
+                            <td className="py-5 px-8">
+                              <div className="flex items-center gap-2">
+                                <UserCircle size={16} className="text-gray-400" />
+                                <span className="text-sm font-bold text-gray-700">User ID: {row.user_id || '2'}</span>
+                              </div>
+                            </td>
+                            <td className="py-5 px-8 text-sm font-bold text-gray-800 max-w-xs truncate">{row.description || 'Emergency Dispatch'}</td>
+                            <td className="py-5 px-8 text-sm font-medium text-gray-600">Brgy. {row.barangay || row.location}</td>
+                            <td className="py-5 px-8 text-sm font-medium text-gray-500">{formatDate(row.created_at)}</td>
+                            <td className="py-4 px-8">
+                              <div className="flex gap-2">
+                                <StatusButton label="Pending" currentStatus={rowStatus} onClick={() => handleStatusUpdate(row.id, 'Pending')} />
+                                <StatusButton label="Responding" currentStatus={rowStatus} onClick={() => handleStatusUpdate(row.id, 'Responding')} />
+                                <StatusButton label="Resolved" currentStatus={rowStatus} onClick={() => handleStatusUpdate(row.id, 'Resolved')} />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -154,7 +195,7 @@ function FilterDropdown({ icon, defaultLabel, options, value, onChange, width })
 }
 
 function StatusButton({ label, currentStatus, onClick }) {
-  const isActive = currentStatus === label;
+  const isActive = currentStatus?.toLowerCase() === label?.toLowerCase();
   let colorClass = "bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200 cursor-pointer";
   if (isActive) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
