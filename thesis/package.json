@@ -12,6 +12,7 @@
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@tailwindcss/vite": "^4.2.2",
+    "html2pdf.js": "^0.14.0",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "lucide-react": "^1.8.0",

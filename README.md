@@ -7,3 +7,7 @@ Dashboard - Done (If the report is "resolved" put it on the report history and r
 Admin Management Module - Complete
 Emergency Response Module - Complete
 Data Analytics Module - Complete
+
+
+installed dependencies/extensions:
+npm install html2pdf.js

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, Search, Plus, Shield, ShieldAlert, X, Eye, Ban, CheckCircle2 } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Truck, Menu, UserCircle, Search, Plus, Shield, ShieldAlert, X, Eye, Ban, CheckCircle2 } from 'lucide-react';
 
 export default function UsersPage() {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -104,7 +104,7 @@ export default function UsersPage() {
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-          
+          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
           <div className="mt-8 border-t border-white/10 pt-4">
             <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
           </div>

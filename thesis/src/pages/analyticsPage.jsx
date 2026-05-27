@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, TrendingUp, AlertTriangle, MapPin, Activity } from 'lucide-react';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, TrendingUp, AlertTriangle, MapPin, Activity, Download, Clock, Layers, Truck } from 'lucide-react';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 
 export default function AnalyticsPage() {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -11,10 +11,12 @@ export default function AnalyticsPage() {
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
   const [trendData, setTrendData] = useState([]);
+  const [hourlyData, setHourlyData] = useState([]);      // NEW State for Peak Hours
+  const [stackedData, setStackedData] = useState([]);    // NEW State for Stacked Barangay Distribution
   const [stats, setStats] = useState({ total: 0, mostFrequent: '-', topLocation: '-', activeCount: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Helper to format timestamps to readable calendar filters
+  // Helper to format timestamps to readable dates
   const formatDate = (dateString) => {
     if (!dateString) return 'Unknown';
     const d = new Date(dateString);
@@ -24,17 +26,14 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        // 1. Fetch backend payload
         const analyticsRes = await fetch('http://localhost:3000/api/analytics');
         const analyticsData = await analyticsRes.json();
         
-        // 2. Fetch raw dataset tables
         const reportsRes = await fetch('http://localhost:3000/api/reports');
         const reportsData = await reportsRes.json();
-
         const reportsArray = Array.isArray(reportsData) ? reportsData : [];
 
-        // 3. Process dynamic Barangay Bar Chart
+        // 1. Process standard Barangay Bar Chart
         let processedBars = [];
         let maxLocationName = 'None';
         if (analyticsData.reports_by_barangay) {
@@ -42,14 +41,13 @@ export default function AnalyticsPage() {
             d: key,
             v: analyticsData.reports_by_barangay[key]
           }));
-          
           if (processedBars.length > 0) {
             maxLocationName = processedBars.reduce((prev, current) => (prev.v > current.v) ? prev : current).d;
           }
         }
         setBarData(processedBars);
 
-        // 4. Process Status / Issues Pie Chart
+        // 2. Process Status / Issues Pie Chart
         let processedPie = [];
         let maxIssueName = 'None';
         if (analyticsData.basic_stats) {
@@ -59,7 +57,6 @@ export default function AnalyticsPage() {
             { name: 'Resolved', value: analyticsData.basic_stats.resolved, color: '#10b981' }
           ].filter(item => item.value > 0);
 
-          // Alternately seek most frequent by description text fields if tracking structural issues
           if (reportsArray.length > 0) {
             const descriptionCounts = {};
             reportsArray.forEach(r => {
@@ -71,12 +68,12 @@ export default function AnalyticsPage() {
         }
         setPieData(processedPie.length ? processedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
 
-        // 5. Compute KPI blocks with safe checks
+        // 3. Compute KPI blocks with safe checks
         const total = reportsArray.length;
         const activeCount = reportsArray.filter(r => r?.status?.toLowerCase() !== 'resolved').length;
         setStats({ total, mostFrequent: maxIssueName, topLocation: maxLocationName, activeCount });
 
-        // 6. Calculate Time-Series Trend Volumes (Using SQLite timestamp schema mapping)
+        // 4. Calculate Time-Series Trend Volumes
         const groupedByDate = reportsArray.reduce((acc, report) => {
           const readableDate = formatDate(report.created_at);
           acc[readableDate] = (acc[readableDate] || 0) + 1;
@@ -87,22 +84,97 @@ export default function AnalyticsPage() {
           date: date,
           Incidents: groupedByDate[date]
         })).sort((a, b) => new Date(a.date) - new Date(b.date));
-
         setTrendData(trendArray);
-        setIsLoading(false);
 
+        // 5. NEW: Process Peak Active Hours Matrix Array
+        if (analyticsData.reports_by_hour) {
+          const hoursMap = Object.keys(analyticsData.reports_by_hour).map(hour => {
+            const labelInt = parseInt(hour);
+            const ampm = labelInt >= 12 ? 'PM' : 'AM';
+            const displayHour = labelInt % 12 === 0 ? 12 : labelInt % 12;
+            return {
+              hourLabel: `${displayHour} ${ampm}`,
+              Incidents: analyticsData.reports_by_hour[hour]
+            };
+          });
+          setHourlyData(hoursMap);
+        }
+
+        // 6. NEW: Process Cross-Tabulated Stacked Category Distribution per Barangay
+        if (analyticsData.reports_by_barangay_with_details) {
+          const stackedArray = Object.keys(analyticsData.reports_by_barangay_with_details).map(brgy => {
+            const logs = analyticsData.reports_by_barangay_with_details[brgy] || [];
+            
+            // Sub-classify keywords to match emergency unit responder logic tags
+            let fireCount = 0;
+            let medicalCount = 0;
+            let lawCount = 0;
+
+            logs.forEach(incident => {
+              const text = (incident.description || '').toLowerCase();
+              if (text.includes('fire') || text.includes('smoke') || text.includes('sunog') || text.includes('structural')) {
+                fireCount++;
+              } else if (text.includes('accident') || text.includes('injury') || text.includes('sakit') || text.includes('medical')) {
+                medicalCount++;
+              } else {
+                lawCount++;
+              }
+            });
+
+            return {
+              barangayName: brgy,
+              "Fire Engine Req.": fireCount,
+              "Ambulance Req.": medicalCount,
+              "Police Cruiser Req.": lawCount
+            };
+          }).filter(item => (item["Fire Engine Req."] + item["Ambulance Req."] + item["Police Cruiser Req."]) > 0);
+          
+          setStackedData(stackedArray);
+        }
+
+        setIsLoading(false);
       } catch (error) {
         console.error("Failed to compile dashboard metrics:", error);
         setIsLoading(false);
       }
     };
-
     fetchAnalytics();
   }, []);
+
+  // PRINT OVERRIDE TRIGGER
+  const handleDownloadPDF = () => {
+    window.print();
+  };
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
       
+      {/* NATIVE PRINT SYSTEM CSS OVERRIDES */}
+      <style>{`
+        @media print {
+          aside, header, button, .w-\[1px\] {
+            display: none !important;
+          }
+          body, .h-screen, .overflow-hidden, #analytics-report-content {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            height: auto !important;
+            overflow: visible !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .grid {
+            display: grid !important;
+            gap: 16px !important;
+          }
+          .bg-white {
+            border: 1px solid #ddd !important;
+            box-shadow: none !important;
+            page-break-inside: avoid !important;
+          }
+        }
+      `}</style>
+
       {/* UNIVERSAL SIDEBAR */}
       <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
@@ -111,6 +183,7 @@ export default function AnalyticsPage() {
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
           
           <div className="mt-8 border-t border-white/10 pt-4">
             <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
@@ -134,14 +207,23 @@ export default function AnalyticsPage() {
                 <span onClick={() => navigate('/emergency-units')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Emergency Units</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 pr-4">
+            
+            {/* EXPORT ACTION LOGIC */}
+            <div className="flex items-center gap-4 pr-4">
+              <button 
+                onClick={handleDownloadPDF} 
+                className="bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all text-xs font-bold px-4 py-1.5 rounded-lg flex items-center gap-2 active:scale-95 shadow-sm"
+              >
+                <Download size={14} /> Export Report PDF
+              </button>
+              <div className="w-[1px] h-5 bg-white/20" />
               <span className="text-sm font-bold tracking-tight text-white/90">Admin</span>
               <UserCircle size={28} className="text-white/80" />
             </div>
           </header>
 
-          {/* PAGE CONTENT */}
-          <div className="p-8 flex-1 overflow-y-auto">
+          {/* PAGE CONTENT TARGET WRAPPER */}
+          <div id="analytics-report-content" className="p-8 flex-1 overflow-y-auto bg-[#f5f7f9]">
             
             {/* KPI STATS CARDS */}
             <div className="grid grid-cols-4 gap-6 mb-8">
@@ -151,10 +233,10 @@ export default function AnalyticsPage() {
               <StatCard icon={<TrendingUp size={24} className="text-green-500" />} title="Currently Active" value={isLoading ? '...' : stats.activeCount} />
             </div>
 
-            {/* CHARTS GRID */}
+            {/* MAIN VISUALS GRID SPLIT */}
             <div className="grid grid-cols-2 gap-6">
               
-              {/* WIDE TREND LINE CHART */}
+              {/* GRAPH 1: WIDE TREND LINE CHART */}
               <div className="col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-800 mb-6">Incident Volume Over Time</h3>
                 <div className="h-72 w-full">
@@ -172,7 +254,59 @@ export default function AnalyticsPage() {
                 </div>
               </div>
 
-              {/* BAR CHART */}
+              {/* NEW GRAPH 2: PEAK ACTIVE HOURS (Area Chart Distribution) */}
+              <div className="col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-6">
+                  <Clock size={20} className="text-[#b32d2d]" />
+                  <h3 className="font-bold text-lg text-gray-800">Peak Emergency Hours (Temporal Distribution)</h3>
+                </div>
+                <div className="h-72 w-full">
+                  {isLoading ? <div className="h-full flex items-center justify-center text-gray-400">Loading data...</div> : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={hourlyData} margin={{ left: -10, right: 10 }}>
+                        <defs>
+                          <linearGradient id="hourColor" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                        <XAxis dataKey="hourLabel" tick={{fontSize: 11, fill: '#555'}} axisLine={false} tickLine={false} />
+                        <YAxis tick={{fontSize: 12, fill: '#666'}} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                        <Area type="monotone" dataKey="Incidents" stroke="#ef4444" strokeWidth={2.5} fillOpacity={1} fill="url(#hourColor)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+              {/* NEW GRAPH 3: STACKED INCIDENT BREAKDOWN PER NEIGHBORHOOD */}
+              <div className="col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-6">
+                  <Layers size={20} className="text-[#3b82f6]" />
+                  <h3 className="font-bold text-lg text-gray-800">Incident Classification Breakdown by Barangay</h3>
+                </div>
+                <div className="h-80 w-full">
+                  {isLoading ? <div className="h-full flex items-center justify-center text-gray-400">Loading data...</div> : stackedData.length === 0 ? <div className="h-full flex items-center justify-center text-gray-300 font-bold">No localized historical cross-tab data available</div> : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={stackedData} margin={{ bottom: 15 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                        <XAxis dataKey="barangayName" tick={{fontSize: 11, fill: '#333', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
+                        <YAxis tick={{fontSize: 12, fill: '#666'}} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                        <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                        {/* Colored segments mapped directly to your dispatch matrix classifications */}
+                        <Bar dataKey="Fire Engine Req." stackId="a" fill="#ef4444" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Ambulance Req." stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Police Cruiser Req." stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+              {/* GRAPH 4: TRADITIONAL TOTAL INCIDENTS BY BARANGAY */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-800 mb-6">Incidents by Barangay</h3>
                 <div className="h-64 w-full">
@@ -183,14 +317,14 @@ export default function AnalyticsPage() {
                         <XAxis type="number" tick={{fontSize: 12, fill: '#666'}} axisLine={false} tickLine={false} allowDecimals={false} />
                         <YAxis type="category" dataKey="d" tick={{fontSize: 11, fill: '#333', fontWeight: 'bold'}} axisLine={false} tickLine={false} width={90} />
                         <Tooltip cursor={{fill: '#f5f5f5'}} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                        <Bar dataKey="v" name="Reports" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                        <Bar dataKey="v" name="Reports" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={18} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
                 </div>
               </div>
 
-              {/* PIE CHART */}
+              {/* GRAPH 5: PIE BREAKDOWN */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-800 mb-6">Emergency Breakdown</h3>
                 <div className="h-64 w-full">
@@ -227,7 +361,6 @@ function SidebarLink({ icon, label, active }) {
   );
 }
 
-// Fixed multi-line truncation wrap safety layout on text labels
 function StatCard({ icon, title, value }) {
   return (
     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4 min-w-0">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, Truck } from 'lucide-react';
 import { BarChart, Bar, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis } from 'recharts';
 
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -34,7 +34,6 @@ const createStatusIcon = (status) => {
   let bgColor = '#facc15'; 
   let pulseClass = 'pulse-yellow'; 
 
-  // Check for both lowercase and uppercase variations from different code paths
   if (status?.toLowerCase() === 'responding') {
     bgColor = '#ef4444';
     pulseClass = 'pulse-red'; 
@@ -81,7 +80,7 @@ export default function DashboardPage() {
             { name: 'Submitted', value: analyticsData.basic_stats.submitted, color: '#3b82f6' },
             { name: 'Pending', value: analyticsData.basic_stats.pending, color: '#ffc20e' },
             { name: 'Resolved', value: analyticsData.basic_stats.resolved, color: '#10b981' }
-          ].filter(item => item.value > 0); // Only display if count exists
+          ].filter(item => item.value > 0); 
           
           setPieData(formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
         }
@@ -114,11 +113,9 @@ export default function DashboardPage() {
     }
   };
 
-  // Safe checks handling capitalization differences seamlessly
   const activeReports = reports.filter(r => r?.status?.toLowerCase() !== 'resolved');
   const historyReports = reports.filter(r => r?.status?.toLowerCase() === 'resolved').slice(0, 10);
 
-  // Helper to format date cleanly
   const formatDate = (dateString) => {
     if (!dateString) return 'Recent';
     const d = new Date(dateString);
@@ -151,6 +148,7 @@ export default function DashboardPage() {
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
           <div className="mt-8 border-t border-white/10 pt-4">
             <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
           </div>
@@ -170,7 +168,7 @@ export default function DashboardPage() {
                 <span onClick={() => navigate('/reports')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/reports' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Reports</span>
                 <span onClick={() => navigate('/analytics')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/analytics' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Analytics</span>
                 <span onClick={() => navigate('/users')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/users' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Users</span>
-                <span onClick={() => navigate('/emergency-units')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Emergency Units</span>
+                <span onClick={() => navigate('/emergency-units')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/emergency-units' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Emergency Units</span>
               </div>
             </div>
             <div className="flex items-center gap-2 pr-4">
@@ -192,18 +190,29 @@ export default function DashboardPage() {
                 <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
                 
                 {activeReports.map((report) => {
-                  // Fallback alignment for barangay names matching schema payload definitions
                   const targetBarangay = report.barangay || report.location;
-                  const coords = barangayCoords[targetBarangay];
                   
-                  if (coords) {
-                    const offsetLat = coords[0] + (Math.seededRandom ? (Math.seededRandom(report.id) - 0.5) : 0) * 0.002;
-                    const offsetLng = coords[1] + (Math.seededRandom ? (Math.seededRandom(report.id + 1) - 0.5) : 0) * 0.002;
+                  // FIX: Prioritize exact coordinate float keys sent from the mobile app payload
+                  let latPosition = parseFloat(report.latitude);
+                  let lngPosition = parseFloat(report.longitude);
+
+                  // If telemetry handles are absent or malformed, reference default centralized indices
+                  if (isNaN(latPosition) || isNaN(lngPosition)) {
+                    const coords = barangayCoords[targetBarangay];
+                    if (coords) {
+                      latPosition = coords[0];
+                      lngPosition = coords[1];
+                    }
+                  }
+
+                  // Render onto Leaflet view container only if valid metrics are established
+                  if (latPosition && lngPosition) {
                     return (
-                      <Marker key={`map-${report.id}`} position={[offsetLat || coords[0], offsetLng || coords[1]]} icon={createStatusIcon(report.status)}>
+                      <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
                         <Popup className="font-sans">
                           <div className="font-bold text-gray-800">{report.description || 'Incident Emergency'}</div>
-                          <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
+                          <div className="text-xs text-gray-500">Brgy. {targetBarangay || 'Angeles City'}</div>
+                          {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
                           <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${report.status?.toLowerCase() === 'responding' ? 'text-red-600' : 'text-yellow-600'}`}>
                             {report.status || 'submitted'}
                           </div>
@@ -257,7 +266,7 @@ export default function DashboardPage() {
                       key={report.id} 
                       id={report.id} 
                       title={report.description || 'Emergency Dispatch'} 
-                      subtitle={`Reporter ID: ${report.user_id || '2'} • Brgy. ${report.barangay || report.location} - ${formatDate(report.created_at)}`} 
+                      subtitle={`Reporter ID: ${report.user_id || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
                       status={report.status || 'submitted'} 
                       onStatusChange={handleStatusUpdate} 
                     />
@@ -276,7 +285,7 @@ export default function DashboardPage() {
                    <p className="text-gray-400 py-4 text-sm text-center">No resolved reports yet.</p>
                 ) : (
                   historyReports.map((report) => (
-                    <HistoryRow key={report.id} label={report.description || 'Resolved Incident'} location={`Brgy. ${report.barangay || report.location}`} time={formatDate(report.created_at)} />
+                    <HistoryRow key={report.id} label={report.description || 'Resolved Incident'} location={`Brgy. ${report.barangay || report.location || 'Angeles City'}`} time={formatDate(report.created_at)} />
                   ))
                 )}
               </div>
@@ -294,7 +303,6 @@ function SidebarLink({ icon, label, active }) {
 }
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
-  // Normalize label styling map checks
   const displayStatus = status === 'submitted' ? 'Pending' : status;
 
   return (
@@ -325,7 +333,6 @@ function StatusButton({ label, currentStatus, onClick }) {
   return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive && 'active:scale-95'}`}>{label}</button>);
 }
 
-// Upgraded history row to include location
 function HistoryRow({ label, location, time }) {
   return (
     <div className="border-b border-gray-50 py-4 flex justify-between items-center group px-2 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
