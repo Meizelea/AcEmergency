@@ -60,10 +60,10 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const analyticsRes = await fetch('http://localhost:3000/api/analytics');
+        const analyticsRes = await fetch('http://localhost:8000/api/analytics');
         const analyticsData = await analyticsRes.json();
         
-        const reportsRes = await fetch('http://localhost:3000/api/reports');
+        const reportsRes = await fetch('http://localhost:8000/api/reports');
         const reportsData = await reportsRes.json();
 
         // Safe extraction of graph arrays from your detailed analytics payload

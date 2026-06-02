@@ -26,10 +26,10 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const analyticsRes = await fetch('http://localhost:3000/api/analytics');
+        const analyticsRes = await fetch('http://localhost:8000/api/analytics');
         const analyticsData = await analyticsRes.json();
         
-        const reportsRes = await fetch('http://localhost:3000/api/reports');
+        const reportsRes = await fetch('http://localhost:8000/api/reports');
         const reportsData = await reportsRes.json();
         const reportsArray = Array.isArray(reportsData) ? reportsData : [];
 

@@ -13,7 +13,7 @@ export default function EmergencyUnitsPage() {
   useEffect(() => {
     const fetchUnitsMatrix = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/emergency-units');
+        const res = await fetch('http://localhost:8000/api/emergency-units');
         const data = await res.json();
         setMatrixData(Array.isArray(data) ? data : []);
         setIsLoading(false);

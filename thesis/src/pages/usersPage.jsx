@@ -28,7 +28,7 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/users');
+      const response = await fetch('http://localhost:8000/api/users');
       const data = await response.json();
       setUsers(Array.isArray(data) ? data : []);
       setIsLoading(false);

@@ -31,7 +31,7 @@ export default function ReportsPage() {
   useEffect(() => {
     const fetchReports = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/reports');
+        const response = await fetch('http://localhost:8000/api/reports');
         const data = await response.json();
         setReports(Array.isArray(data) ? data : []);
         setIsLoading(false);
@@ -45,7 +45,7 @@ export default function ReportsPage() {
 
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/reports/${reportId}/status`, {
+      const response = await fetch(`http://localhost:8000/api/reports/${reportId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
@@ -61,7 +61,7 @@ export default function ReportsPage() {
   // NEW: Handler logic to patch changed barangay directly into SQLite
   const handleLocationUpdate = async (reportId, newBarangay) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/reports/${reportId}/location`, {
+      const response = await fetch(`http://localhost:8000/api/reports/${reportId}/location`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ barangay: newBarangay })
