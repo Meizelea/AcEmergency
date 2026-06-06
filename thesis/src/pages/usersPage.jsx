@@ -131,7 +131,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-4">
                 <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-80 overflow-hidden">
                   <Search size={18} className="text-gray-400 ml-4" />
-                  <input type="text" placeholder="Search citizen name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" />
+                  <input type="text" placeholder="Search user name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" />
                 </div>
               </div>
             </div>
@@ -141,9 +141,9 @@ export default function UsersPage() {
               <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Users className="text-[#b32d2d]" size={22} />
-                  <h2 className="font-bold text-xl text-gray-900">Registered Citizens Directory</h2>
+                  <h2 className="font-bold text-xl text-gray-900">Registered Users Directory</h2>
                 </div>
-                <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Citizens</span>
+                <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Users</span>
               </div>
 
               <div className="overflow-x-auto">
@@ -161,7 +161,7 @@ export default function UsersPage() {
                     {isLoading ? (
                       <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying active credentials database...</td></tr>
                     ) : filteredUsers.length === 0 ? (
-                      <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No citizen accounts found matching that criteria.</td></tr>
+                      <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No user accounts found matching that criteria.</td></tr>
                     ) : (
                       filteredUsers.map((user) => {
                         const finalName = user.first_name || user.firstname 
@@ -177,7 +177,7 @@ export default function UsersPage() {
                             </td>
                             <td className="py-5 px-6">
                               <span className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit shadow-inner">
-                                <UserCircle size={12} /> Registered Citizen
+                                <UserCircle size={12} /> Registered User
                               </span>
                             </td>
                             <td className="py-5 px-6 text-center">
@@ -224,7 +224,7 @@ export default function UsersPage() {
                   <p className="text-base font-black text-gray-800 mt-0.5">
                     {selectedUser.first_name || selectedUser.firstname 
                       ? `${selectedUser.first_name || selectedUser.firstname} ${selectedUser.last_name || selectedUser.lastname || ''}` 
-                      : 'Unnamed Citizen'}
+                      : 'Unnamed User'}
                   </p>
                 </div>
                 <div>
