@@ -1,6 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, ShieldAlert, Truck, Navigation, AlertCircle } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, Truck, Navigation } from 'lucide-react';
+
+// =========================================================================
+// EMERGENCY BASE STATIONS DISPATCH COORD DICTIONARY (Angeles City Coordinates)
+// =========================================================================
+const emergencyBases = [
+  { name: 'Angeles City Fire Station (HQ)', lat: 15.1343, lng: 120.5901, type: 'Fire Engine' },
+  { name: 'Balibago Sub-Station', lat: 15.1682, lng: 120.5841, type: 'Ambulance' },
+  { name: 'Pampang Rescue Base', lat: 15.1465, lng: 120.5585, type: 'Rescue Truck' },
+  { name: 'Marisol Sub-Station', lat: 15.1412, lng: 120.5985, type: 'Ambulance' },
+  { name: 'Sapangbato Disaster Outpost', lat: 15.1512, lng: 120.5152, type: 'Rescue Truck' }
+];
+
+// Fallback Barangay Center Coordinates for mapping calculations if GPS strings are corrupted/missing
+const barangayCoordsFallback = {
+  'Balibago': [15.1667, 120.5833],
+  'Cutcut': [15.1333, 120.5667],
+  'Pampang': [15.1450, 120.5600],
+  'Malabanias': [15.1600, 120.5750],
+  'Amsic': [15.1550, 120.5650],
+  'Cutud': [15.1500, 120.6100],
+  'Margot': [15.1660, 120.5330],
+  'Sapangbato': [15.1500, 120.5160],
+  'San Nicolas': [15.1340, 120.5910],
+  'Sta. Trinidad': [15.1320, 120.5950],
+  'Lourdes NorthWest': [15.1410, 120.5810],
+  'Claro M. Recto': [15.1420, 120.5990]
+};
+
+// =========================================================================
+// 📐 THE HAVERSINE GEOMETRIC DISTANCE CALCULATOR FORMULA
+// =========================================================================
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in Kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Outputs exact distance in KM
+}
 
 export default function EmergencyUnitsPage() {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -10,20 +53,97 @@ export default function EmergencyUnitsPage() {
   const [matrixData, setMatrixData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🛡️ SECURITY GUARDRAIL: Pull authentication token from localStorage
+  const token = localStorage.getItem('ac_token');
+
   useEffect(() => {
+    // 🛡️ SECURITY GUARDRAIL: Instantly kick out unauthenticated traffic
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
     const fetchUnitsMatrix = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/emergency-units');
+        // Fetch raw report entries directly from your live Django endpoints
+        const res = await fetch('http://127.0.0.1:8000/api/reports/admin-reports/', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Token ${token}`
+          }
+        });
         const data = await res.json();
-        setMatrixData(Array.isArray(data) ? data : []);
+        
+        const rawReports = Array.isArray(data) ? data : (data && Array.isArray(data.results)) ? data.results : [];
+        
+        // Filter: We only compute dispatch lines for ongoing/unresolved emergencies
+        const activeReports = rawReports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
+
+        // 👇 BUILD LIVE GEOMETRIC OUTPOST MATCHING MATRIX
+        const calculatedMatrix = activeReports.map((report) => {
+          const brgy = report.barangay || report.location || 'Unknown';
+          let reportLat = parseFloat(report.latitude);
+          let reportLng = parseFloat(report.longitude);
+
+          // Fallback coordinate alignment if mobile capture dataset provides pixels/garbage values
+          if (isNaN(reportLat) || isNaN(reportLng) || reportLat > 90 || reportLng > 180) {
+            const fallback = barangayCoordsFallback[brgy];
+            if (fallback) {
+              reportLat = fallback[0];
+              reportLng = fallback[1];
+            }
+          }
+
+          // Smart Classification: Dynamically determine the vehicle type required based on incident keywords
+          const desc = (report.description || '').toLowerCase();
+          let recommendedUnit = 'Rescue Truck'; // Baseline dispatch
+          if (desc.includes('fire') || desc.includes('smoke') || desc.includes('sunog')) {
+            recommendedUnit = 'Fire Engine';
+          } else if (desc.includes('accident') || desc.includes('injury') || desc.includes('sakit') || desc.includes('medical')) {
+            recommendedUnit = 'Ambulance';
+          }
+
+          // Loop over outposts to detect the absolute nearest dispatcher location
+          let nearestStationName = 'HQ Central Station';
+          let shortestDistance = Infinity;
+
+          if (!isNaN(reportLat) && !isNaN(reportLng)) {
+            emergencyBases.forEach((base) => {
+              const currentDistance = calculateHaversineDistance(reportLat, reportLng, base.lat, base.lng);
+              if (currentDistance < shortestDistance) {
+                shortestDistance = currentDistance;
+                nearestStationName = base.name;
+              }
+            });
+          }
+
+          return {
+            report_id: report.id,
+            incident_description: report.description || 'Emergency Dispatch',
+            barangay: brgy,
+            recommended_unit_type: recommendedUnit,
+            nearest_responder: nearestStationName,
+            distance_km: shortestDistance === Infinity ? null : shortestDistance,
+            responder_status: 'Available'
+          };
+        });
+
+        setMatrixData(calculatedMatrix);
         setIsLoading(false);
       } catch (error) {
         console.error("Error connecting to unit calculator:", error);
         setIsLoading(false);
       }
     };
+
     fetchUnitsMatrix();
-  }, []);
+  }, [token, navigate]);
+
+  // 🛡️ SECURITY GUARDRAIL: Do not render layout DOM elements if unauthenticated
+  if (!token) {
+    return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting to dispatch...</div>;
+  }
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
@@ -37,10 +157,6 @@ export default function EmergencyUnitsPage() {
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
           <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-          
-          <div className="mt-8 border-t border-white/10 pt-4">
-            <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
-          </div>
         </nav>
       </aside>
 
@@ -90,7 +206,7 @@ export default function EmergencyUnitsPage() {
                   </thead>
                   <tbody>
                     {isLoading ? (
-                      <tr><td colSpan="6" className="py-8 text-center text-gray-400 font-bold">Running geometric distance matrix metrics...</td></tr>
+                      <tr><td colSpan="6" className="py-8 text-center text-gray-400 font-bold">Running real-time coordinate proximity calculations...</td></tr>
                     ) : matrixData.length === 0 ? (
                       <tr>
                         <td colSpan="6" className="py-12 text-center text-gray-400">
@@ -102,28 +218,27 @@ export default function EmergencyUnitsPage() {
                       matrixData.map((row) => (
                         <tr key={row.report_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                           <td className="py-5 px-8 text-sm font-bold text-gray-500">#{row.report_id}</td>
-                          <td className="py-5 px-8 text-sm font-bold text-gray-800 max-w-xs truncate">{row.incident_description}</td>
+                          <td className="py-5 px-8 text-sm font-bold text-gray-800 max-w-xs truncate" title={row.incident_description}>{row.incident_description}</td>
                           <td className="py-5 px-8 text-sm font-medium text-gray-600">Brgy. {row.barangay}</td>
                           <td className="py-5 px-8">
                             <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 w-fit ${
                               row.recommended_unit_type === 'Fire Engine' ? 'bg-red-50 text-red-700 border-red-200' :
                               row.recommended_unit_type === 'Ambulance' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                              row.recommended_unit_type === 'Rescue Truck' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                              'bg-purple-50 text-purple-700 border-purple-200'
+                              'bg-orange-50 text-orange-700 border-orange-200'
                             }`}>
                               <Truck size={12} /> {row.recommended_unit_type}
                             </span>
                           </td>
                           <td className="py-5 px-8">
                             <div className="flex items-center gap-2">
-                              <div className={`w-1.5 h-1.5 rounded-full ${row.responder_status === 'Available' ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
                               <span className="text-sm font-bold text-gray-700">{row.nearest_responder}</span>
                             </div>
                           </td>
                           <td className="py-5 px-8 text-right font-black text-gray-900 text-sm">
                             {row.distance_km !== null ? (
                               <span className="flex items-center justify-end gap-1 text-red-600">
-                                <Navigation size={12} className="rotate-45" /> {row.distance_km} km
+                                <Navigation size={12} className="rotate-45" /> {row.distance_km.toFixed(2)} km
                               </span>
                             ) : (
                               <span className="text-gray-400">--</span>

@@ -14,25 +14,40 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3000/api/login', {
+      // 👇 Absolute 127.0.0.1 alignment with explicit trailing slash '/'
+      const response = await fetch('http://127.0.0.1:8000/api/users/login/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        mode: 'cors', 
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: formData.email, // Maps your text field input straight to Django's expected auth login parameter
+          password: formData.password
+        })
       });
 
-      const data = await response.json();
+      // Defensive Parsing Check: Prevents the app from crashing if Django sends back HTML/Text instead of JSON
+      const contentType = response.headers.get("content-type");
+      let data = {};
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      }
 
       if (response.ok) {
-        // Success! Save user data to localStorage
-        localStorage.setItem('ac_user', JSON.stringify(data.user));
+        // SUCCESS: Capture the runtime generated session authentication token parameters
+        localStorage.setItem('ac_token', data.token); 
+        localStorage.setItem('ac_user', JSON.stringify(data.user || { name: "Command Admin" }));
         
-        // Send them to the dashboard
+        // Push view layer focus to operational command grid map
         navigate('/dashboard');
       } else {
-        setError(data.error);
+        // Dynamically pull DRF field validation messages or catch standard unauthorized exceptions
+        setError(data.error || data.non_field_errors || data.detail || 'Invalid credentials or inactive account.');
       }
     } catch (err) {
-      setError('Cannot connect to the server. Is XAMPP running?');
+      console.error("Login connection diagnostic failure:", err);
+      setError('Connection refused. Double-check that your Django terminal is running on port 8000 and CORS settings allow this request.');
     } finally {
       setIsLoading(false);
     }
@@ -48,7 +63,7 @@ export default function AdminLogin() {
       {/* Login Card */}
       <div className="bg-[#2a2a2a] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 border border-white/10">
         
-        {/* Header */}
+        {/* Header Banner */}
         <div className="bg-[#b32d2d] p-8 text-center text-white">
           <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <ShieldAlert size={32} className="text-white" />
@@ -57,7 +72,7 @@ export default function AdminLogin() {
           <p className="text-red-100 text-sm mt-1 font-medium">Command Center Portal</p>
         </div>
 
-        {/* Form */}
+        {/* Input Interactive Box Area */}
         <div className="p-8">
           
           {error && (
@@ -69,14 +84,14 @@ export default function AdminLogin() {
           <form onSubmit={handleLogin}>
             
             <div className="mb-5">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email Address</label>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email or Username</label>
               <div className="flex items-center bg-[#1f1f1f] border border-gray-700 rounded-lg overflow-hidden focus-within:border-[#b32d2d] transition-colors">
                 <div className="pl-4 text-gray-500"><Mail size={18} /></div>
                 <input 
-                  type="email" 
+                  type="text" 
                   required
-                  placeholder="admin@acemergency.ph"
-                  className="w-full p-3 text-gray-200 bg-transparent focus:outline-none"
+                  placeholder="Enter admin identifier..."
+                  className="w-full p-3 text-gray-200 bg-transparent focus:outline-none text-sm"
                   value={formData.email}
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
                 />
@@ -91,7 +106,7 @@ export default function AdminLogin() {
                   type="password" 
                   required
                   placeholder="••••••••"
-                  className="w-full p-3 text-gray-200 bg-transparent focus:outline-none"
+                  className="w-full p-3 text-gray-200 bg-transparent focus:outline-none text-sm"
                   value={formData.password}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
                 />
@@ -103,7 +118,7 @@ export default function AdminLogin() {
               disabled={isLoading}
               className="w-full bg-[#b32d2d] hover:bg-[#8b2323] text-white p-3.5 rounded-lg font-bold flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
             >
-              {isLoading ? 'Authenticating...' : 'Secure Login'}
+              {isLoading ? 'Authenticating Gateway...' : 'Secure Login'}
             </button>
 
           </form>

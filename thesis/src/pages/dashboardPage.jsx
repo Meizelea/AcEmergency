@@ -31,10 +31,11 @@ const angelesCityBounds = [
 ];
 
 const createStatusIcon = (status) => {
-  let bgColor = '#facc15'; 
+  let bgColor = '#facc15'; // Default yellow for submitted/pending
   let pulseClass = 'pulse-yellow'; 
 
-  if (status?.toLowerCase() === 'responding') {
+  // 👇 Aligned with backend Status choices ("ongoing")
+  if (String(status).toLowerCase() === 'ongoing') {
     bgColor = '#ef4444';
     pulseClass = 'pulse-red'; 
   }
@@ -48,25 +49,39 @@ const createStatusIcon = (status) => {
 };
 
 export default function DashboardPage() {
-  const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [showSidebar, setShowSidebar] = useState(false);
   const [reports, setReports] = useState([]);
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🛡️ SECURITY GUARDRAIL: Pull verification token from local storage
+  const token = localStorage.getItem('ac_token');
+
   useEffect(() => {
+    // 🛡️ SECURITY GUARDRAIL: Bounce unauthenticated traffic out immediately
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
     const fetchDashboardData = async () => {
       try {
-        const analyticsRes = await fetch('http://localhost:8000/api/analytics');
+        const headersConfiguration = {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${token}`
+        };
+
+        const analyticsRes = await fetch('http://127.0.0.1:8000/api/analytics/dashboard/', { headers: headersConfiguration });
         const analyticsData = await analyticsRes.json();
         
-        const reportsRes = await fetch('http://localhost:8000/api/reports');
+        const reportsRes = await fetch('http://127.0.0.1:8000/api/reports/admin-reports/', { headers: headersConfiguration });
         const reportsData = await reportsRes.json();
 
-        // Safe extraction of graph arrays from your detailed analytics payload
+        // Process Bar Chart data arrays
         if (analyticsData.reports_by_barangay) {
           const formattedBars = Object.keys(analyticsData.reports_by_barangay).map(key => ({
             d: key,
@@ -75,46 +90,79 @@ export default function DashboardPage() {
           setBarData(formattedBars);
         }
 
+        // Process Pie Chart breakdown metrics
         if (analyticsData.basic_stats) {
           const formattedPie = [
-            { name: 'Submitted', value: analyticsData.basic_stats.submitted, color: '#3b82f6' },
-            { name: 'Pending', value: analyticsData.basic_stats.pending, color: '#ffc20e' },
-            { name: 'Resolved', value: analyticsData.basic_stats.resolved, color: '#10b981' }
+            { name: 'Submitted', value: analyticsData.basic_stats.submitted || 0, color: '#3b82f6' },
+            { name: 'Pending', value: analyticsData.basic_stats.pending || 0, color: '#ffc20e' },
+            { name: 'Ongoing', value: analyticsData.basic_stats.ongoing || 0, color: '#ef4444' },
+            { name: 'Resolved', value: analyticsData.basic_stats.resolved || 0, color: '#10b981' }
           ].filter(item => item.value > 0); 
           
           setPieData(formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
         }
 
-        setReports(Array.isArray(reportsData) ? reportsData : []); 
+        // Unpack raw lists or paginated arrays safely
+        if (Array.isArray(reportsData)) {
+          setReports(reportsData);
+        } else if (reportsData && Array.isArray(reportsData.results)) {
+          setReports(reportsData.results);
+        } else {
+          setReports([]);
+        }
+
         setIsLoading(false);
       } catch (error) {
-        console.error("Failed to fetch dashboard data:", error);
+        console.error("Failed to fetch dashboard metrics:", error);
         setIsLoading(false);
       }
     };
+
     fetchDashboardData();
-  }, []);
+  }, [token, navigate]);
 
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/reports/${reportId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+      // 👇 DEFINITIVE FIX: Converts frontend labels into your partner's strict lowercase models.py TextChoices keys
+      const statusDatabaseMap = {
+        'Pending': 'pending',       
+        'Responding': 'ongoing',   // ⚡ Maps frontend action directly to backend 'ongoing' code string
+        'Resolved': 'resolved'      
+      };
+
+      const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
+
+      const response = await fetch(`http://127.0.0.1:8000/api/reports/admin-reports/${reportId}/`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${token}`
+        },
+        body: JSON.stringify({ status: finalPayloadValue })
       });
 
       if (response.ok) {
+        // UI layer successfully updates local state right away
         setReports(prevReports => prevReports.map(report => 
-            report.id === reportId ? { ...report, status: newStatus } : report
+            report.id === reportId ? { ...report, status: finalPayloadValue } : report
         ));
+      } else {
+        const errorDetails = await response.json();
+        console.error("Django Model Serializer Validation Rejection Log:", errorDetails);
       }
     } catch (error) {
-      console.error("Failed to update status:", error);
+      console.error("Failed to execute status update network call:", error);
     }
   };
 
-  const activeReports = reports.filter(r => r?.status?.toLowerCase() !== 'resolved');
-  const historyReports = reports.filter(r => r?.status?.toLowerCase() === 'resolved').slice(0, 10);
+  // 🛡️ SECURITY GUARDRAIL: Do not render layout if unauthenticated
+  if (!token) {
+    return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting to command center gateway...</div>;
+  }
+
+  // 👇 FIXED: Listen for lowercase text statuses coming from the backend database schema layout
+  const activeReports = reports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
+  const historyReports = reports.filter(r => r && String(r.status).toLowerCase() === 'resolved').slice(0, 10);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Recent';
@@ -124,7 +172,6 @@ export default function DashboardPage() {
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a]">
-      
       <style>{`
         .pulse-yellow { animation: pulseY 2s infinite; }
         .pulse-red { animation: pulseR 1.5s infinite; }
@@ -140,7 +187,7 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* UNIVERSAL SIDEBAR */}
+      {/* SIDEBAR NAVIGATION */}
       <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         <nav className="flex flex-col mt-6">
@@ -149,17 +196,13 @@ export default function DashboardPage() {
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
           <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-          <div className="mt-8 border-t border-white/10 pt-4">
-            <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
-          </div>
         </nav>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 bg-gray-200 flex flex-col rounded-t-xl overflow-hidden mx-2 mb-2 shadow-2xl relative">
           
-          {/* UNIVERSAL RED HEADER */}
+          {/* CONTROL BAR HEADER */}
           <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
             <div className="flex items-center gap-4">
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
@@ -179,7 +222,7 @@ export default function DashboardPage() {
 
           <main className="flex-1 grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
             
-            {/* LOCKED DYNAMIC MAP */}
+            {/* DYNAMIC TELEMETRY LEAFLET MAP */}
             <section className="col-span-8 bg-white relative overflow-hidden z-0">
               <MapContainer 
                 center={[15.1440, 120.5880]} 
@@ -192,12 +235,11 @@ export default function DashboardPage() {
                 {activeReports.map((report) => {
                   const targetBarangay = report.barangay || report.location;
                   
-                  // FIX: Prioritize exact coordinate float keys sent from the mobile app payload
                   let latPosition = parseFloat(report.latitude);
                   let lngPosition = parseFloat(report.longitude);
 
-                  // If telemetry handles are absent or malformed, reference default centralized indices
-                  if (isNaN(latPosition) || isNaN(lngPosition)) {
+                  // Fixed Typo: Enforced uppercase JavaScript built-in isNaN wrapper properties completely
+                  if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
                     const coords = barangayCoords[targetBarangay];
                     if (coords) {
                       latPosition = coords[0];
@@ -205,7 +247,6 @@ export default function DashboardPage() {
                     }
                   }
 
-                  // Render onto Leaflet view container only if valid metrics are established
                   if (latPosition && lngPosition) {
                     return (
                       <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
@@ -213,8 +254,8 @@ export default function DashboardPage() {
                           <div className="font-bold text-gray-800">{report.description || 'Incident Emergency'}</div>
                           <div className="text-xs text-gray-500">Brgy. {targetBarangay || 'Angeles City'}</div>
                           {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
-                          <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${report.status?.toLowerCase() === 'responding' ? 'text-red-600' : 'text-yellow-600'}`}>
-                            {report.status || 'submitted'}
+                          <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-red-600' : 'text-yellow-600'}`}>
+                            {String(report.status).toLowerCase() === 'ongoing' ? 'Responding' : report.status || 'submitted'}
                           </div>
                         </Popup>
                       </Marker>
@@ -225,7 +266,7 @@ export default function DashboardPage() {
               </MapContainer>
             </section>
 
-            {/* CHARTS */}
+            {/* CHARTS OVERVIEW WORKSPACE */}
             <section className="col-span-4 bg-white p-6 flex flex-col overflow-y-auto">
               <h3 className="font-bold text-gray-800 text-lg mb-4">Reports Overview</h3>
               {isLoading ? (<div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>) : (
@@ -245,7 +286,7 @@ export default function DashboardPage() {
               )}
             </section>
 
-            {/* ACTIVE REPORTS LIST */}
+            {/* LIVE ACTIVE EMERGENCY LOG */}
             <section className="col-span-8 bg-[#fafafa] p-8 overflow-y-auto">
               <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase border-b border-gray-200 pb-4 mb-6 flex justify-between items-center">
                 <span>Active Reports</span>
@@ -261,21 +302,27 @@ export default function DashboardPage() {
                     <p className="text-gray-400 text-sm">No active emergencies at the moment.</p>
                   </div>
                 ) : (
-                  activeReports.map((report) => (
-                    <ReportItem 
-                      key={report.id} 
-                      id={report.id} 
-                      title={report.description || 'Emergency Dispatch'} 
-                      subtitle={`Reporter ID: ${report.user_id || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
-                      status={report.status || 'submitted'} 
-                      onStatusChange={handleStatusUpdate} 
-                    />
-                  ))
+                  activeReports.map((report) => {
+                    // Normalize standard 'ongoing' keys to render as 'Responding' inside the badge template row
+                    const currentStatusRaw = String(report.status).toLowerCase();
+                    const displayLabel = currentStatusRaw === 'ongoing' ? 'Responding' : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') ? 'Pending' : report.status;
+                    
+                    return (
+                      <ReportItem 
+                        key={report.id} 
+                        id={report.id} 
+                        title={report.description || 'Emergency Dispatch'} 
+                        subtitle={`Reporter ID: ${report.user || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
+                        status={displayLabel} 
+                        onStatusChange={handleStatusUpdate} 
+                      />
+                    );
+                  })
                 )}
               </div>
             </section>
 
-            {/* REPORT HISTORY (RESOLVED ONLY) */}
+            {/* RESOLVED INCIDENT RECORD ROW */}
             <section className="col-span-4 bg-white p-8 overflow-y-auto border-l border-gray-200">
               <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Recent History</h3>
               <div className="space-y-0">
@@ -303,8 +350,6 @@ function SidebarLink({ icon, label, active }) {
 }
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
-  const displayStatus = status === 'submitted' ? 'Pending' : status;
-
   return (
     <div className="border border-gray-200 bg-white rounded-lg p-4 mb-3 flex items-center justify-between shadow-sm">
       <div className="max-w-[60%]">
@@ -312,9 +357,9 @@ function ReportItem({ id, title, subtitle, status, onStatusChange }) {
         <div className="text-sm text-gray-400 font-medium mt-1">{subtitle}</div>
       </div>
       <div className="flex gap-2">
-        <StatusButton label="Pending" currentStatus={displayStatus} onClick={() => onStatusChange(id, 'Pending')} />
-        <StatusButton label="Responding" currentStatus={displayStatus} onClick={() => onStatusChange(id, 'Responding')} />
-        <StatusButton label="Resolved" currentStatus={displayStatus} onClick={() => onStatusChange(id, 'Resolved')} />
+        <StatusButton label="Pending" currentStatus={status} onClick={() => onStatusChange(id, 'Pending')} />
+        <StatusButton label="Responding" currentStatus={status} onClick={() => onStatusChange(id, 'Responding')} />
+        <StatusButton label="Resolved" currentStatus={status} onClick={() => onStatusChange(id, 'Resolved')} />
       </div>
     </div>
   );

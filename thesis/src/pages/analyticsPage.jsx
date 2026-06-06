@@ -11,10 +11,13 @@ export default function AnalyticsPage() {
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
   const [trendData, setTrendData] = useState([]);
-  const [hourlyData, setHourlyData] = useState([]);      // NEW State for Peak Hours
-  const [stackedData, setStackedData] = useState([]);    // NEW State for Stacked Barangay Distribution
+  const [hourlyData, setHourlyData] = useState([]);      // State for Peak Hours
+  const [stackedData, setStackedData] = useState([]);    // State for Stacked Barangay Distribution
   const [stats, setStats] = useState({ total: 0, mostFrequent: '-', topLocation: '-', activeCount: 0 });
   const [isLoading, setIsLoading] = useState(true);
+
+  // 🛡️ SECURITY GUARDRAIL 1: Check authentication state instantly during initialization
+  const token = localStorage.getItem('ac_token');
 
   // Helper to format timestamps to readable dates
   const formatDate = (dateString) => {
@@ -24,14 +27,32 @@ export default function AnalyticsPage() {
   };
 
   useEffect(() => {
+    // 🛡️ SECURITY GUARDRAIL 2: Redirect unauthenticated users immediately
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
     const fetchAnalytics = async () => {
       try {
-        const analyticsRes = await fetch('http://localhost:8000/api/analytics');
+        const headersConfiguration = {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${token}` // Passes the session token cleanly to Django
+        };
+
+        // 👇 FIXED: Explicit endpoint targets routing to the corrected nested backend sub-paths
+        const analyticsRes = await fetch('http://127.0.0.1:8000/api/analytics/dashboard/', { headers: headersConfiguration });
         const analyticsData = await analyticsRes.json();
         
-        const reportsRes = await fetch('http://localhost:8000/api/reports');
+        const reportsRes = await fetch('http://127.0.0.1:8000/api/reports/admin-reports/', { headers: headersConfiguration });
         const reportsData = await reportsRes.json();
-        const reportsArray = Array.isArray(reportsData) ? reportsData : [];
+        
+        // Safe check for paginated array outputs (.results) or straight standard arrays
+        const reportsArray = Array.isArray(reportsData) 
+          ? reportsData 
+          : (reportsData && Array.isArray(reportsData.results)) 
+            ? reportsData.results 
+            : [];
 
         // 1. Process standard Barangay Bar Chart
         let processedBars = [];
@@ -70,13 +91,15 @@ export default function AnalyticsPage() {
 
         // 3. Compute KPI blocks with safe checks
         const total = reportsArray.length;
-        const activeCount = reportsArray.filter(r => r?.status?.toLowerCase() !== 'resolved').length;
+        const activeCount = reportsArray.filter(r => r && r.status?.toLowerCase() !== 'resolved').length;
         setStats({ total, mostFrequent: maxIssueName, topLocation: maxLocationName, activeCount });
 
         // 4. Calculate Time-Series Trend Volumes
         const groupedByDate = reportsArray.reduce((acc, report) => {
-          const readableDate = formatDate(report.created_at);
-          acc[readableDate] = (acc[readableDate] || 0) + 1;
+          if (report && report.created_at) {
+            const readableDate = formatDate(report.created_at);
+            acc[readableDate] = (acc[readableDate] || 0) + 1;
+          }
           return acc;
         }, {});
 
@@ -86,7 +109,7 @@ export default function AnalyticsPage() {
         })).sort((a, b) => new Date(a.date) - new Date(b.date));
         setTrendData(trendArray);
 
-        // 5. NEW: Process Peak Active Hours Matrix Array
+        // 5. Process Peak Active Hours Matrix Array
         if (analyticsData.reports_by_hour) {
           const hoursMap = Object.keys(analyticsData.reports_by_hour).map(hour => {
             const labelInt = parseInt(hour);
@@ -100,12 +123,11 @@ export default function AnalyticsPage() {
           setHourlyData(hoursMap);
         }
 
-        // 6. NEW: Process Cross-Tabulated Stacked Category Distribution per Barangay
+        // 6. Process Cross-Tabulated Stacked Category Distribution per Barangay
         if (analyticsData.reports_by_barangay_with_details) {
           const stackedArray = Object.keys(analyticsData.reports_by_barangay_with_details).map(brgy => {
             const logs = analyticsData.reports_by_barangay_with_details[brgy] || [];
             
-            // Sub-classify keywords to match emergency unit responder logic tags
             let fireCount = 0;
             let medicalCount = 0;
             let lawCount = 0;
@@ -134,12 +156,17 @@ export default function AnalyticsPage() {
 
         setIsLoading(false);
       } catch (error) {
-        console.error("Failed to compile dashboard metrics:", error);
+        console.error("Failed to compile analytics metrics:", error);
         setIsLoading(false);
       }
     };
     fetchAnalytics();
-  }, []);
+  }, [token, navigate]);
+
+  // 🛡️ SECURITY GUARDRAIL 3: Prevent rendering anything if the user is unauthenticated
+  if (!token) {
+    return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting to analytics portal...</div>;
+  }
 
   // PRINT OVERRIDE TRIGGER
   const handleDownloadPDF = () => {
@@ -254,7 +281,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
 
-              {/* NEW GRAPH 2: PEAK ACTIVE HOURS (Area Chart Distribution) */}
+              {/* GRAPH 2: PEAK ACTIVE HOURS (Area Chart Distribution) */}
               <div className="col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2 mb-6">
                   <Clock size={20} className="text-[#b32d2d]" />
@@ -281,7 +308,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
 
-              {/* NEW GRAPH 3: STACKED INCIDENT BREAKDOWN PER NEIGHBORHOOD */}
+              {/* GRAPH 3: STACKED INCIDENT BREAKDOWN PER NEIGHBORHOOD */}
               <div className="col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2 mb-6">
                   <Layers size={20} className="text-[#3b82f6]" />
@@ -296,7 +323,6 @@ export default function AnalyticsPage() {
                         <YAxis tick={{fontSize: 12, fill: '#666'}} axisLine={false} tickLine={false} allowDecimals={false} />
                         <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                         <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                        {/* Colored segments mapped directly to your dispatch matrix classifications */}
                         <Bar dataKey="Fire Engine Req." stackId="a" fill="#ef4444" radius={[0, 0, 0, 0]} />
                         <Bar dataKey="Ambulance Req." stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
                         <Bar dataKey="Police Cruiser Req." stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />

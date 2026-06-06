@@ -1,11 +1,15 @@
 import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 
-const ProtectedRoute = () => {
-  // Checks for the exact 'ac_user' key set by your login API
-  const isAuthenticated = localStorage.getItem('ac_user') !== null;
+export default function ProtectedRoute() {
+  // 🛡️ Guardrail: Check for the token presence instantly
+  const token = localStorage.getItem('ac_token');
 
-  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
-};
+  // If no token exists, force redirect immediately to login screen
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
 
-export default ProtectedRoute;
+  // If authorized, render the requested child page view container
+  return <Outlet />;
+}
