@@ -72,20 +72,12 @@ export default function DashboardPage() {
           'Authorization': `Token ${token}`
         };
 
-        // 🎯 REDIRECT WORKAROUND: Hitting the base path prevents the backend mathematical 500 script crash completely
-        const analyticsRes = await fetch('http://127.0.0.1:8000/api/reports/', { headers: headersConfiguration });
+        const targetHostname = window.location.hostname || '127.0.0.1';
+        const analyticsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { headers: headersConfiguration });
         const reportsData = await analyticsRes.json();
         
         let rawList = Array.isArray(reportsData) ? reportsData : (reportsData && Array.isArray(reportsData.results)) ? reportsData.results : [];
-        
-        // Seeding mechanism matches database data points if permissions isolate current view query records
-        if (rawList.length === 0) {
-          rawList = [
-            { id: 2, short_message: "Heavy smoke coming from a commercial establishment", barangay: "San Nicolas", status: "ongoing", created_at: "2026-06-06T11:01:00Z", user: "admin", latitude: "15.1340", longitude: "120.5910" },
-            { id: 1, short_message: "kahitano", barangay: "San Nicolas", status: "pending", created_at: "2026-05-23T13:50:00Z", user: "Mikereevs", latitude: "15.1340", longitude: "120.5910" }
-          ];
-        }
-
+          
         setReports(rawList);
 
         // =========================================================================
@@ -158,7 +150,8 @@ export default function DashboardPage() {
 
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
 
-      const response = await fetch(`http://127.0.0.1:8000/api/reports/${reportId}/`, {
+      const targetHostname = window.location.hostname || '127.0.0.1';
+      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -394,7 +387,7 @@ function StatusButton({ label, currentStatus, onClick }) {
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
   }
 
-  return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive && 'active:scale-95'}`}>{label}</button>);
+  return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}>{label}</button>);
 }
 
 function HistoryRow({ label, location, time }) {

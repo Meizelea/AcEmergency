@@ -64,24 +64,17 @@ export default function EmergencyUnitsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Token ${token}`
         };
-
-        // 📡 FETCH 1: Pull existing units first to run tracking checks
-        const existingUnitsRes = await fetch('http://127.0.0.1:8000/api/emergency-units/', { method: 'GET', headers: commonHeaders });
+        const targetHostname = window.location.hostname || '127.0.0.1'
+        const existingUnitsRes = await fetch('http://${targetHostname}:8000/api/emergency-units/', { method: 'GET', headers: commonHeaders });
         const existingUnitsData = await existingUnitsRes.json();
         const liveDBUnits = Array.isArray(existingUnitsData) ? existingUnitsData : (existingUnitsData && Array.isArray(existingUnitsData.results)) ? existingUnitsData.results : [];
 
         // 📡 FETCH 2: Pull raw reports from the base route context
-        const reportsRes = await fetch('http://127.0.0.1:8000/api/reports/', { method: 'GET', headers: commonHeaders });
+        const reportsRes = fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { method: 'GET', headers: commonHeaders });
         const reportsData = await reportsRes.json();
         
         let rawReports = Array.isArray(reportsData) ? reportsData : (reportsData && Array.isArray(reportsData.results)) ? reportsData.results : [];
         
-        if (rawReports.length === 0) {
-          rawReports = [
-            { id: 2, short_message: "Heavy smoke coming from a commercial establishment", barangay: "San Nicolas", status: "ongoing", latitude: "15.1340", longitude: "120.5910" },
-            { id: 1, short_message: "kahitano", barangay: "San Nicolas", status: "ongoing", latitude: "15.1340", longitude: "120.5910" }
-          ];
-        }
 
         const activeReports = rawReports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
 

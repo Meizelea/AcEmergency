@@ -17,6 +17,9 @@ export default function UsersPage() {
   // 🛡️ SECURITY GUARDRAIL: Pull authentication token from local storage
   const token = localStorage.getItem('ac_token');
 
+  // Dynamic Hostname Binding for 0.0.0.0 network access
+  const targetHostname = window.location.hostname || '127.0.0.1';
+
   useEffect(() => {
     // 🛡️ SECURITY GUARDRAIL: Redirect unauthenticated direct traffic out immediately
     if (!token) {
@@ -26,8 +29,8 @@ export default function UsersPage() {
 
     const fetchUsers = async () => {
       try {
-        // 🎯 FIXED ENDPOINT: Hitting the exact sub-path layout configured on the backend
-        const response = await fetch('http://127.0.0.1:8000/api/users/admin/users/', {
+        // 🎯 NETWORK FIX: Dynamically bind to the current network IP instead of hardcoding localhost
+        const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -52,7 +55,7 @@ export default function UsersPage() {
     };
 
     fetchUsers();
-  }, [token, navigate]);
+  }, [token, navigate, targetHostname]);
 
   // 🛡️ SECURITY GUARDRAIL: Block layout rendering if authentication parameters are missing
   if (!token) {
@@ -70,6 +73,7 @@ export default function UsersPage() {
     // Capture name configurations flexibly for regular accounts
     const firstName = user.first_name || user.firstname || '';
     const lastName = user.last_name || user.lastname || '';
+   
     const usernameStr = user.username || '';
     const fullName = `${firstName} ${lastName}`.toLowerCase();
     
@@ -97,6 +101,7 @@ export default function UsersPage() {
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         <nav className="flex flex-col mt-6">
           <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
+          
           <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
           <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
           <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>

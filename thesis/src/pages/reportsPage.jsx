@@ -20,44 +20,43 @@ export default function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Track which report row is currently editing its barangay location
   const [editingReportId, setEditingReportId] = useState(null);
-
-  // 🛡️ SECURITY GUARDRAIL: Pull verification token from local storage
   const token = localStorage.getItem('ac_token');
 
+  const targetHostname = window.location.hostname || '127.0.0.1';
+
   const fetchReports = async () => {
-    if (!token) return;
-    try {
-      // 🎯 FIXED PATH: Pointed to base endpoint to safely prevent backend view calculator loops from throwing 500 errors
-      const response = await fetch('http://127.0.0.1:8000/api/reports/', {
-        method: 'GET',
+  if (!token) return;
+
+  try {
+    const response = await fetch(
+      `http://${targetHostname}:8000/api/reports/admin-reports/`,
+      {
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
-        }
-      });
-      const data = await response.json();
-      
-      let rawList = Array.isArray(data) ? data : (data && Array.isArray(data.results)) ? data.results : [];
-
-      // 🎯 PRESENTATION SAFEGUARD: Seeding mock values if permissions filter returns an empty array to admin
-      if (rawList.length === 0) {
-        rawList = [
-          { id: 2, short_message: "Heavy smoke coming from a commercial establishment", barangay: "San Nicolas", status: "ongoing", created_at: "2026-06-06T11:01:00Z", user: "admin", street: "Rizal St" },
-          { id: 1, short_message: "kahitano", barangay: "San Nicolas", status: "pending", created_at: "2026-05-23T13:50:00Z", user: "Mikereevs", street: "Miranda St" }
-        ];
+          Authorization: `Token ${token}`,
+        },
       }
+    );
 
-      // Order items sequentially by primary ID keys
-      const sortedReports = rawList.sort((a, b) => b.id - a.id);
-      setReports(sortedReports);
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Failed to query records database from Django:", error);
-      setIsLoading(false);
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
     }
-  };
+
+    const data = await response.json();
+
+    console.log("Admin Reports:", data);
+
+    const reportsData = Array.isArray(data)
+      ? data
+      : data.results || [];
+
+    setReports(reportsData.sort((a, b) => b.id - a.id));
+  } catch (error) {
+    console.error("Error fetching reports:", error);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   useEffect(() => {
     if (!token) {
@@ -67,7 +66,7 @@ export default function ReportsPage() {
     fetchReports();
   }, [token, navigate]);
 
-  // 🔄 HANDLER A: Updates Status (Pending / Responding / Resolved)
+  // HANDLER A: Updates Status (Pending / Responding / Resolved)
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
@@ -78,8 +77,7 @@ export default function ReportsPage() {
 
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
 
-      // 🎯 FIXED PATH: Shifted update target endpoint root base router path safely
-      const response = await fetch(`http://127.0.0.1:8000/api/reports/${reportId}/`, {
+      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -104,7 +102,7 @@ export default function ReportsPage() {
   const handleBarangayUpdate = async (reportId, selectedBarangay) => {
     try {
       // 🎯 FIXED PATH: Shifted dropdown PATCH update targets away from admin-reports/ route context
-      const response = await fetch(`http://127.0.0.1:8000/api/reports/${reportId}/`, {
+      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

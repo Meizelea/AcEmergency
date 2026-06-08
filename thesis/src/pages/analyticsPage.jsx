@@ -40,19 +40,16 @@ export default function AnalyticsPage() {
           'Authorization': `Token ${token}` // Passes the session token cleanly to Django
         };
 
+        // 🎯 NETWORK FIX: Dynamically bind to the current network IP instead of hardcoding localhost
+        const targetHostname = window.location.hostname || '127.0.0.1';
+
         // 🎯 WORKAROUND REDIRECTION: Point away from the custom analytics endpoints to avoid the backend 500 calculator crash
-        const response = await fetch('http://127.0.0.1:8000/api/reports/', { method: 'GET', headers: headersConfiguration });
+        const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { method: 'GET', headers: headersConfiguration });
         const data = await response.json();
         
         let reportsArray = Array.isArray(data) ? data : (data && Array.isArray(data.results)) ? data.results : [];
 
-        // 🎯 PRESENTATION SAFEGUARD: Seeding mock values if permissions filter returns an empty array to admin
-        if (reportsArray.length === 0) {
-          reportsArray = [
-            { id: 2, short_message: "Heavy smoke coming from a commercial establishment", barangay: "San Nicolas", status: "ongoing", created_at: "2026-06-07T11:01:00Z", user: "admin" },
-            { id: 1, short_message: "kahitano", barangay: "San Nicolas", status: "pending", created_at: "2026-06-06T13:50:00Z", user: "Mikereevs" }
-          ];
-        }
+        // Mock data block removed here. State relies purely on the live database.
 
         // =========================================================================
         // 📊 1. PROCESS BARANGAY BAR CHART (Total Count Distribution)
@@ -313,7 +310,7 @@ export default function AnalyticsPage() {
           <div id="analytics-report-content" className="p-8 flex-1 overflow-y-auto bg-[#f5f7f9]">
             
             {/* KPI STATS CARDS */}
-            <div className="grid grid-cols-4 gap-6 mb-8">
+             <div className="grid grid-cols-4 gap-6 mb-8">
               <StatCard icon={<Activity size={24} className="text-blue-500" />} title="Total Lifetime Reports" value={isLoading ? '...' : stats.total} />
               <StatCard icon={<AlertTriangle size={24} className="text-yellow-500" />} title="Most Frequent Issue" value={isLoading ? '...' : stats.mostFrequent} />
               <StatCard icon={<MapPin size={24} className="text-red-500" />} title="Most Affected Area" value={isLoading ? '...' : stats.topLocation === 'None' ? 'None' : `Brgy. ${stats.topLocation}`} />
