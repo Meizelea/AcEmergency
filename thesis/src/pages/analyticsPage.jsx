@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, TrendingUp, AlertTriangle, MapPin, Activity, Download, Clock, Layers, Truck } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Smartphone, Menu, UserCircle, TrendingUp, AlertTriangle, MapPin, Activity, Download, Clock, Layers, Truck, LogOut } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 
 export default function AnalyticsPage() {
@@ -15,8 +15,11 @@ export default function AnalyticsPage() {
   const [stackedData, setStackedData] = useState([]);    // State for Stacked Barangay Distribution
   const [stats, setStats] = useState({ total: 0, mostFrequent: '-', topLocation: '-', activeCount: 0 });
   const [isLoading, setIsLoading] = useState(true);
-
-  // 🛡️ SECURITY GUARDRAIL 1: Check authentication state instantly during initialization
+  const handleLogout = () => {
+    localStorage.removeItem('ac_token');
+    navigate('/login');
+  };
+  
   const token = localStorage.getItem('ac_token');
 
   // Helper to format timestamps to readable dates
@@ -260,20 +263,31 @@ export default function AnalyticsPage() {
       `}</style>
 
       {/* UNIVERSAL SIDEBAR */}
-      <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-        <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
-        <nav className="flex flex-col mt-6">
-          <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
-          <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
-          <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
-          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-          
-          <div className="mt-8 border-t border-white/10 pt-4">
-            <div onClick={() => navigate('/mock-entry')}><SidebarLink icon={<Smartphone size={24} />} label="App Simulator" active={location.pathname === '/mock-entry'} /></div>
-          </div>
-        </nav>
-      </aside>
+      <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
+  <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
+  
+  {/* Flex-grow forces the nav container to fill vertical space */}
+  <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
+    {/* Main Navigation Links Group */}
+    <div className="flex flex-col">
+      <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
+      <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
+      <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
+      <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+      <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
+    </div>
+
+    {/* Dedicated Logout Trigger Anchor at the Bottom */}
+    <div className="border-t border-white/10 pt-4">
+      <div onClick={handleLogout}>
+        <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
+          <LogOut size={24} className="shrink-0" />
+          <span className="text-[16px] tracking-tight">Logout System</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+</aside>
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col overflow-hidden">

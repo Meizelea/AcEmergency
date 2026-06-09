@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, Truck, Navigation } from 'lucide-react';
+import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, Truck, Navigation, LogOut } from 'lucide-react';
 
 // =========================================================================
 // EMERGENCY BASE STATIONS DISPATCH COORD DICTIONARY (Angeles City Coordinates)
@@ -8,10 +8,7 @@ import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, 
 const emergencyBases = [
   { name: 'Angeles City Fire Station (HQ)', lat: 15.1343, lng: 120.5901, type: 'Fire Engine', address: 'Pampang Rd', contact: '0451234567', choice: 'fire' },
   { name: 'Balibago Sub-Station', lat: 15.1682, lng: 120.5841, type: 'Ambulance', address: 'McArthur Highway', contact: '0451234568', choice: 'hospital' },
-  
-  // 🎯 UPDATED: Changed from 'police' to 'hospital' so it acts as an Ambulance asset layer
   { name: 'Pampang Rescue Base', lat: 15.1465, lng: 120.5585, type: 'Rescue Truck', address: 'Pampang Market', contact: '0451234569', choice: 'hospital' },
-  
   { name: 'Marisol Sub-Station', lat: 15.1412, lng: 120.5985, type: 'Ambulance', address: 'Marisol Subdivision', contact: '0451234570', choice: 'hospital' },
   { name: 'Sapangbato Disaster Outpost', lat: 15.1512, lng: 120.5152, type: 'Rescue Truck', address: 'Sapangbato Brgy Hall', contact: '0451234571', choice: 'police' }
 ];
@@ -46,11 +43,14 @@ export default function EmergencyUnitsPage() {
   const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-
   const [matrixData, setMatrixData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const token = localStorage.getItem('ac_token');
+  const handleLogout = () => {
+    localStorage.removeItem('ac_token');
+    navigate('/login');
+  };
 
   useEffect(() => {
     if (!token) {
@@ -64,20 +64,22 @@ export default function EmergencyUnitsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Token ${token}`
         };
-        const targetHostname = window.location.hostname || '127.0.0.1'
-        const existingUnitsRes = await fetch('http://${targetHostname}:8000/api/emergency-units/', { method: 'GET', headers: commonHeaders });
-        const existingUnitsData = await existingUnitsRes.json();
-        const liveDBUnits = Array.isArray(existingUnitsData) ? existingUnitsData : (existingUnitsData && Array.isArray(existingUnitsData.results)) ? existingUnitsData.results : [];
+        const targetHostname = window.location.hostname || '127.0.0.1';
 
-        // 📡 FETCH 2: Pull raw reports from the base route context
-        const reportsRes = fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { method: 'GET', headers: commonHeaders });
+        // 1. Fetch Existing Units
+        const existingUnitsRes = await fetch(`http://${targetHostname}:8000/api/emergency-units/`, { method: 'GET', headers: commonHeaders });
+        const existingUnitsData = existingUnitsRes.ok ? await existingUnitsRes.json() : [];
+        const liveDBUnits = Array.isArray(existingUnitsData) ? existingUnitsData : (existingUnitsData.results || []);
+
+        // 2. Fetch Active Reports
+        const reportsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { method: 'GET', headers: commonHeaders });
+        if (!reportsRes.ok) throw new Error("Failed to fetch reports");
         const reportsData = await reportsRes.json();
         
-        let rawReports = Array.isArray(reportsData) ? reportsData : (reportsData && Array.isArray(reportsData.results)) ? reportsData.results : [];
-        
-
+        let rawReports = Array.isArray(reportsData) ? reportsData : (reportsData.results || []);
         const activeReports = rawReports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
 
+        // 3. Calculate Matrix & Sync
         const calculatedMatrix = activeReports.map((report) => {
           let brgy = report.barangay || report.location || 'San Nicolas';
           if (brgy === 'Lourdes Northwest' || brgy === 'Lourdes North West') brgy = 'Lourdes NorthWest';
@@ -94,9 +96,9 @@ export default function EmergencyUnitsPage() {
 
           const incidentText = report.short_message || report.description || 'Emergency Dispatch';
           const desc = incidentText.toLowerCase();
-          
-          let recommendedUnit = 'Rescue Truck';
-          let targetedChoice = 'police';
+        
+          let recommendedUnit = 'General Rescue';
+          let targetedChoice = 'all'; 
           
           if (desc.includes('smoke') || desc.includes('fire') || desc.includes('sunog')) {
             recommendedUnit = 'Fire Engine';
@@ -104,11 +106,16 @@ export default function EmergencyUnitsPage() {
           } else if (desc.includes('accident') || desc.includes('injury') || desc.includes('medical') || desc.includes('kahitano')) {
             recommendedUnit = 'Ambulance';
             targetedChoice = 'hospital';
+          } else if (desc.includes('fight') || desc.includes('rage') || desc.includes('gun') || desc.includes('shoot') || desc.includes('rob') || desc.includes('assault') || desc.includes('riot')) {
+            recommendedUnit = 'Police Patrol';
+            targetedChoice = 'police';
           }
 
-          // Filter base outposts matching your exact required type
-          const validBases = emergencyBases.filter(b => b.choice === targetedChoice);
-          let matchedBaseObj = validBases[0] || emergencyBases[0]; 
+          const validBases = targetedChoice === 'all' 
+            ? emergencyBases 
+            : emergencyBases.filter(b => b.choice === targetedChoice);
+
+          let matchedBaseObj = validBases.length > 0 ? validBases[0] : emergencyBases[0]; 
           let shortestDistance = Infinity;
 
           validBases.forEach((base) => {
@@ -119,25 +126,24 @@ export default function EmergencyUnitsPage() {
             }
           });
 
-          // Anti-duplication checking flag
-          const recordAlreadySaved = liveDBUnits.some(unit => 
-            unit && unit.name === `${matchedBaseObj.name} (${report.id})` && unit.unit_type === targetedChoice
-          );
+          // 🛡️ THE FIX: Submit matchedBaseObj.choice instead of the generic targetedChoice
+          const expectedUnitName = `${matchedBaseObj.name} (${report.id})`;
+          const recordAlreadySaved = liveDBUnits.some(unit => unit.name === expectedUnitName && unit.unit_type === matchedBaseObj.choice);
 
           if (!recordAlreadySaved) {
-            fetch('http://127.0.0.1:8000/api/emergency-units/', {
+            fetch(`http://${targetHostname}:8000/api/emergency-units/`, {
               method: 'POST',
               headers: commonHeaders,
               body: JSON.stringify({
-                name: `${matchedBaseObj.name} (${report.id})`,
-                unit_type: String(targetedChoice), 
-                address: String(matchedBaseObj.address),
-                latitude: Number(matchedBaseObj.lat),      
-                longitude: Number(matchedBaseObj.lng),    
-                contact_number: String(matchedBaseObj.contact), 
+                name: expectedUnitName,
+                unit_type: matchedBaseObj.choice, // Safely uses the exact choice the Django model expects
+                address: matchedBaseObj.address,
+                latitude: matchedBaseObj.lat,
+                longitude: matchedBaseObj.lng,
+                contact_number: matchedBaseObj.contact,
                 is_active: true
               })
-            }).catch(err => console.log("Sync logged safely:", err));
+            }).catch(err => console.error("Database sync failed for:", expectedUnitName, err));
           }
 
           return {
@@ -168,16 +174,31 @@ export default function EmergencyUnitsPage() {
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
-      <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-        <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
-        <nav className="flex flex-col mt-6">
-          <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
-          <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
-          <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
-          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-        </nav>
-      </aside>
+      <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
+  <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
+  
+  {/* Flex-grow forces the nav container to fill vertical space */}
+  <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
+    {/* Main Navigation Links Group */}
+    <div className="flex flex-col">
+      <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
+      <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
+      <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
+      <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+      <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
+    </div>
+
+    {/* Dedicated Logout Trigger Anchor at the Bottom */}
+    <div className="border-t border-white/10 pt-4">
+      <div onClick={handleLogout}>
+        <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
+          <LogOut size={24} className="shrink-0" />
+          <span className="text-[16px] tracking-tight">Logout System</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+</aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 bg-[#f0f0f0] flex flex-col rounded-t-md overflow-hidden mx-2 mb-2 shadow-2xl">
@@ -230,6 +251,7 @@ export default function EmergencyUnitsPage() {
                           <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 w-fit ${
                             row.recommended_unit_type === 'Fire Engine' ? 'bg-red-50 text-red-700 border-red-200' :
                             row.recommended_unit_type === 'Ambulance' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                            row.recommended_unit_type === 'Police Patrol' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
                             'bg-orange-50 text-orange-700 border-orange-200'
                           }`}>
                             <Truck size={12} /> {row.recommended_unit_type}
@@ -259,12 +281,11 @@ export default function EmergencyUnitsPage() {
   );
 }
 
-function SidebarLink(_ref) { 
-  var icon = _ref.icon, label = _ref.label, active = _ref.active; 
+function SidebarLink({ icon, label, active }) { 
   return (
     <div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}>
       <span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span>
       <span className="text-[16px] tracking-tight">{label}</span>
     </div>
-  ); 
+  );
 }

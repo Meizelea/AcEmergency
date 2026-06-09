@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, Search, Filter, Mail, X, Eye, Truck } from 'lucide-react';
-
+import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, Truck, Navigation, LogOut, Mail, X, Eye, Filter, Search } from 'lucide-react';
 export default function UsersPage() {
   const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
@@ -13,15 +12,15 @@ export default function UsersPage() {
   
   const [selectedUser, setSelectedUser] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const handleLogout = () => {
+    localStorage.removeItem('ac_token');
+    navigate('/login');
+  };
 
-  // 🛡️ SECURITY GUARDRAIL: Pull authentication token from local storage
   const token = localStorage.getItem('ac_token');
-
-  // Dynamic Hostname Binding for 0.0.0.0 network access
   const targetHostname = window.location.hostname || '127.0.0.1';
 
   useEffect(() => {
-    // 🛡️ SECURITY GUARDRAIL: Redirect unauthenticated direct traffic out immediately
     if (!token) {
       navigate('/login');
       return;
@@ -29,7 +28,6 @@ export default function UsersPage() {
 
     const fetchUsers = async () => {
       try {
-        // 🎯 NETWORK FIX: Dynamically bind to the current network IP instead of hardcoding localhost
         const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
           method: 'GET',
           headers: {
@@ -97,17 +95,31 @@ export default function UsersPage() {
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
 
       {/* SIDEBAR CONTAINER WORKSPACE */}
-      <aside className={`bg-[#2d2d2d] text-white flex flex-col transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-        <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
-        <nav className="flex flex-col mt-6">
-          <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
-          
-          <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
-          <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
-          <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-          <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-        </nav>
-      </aside>
+      <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
+  <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
+  
+  {/* Flex-grow forces the nav container to fill vertical space */}
+  <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
+    {/* Main Navigation Links Group */}
+    <div className="flex flex-col">
+      <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
+      <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
+      <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
+      <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
+      <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
+    </div>
+
+    {/* Dedicated Logout Trigger Anchor at the Bottom */}
+    <div className="border-t border-white/10 pt-4">
+      <div onClick={handleLogout}>
+        <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
+          <LogOut size={24} className="shrink-0" />
+          <span className="text-[16px] tracking-tight">Logout System</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+</aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 bg-[#f0f0f0] flex flex-col rounded-t-md overflow-hidden mx-2 mb-2 shadow-2xl relative">
