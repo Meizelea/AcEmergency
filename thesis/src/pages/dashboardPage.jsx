@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, Truck, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis } from 'recharts';
-
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+
+// Import your new reusable layout component here
+import AdminLayout from '../components/header';
 
 // ==========================================
 // MAP HELPERS (Angeles City)
@@ -49,17 +50,11 @@ const createStatusIcon = (status) => {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const [showSidebar, setShowSidebar] = useState(false);
   const [reports, setReports] = useState([]);
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const handleLogout = () => {
-    localStorage.removeItem('ac_token');
-    navigate('/login');
-  };
 
   const token = localStorage.getItem('ac_token');
 
@@ -84,9 +79,7 @@ export default function DashboardPage() {
           
         setReports(rawList);
 
-        // =========================================================================
-        // 📊 COMPILE BAR CHART DISTRIBUTIONS DIRECTLY IN REACT FRONTEND
-        // =========================================================================
+        // Bar Chart processing
         const barangayCounts = {};
         Object.keys(barangayCoords).forEach(key => { barangayCounts[key] = 0; });
 
@@ -108,9 +101,7 @@ export default function DashboardPage() {
         }));
         setBarData(formattedBars);
 
-        // =========================================================================
-        // 🍩 COMPILE PIE CHART BREAKDOWN STATUS METRICS DIRECTLY IN FRONTEND
-        // =========================================================================
+        // Pie Chart processing
         let submittedCount = 0;
         let pendingCount = 0;
         let ongoingCount = 0;
@@ -188,7 +179,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a]">
+    <AdminLayout>
       <style>{`
         .pulse-yellow { animation: pulseY 2s infinite; }
         .pulse-red { animation: pulseR 1.5s infinite; }
@@ -204,180 +195,159 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* SIDEBAR NAVIGATION */}
-      <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-  <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
-  
-  {/* Flex-grow forces the nav container to fill vertical space */}
-  <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
-    {/* Main Navigation Links Group */}
-    <div className="flex flex-col">
-      <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
-      <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
-      <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
-      <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-      <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-    </div>
-
-    {/* Dedicated Logout Trigger Anchor at the Bottom */}
-    <div className="border-t border-white/10 pt-4">
-      <div onClick={handleLogout}>
-        <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
-          <LogOut size={24} className="shrink-0" />
-          <span className="text-[16px] tracking-tight">Logout System</span>
-        </div>
-      </div>
-    </div>
-  </nav>
-</aside>
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 bg-gray-200 flex flex-col rounded-t-xl overflow-hidden mx-2 mb-2 shadow-2xl relative">
-          
-          <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
-            <div className="flex items-center gap-4">
-              <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
-              <div className="flex gap-2 items-center">
-                <span onClick={() => navigate('/dashboard')} className="bg-[#8b2323] px-5 py-1.5 rounded-md font-bold text-sm shadow-inner cursor-pointer">Dashboard</span>
-                <span onClick={() => navigate('/reports')} className="text-sm px-4 py-1 font-medium cursor-pointer opacity-90 hover:opacity-100 transition-all">Reports</span>
-                <span onClick={() => navigate('/analytics')} className="text-sm px-4 py-1 font-medium cursor-pointer opacity-90 hover:opacity-100 transition-all">Analytics</span>
-                <span onClick={() => navigate('/users')} className="text-sm px-4 py-1 font-medium cursor-pointer opacity-90 hover:opacity-100 transition-all">Users</span>
-                <span onClick={() => navigate('/emergency-units')} className="text-sm px-4 py-1 font-medium cursor-pointer opacity-90 hover:opacity-100 transition-all">Emergency Units</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pr-4">
-              <span className="text-sm font-bold tracking-tight text-white/90">Admin</span>
-              <UserCircle size={28} className="text-white/80" />
-            </div>
-          </header>
-
-          <main className="flex-1 grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
+      {/* DASHBOARD MAIN GRID */}
+      <main className="h-full grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
+        
+        {/* DYNAMIC TELEMETRY LEAFLET MAP */}
+        <section className="col-span-8 bg-white relative overflow-hidden z-0">
+          <MapContainer 
+            center={[15.1440, 120.5880]} 
+            zoom={13} 
+            minZoom={12} 
+            maxBounds={angelesCityBounds} 
+            maxBoundsViscosity={1.0} 
+            style={{ height: '100%', width: '100%' }} 
+            zoomControl={false} 
+          >
+            <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
             
-            {/* DYNAMIC TELEMETRY LEAFLET MAP */}
-            <section className="col-span-8 bg-white relative overflow-hidden z-0">
-              <MapContainer 
-                center={[15.1440, 120.5880]} 
-                zoom={13} minZoom={12} 
-                maxBounds={angelesCityBounds} maxBoundsViscosity={1.0} 
-                style={{ height: '100%', width: '100%' }} zoomControl={false} 
-              >
-                <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
-                
-                {activeReports.map((report) => {
-                  let targetBarangay = report.barangay || report.location || 'San Nicolas';
-                  if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
-                  if (targetBarangay === 'San Trinidad') targetBarangay = 'Sta. Trinidad';
-                  
-                  let latPosition = parseFloat(report.latitude);
-                  let lngPosition = parseFloat(report.longitude);
-
-                  if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
-                    const coords = barangayCoords[targetBarangay];
-                    if (coords) {
-                      latPosition = coords[0];
-                      lngPosition = coords[1];
-                    }
-                  }
-
-                  if (latPosition && lngPosition) {
-                    return (
-                      <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
-                        <Popup className="font-sans">
-                          <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
-                          <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
-                          {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
-                          <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-red-600' : 'text-yellow-600'}`}>
-                            {String(report.status).toLowerCase() === 'ongoing' ? 'Responding' : report.status || 'submitted'}
-                          </div>
-                        </Popup>
-                      </Marker>
-                    );
-                  }
-                  return null; 
-                })}
-              </MapContainer>
-            </section>
-
-            {/* CHARTS OVERVIEW WORKSPACE */}
-            <section className="col-span-4 bg-white p-6 flex flex-col overflow-y-auto">
-              <h3 className="font-bold text-gray-800 text-lg mb-4">Reports Overview</h3>
-              {isLoading ? (<div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>) : (
-                <>
-                  <div className="h-[180px] w-full border-b border-gray-50 pb-6">
-                    {barData.length === 0 ? <div className="text-center text-xs text-gray-300 pt-16">No regional records</div> : (
-                      <ResponsiveContainer><BarChart data={barData} margin={{left: -25}}><XAxis dataKey="d" tick={{fontSize: 10, fill: '#999'}} axisLine={false} tickLine={false} /><YAxis tick={{fontSize: 10, fill: '#999'}} axisLine={false} tickLine={false} precision={0} /><Bar dataKey="v" fill="#bae6fd" radius={[2, 2, 0, 0]} /></BarChart></ResponsiveContainer>
-                    )}
-                  </div>
-                  <div className="flex-1 flex items-center justify-center py-6">
-                    <ResponsiveContainer width="100%" height={160}><PieChart><Pie data={pieData} innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="value">{pieData.map((e, i) => <Cell key={i} fill={e.color} stroke="none" />)}</Pie></PieChart></ResponsiveContainer>
-                    <div className="text-[10px] font-bold space-y-1.5 ml-4 shrink-0">
-                      {pieData.map(item => (<div key={item.name} className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: item.color}}></div><span className="text-gray-500 truncate w-24">{item.name}</span></div>))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
-
-            {/* LIVE ACTIVE EMERGENCY LOG */}
-            <section className="col-span-8 bg-[#fafafa] p-8 overflow-y-auto">
-              <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase border-b border-gray-200 pb-4 mb-6 flex justify-between items-center">
-                <span>Active Reports</span>
-                <span className="text-sm bg-red-100 text-red-600 px-3 py-1 rounded-full font-bold">{activeReports.length} Ongoing</span>
-              </h2>
+            {activeReports.map((report) => {
+              let targetBarangay = report.barangay || report.location || 'San Nicolas';
+              if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
+              if (targetBarangay === 'San Trinidad') targetBarangay = 'Sta. Trinidad';
               
-              <div className="space-y-1">
-                {isLoading ? (
-                  <p className="text-gray-400 font-bold py-4">Loading active reports...</p>
-                ) : activeReports.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-green-500 font-bold text-lg">All Clear!</div>
-                    <p className="text-gray-400 text-sm">No active emergencies at the moment.</p>
-                  </div>
+              let latPosition = parseFloat(report.latitude);
+              let lngPosition = parseFloat(report.longitude);
+
+              if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
+                const coords = barangayCoords[targetBarangay];
+                if (coords) {
+                  latPosition = coords[0];
+                  lngPosition = coords[1];
+                }
+              }
+
+              if (latPosition && lngPosition) {
+                return (
+                  <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
+                    <Popup className="font-sans">
+                      <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
+                      <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
+                      {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
+                      <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-red-600' : 'text-yellow-600'}`}>
+                        {String(report.status).toLowerCase() === 'ongoing' ? 'Responding' : report.status || 'submitted'}
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              }
+              return null; 
+            })}
+          </MapContainer>
+        </section>
+
+        {/* CHARTS OVERVIEW WORKSPACE */}
+        <section className="col-span-4 bg-white p-6 flex flex-col overflow-y-auto">
+          <h3 className="font-bold text-gray-800 text-lg mb-4">Reports Overview</h3>
+          {isLoading ? (
+            <div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>
+          ) : (
+            <>
+              <div className="h-[180px] w-full border-b border-gray-50 pb-6">
+                {barData.length === 0 ? (
+                  <div className="text-center text-xs text-gray-300 pt-16">No regional records</div>
                 ) : (
-                  activeReports.map((report) => {
-                    const currentStatusRaw = String(report.status).toLowerCase();
-                    const displayLabel = currentStatusRaw === 'ongoing' ? 'Responding' : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') ? 'Pending' : report.status;
-                    
-                    return (
-                      <ReportItem 
-                        key={report.id} 
-                        id={report.id} 
-                        title={report.short_message || report.description || 'Emergency Dispatch'} 
-                        subtitle={`Reporter ID: ${report.user || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
-                        status={displayLabel} 
-                        onStatusChange={handleStatusUpdate} 
-                      />
-                    );
-                  })
+                  <ResponsiveContainer>
+                    <BarChart data={barData} margin={{ left: -25 }}>
+                      <XAxis dataKey="d" tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} precision={0} />
+                      <Bar dataKey="v" fill="#bae6fd" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 )}
               </div>
-            </section>
-
-            {/* RESOLVED INCIDENT RECORD ROW */}
-            <section className="col-span-4 bg-white p-8 overflow-y-auto border-l border-gray-200">
-              <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Recent History</h3>
-              <div className="space-y-0">
-                {isLoading ? (
-                  <p className="text-gray-400 font-bold py-4">Loading history...</p>
-                ) : historyReports.length === 0 ? (
-                   <p className="text-gray-400 py-4 text-sm text-center">No resolved reports yet.</p>
-                ) : (
-                  historyReports.map((report) => (
-                    <HistoryRow key={report.id} label={report.short_message || report.description || 'Resolved Incident'} location={`Brgy. {report.barangay || report.location || 'Angeles City'}`} time={formatDate(report.created_at)} />
-                  ))
-                )}
+              <div className="flex-1 flex items-center justify-center py-6">
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={pieData} innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="value">
+                      {pieData.map((e, i) => (
+                        <Cell key={i} fill={e.color} stroke="none" />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="text-[10px] font-bold space-y-1.5 ml-4 shrink-0">
+                  {pieData.map((item) => (
+                    <div key={item.name} className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></div>
+                      <span className="text-gray-500 truncate w-24">{item.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </section>
+            </>
+          )}
+        </section>
 
-          </main>
-        </div>
-      </div>
-    </div>
+        {/* LIVE ACTIVE EMERGENCY LOG */}
+        <section className="col-span-8 bg-[#fafafa] p-8 overflow-y-auto">
+          <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase border-b border-gray-200 pb-4 mb-6 flex justify-between items-center">
+            <span>Active Reports</span>
+            <span className="text-sm bg-red-100 text-red-600 px-3 py-1 rounded-full font-bold">{activeReports.length} Ongoing</span>
+          </h2>
+          
+          <div className="space-y-1">
+            {isLoading ? (
+              <p className="text-gray-400 font-bold py-4">Loading active reports...</p>
+            ) : activeReports.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-green-500 font-bold text-lg">All Clear!</div>
+                <p className="text-gray-400 text-sm">No active emergencies at the moment.</p>
+              </div>
+            ) : (
+              activeReports.map((report) => {
+                const currentStatusRaw = String(report.status).toLowerCase();
+                const displayLabel = currentStatusRaw === 'ongoing' ? 'Responding' : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') ? 'Pending' : report.status;
+                
+                return (
+                  <ReportItem 
+                    key={report.id} 
+                    id={report.id} 
+                    title={report.short_message || report.description || 'Emergency Dispatch'} 
+                    subtitle={`Reporter ID: ${report.user || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
+                    status={displayLabel} 
+                    onStatusChange={handleStatusUpdate} 
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* RESOLVED INCIDENT RECORD ROW */}
+        <section className="col-span-4 bg-white p-8 overflow-y-auto border-l border-gray-200">
+          <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Recent History</h3>
+          <div className="space-y-0">
+            {isLoading ? (
+              <p className="text-gray-400 font-bold py-4">Loading history...</p>
+            ) : historyReports.length === 0 ? (
+              <p className="text-gray-400 py-4 text-sm text-center">No resolved reports yet.</p>
+            ) : (
+              historyReports.map((report) => (
+                <HistoryRow 
+                  key={report.id} 
+                  label={report.short_message || report.description || 'Resolved Incident'} 
+                  location={`Brgy. ${report.barangay || report.location || 'Angeles City'}`} 
+                  time={formatDate(report.created_at)} 
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+      </main>
+    </AdminLayout>
   );
-}
-
-function SidebarLink({ icon, label, active }) {
-  return (<div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}><span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span><span className="text-[16px] tracking-tight">{label}</span></div>);
 }
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {

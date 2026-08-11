@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, ShieldAlert, Truck, Navigation, LogOut, Mail, X, Eye, Filter, Search } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Search, Mail, X, Eye, UserCircle } from 'lucide-react';
+
+import AdminLayout from '../components/header';
+
 export default function UsersPage() {
-  const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -12,15 +13,12 @@ export default function UsersPage() {
   
   const [selectedUser, setSelectedUser] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const handleLogout = () => {
-    localStorage.removeItem('ac_token');
-    navigate('/login');
-  };
 
+  // 🛡️ SECURITY GUARDRAIL: Pull authentication token from local storage
   const token = localStorage.getItem('ac_token');
-  const targetHostname = window.location.hostname || '127.0.0.1';
 
   useEffect(() => {
+    // 🛡️ SECURITY GUARDRAIL: Redirect unauthenticated direct traffic out immediately
     if (!token) {
       navigate('/login');
       return;
@@ -28,7 +26,7 @@ export default function UsersPage() {
 
     const fetchUsers = async () => {
       try {
-        const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
+        const response = await fetch('http://127.0.0.1:8000/api/users/admin/users/', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -53,7 +51,7 @@ export default function UsersPage() {
     };
 
     fetchUsers();
-  }, [token, navigate, targetHostname]);
+  }, [token, navigate]);
 
   // 🛡️ SECURITY GUARDRAIL: Block layout rendering if authentication parameters are missing
   if (!token) {
@@ -71,7 +69,6 @@ export default function UsersPage() {
     // Capture name configurations flexibly for regular accounts
     const firstName = user.first_name || user.firstname || '';
     const lastName = user.last_name || user.lastname || '';
-   
     const usernameStr = user.username || '';
     const fullName = `${firstName} ${lastName}`.toLowerCase();
     
@@ -92,124 +89,79 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a] relative">
-
-      {/* SIDEBAR CONTAINER WORKSPACE */}
-      <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-  <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
-  
-  {/* Flex-grow forces the nav container to fill vertical space */}
-  <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
-    {/* Main Navigation Links Group */}
-    <div className="flex flex-col">
-      <div onClick={() => navigate('/dashboard')}><SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} /></div>
-      <div onClick={() => navigate('/reports')}><SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} /></div>
-      <div onClick={() => navigate('/analytics')}><SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} /></div>
-      <div onClick={() => navigate('/users')}><SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} /></div>
-      <div onClick={() => navigate('/emergency-units')}><SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} /></div>
-    </div>
-
-    {/* Dedicated Logout Trigger Anchor at the Bottom */}
-    <div className="border-t border-white/10 pt-4">
-      <div onClick={handleLogout}>
-        <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
-          <LogOut size={24} className="shrink-0" />
-          <span className="text-[16px] tracking-tight">Logout System</span>
+    <AdminLayout>
+      {/* TABLE DASHBOARD BODY METRICS */}
+      <div className="p-8 h-full overflow-y-auto bg-[#f0f0f0] relative">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-80 overflow-hidden">
+              <Search size={18} className="text-gray-400 ml-4" />
+              <input 
+                type="text" 
+                placeholder="Search user name or email..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" 
+              />
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  </nav>
-</aside>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 bg-[#f0f0f0] flex flex-col rounded-t-md overflow-hidden mx-2 mb-2 shadow-2xl relative">
-          
-          {/* CONTROL BAR HEADER */}
-          <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
-            <div className="flex items-center gap-4">
-              <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
-              <div className="flex gap-2 items-center">
-                <span onClick={() => navigate('/dashboard')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/dashboard' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Dashboard</span>
-                <span onClick={() => navigate('/reports')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/reports' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Reports</span>
-                <span onClick={() => navigate('/analytics')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/analytics' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Analytics</span>
-                <span onClick={() => navigate('/users')} className={`text-sm px-4 py-1 font-medium cursor-pointer transition-all ${location.pathname === '/users' ? 'bg-[#8b2323] px-5 py-1.5 rounded-md font-bold shadow-inner' : 'opacity-90 hover:opacity-100'}`}>Users</span>
-                <span onClick={() => navigate('/emergency-units')} className="text-sm px-4 py-1 opacity-90 font-medium cursor-pointer hover:opacity-100 transition-opacity">Emergency Units</span>
-              </div>
+        {/* MASTER PROFILE DIRECTORY CARD LAYOUT */}
+        <div className="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Users className="text-[#b32d2d]" size={22} />
+              <h2 className="font-bold text-xl text-gray-900">Registered Users Directory</h2>
             </div>
-            <div className="flex items-center gap-2 pr-4">
-              <span className="text-sm font-bold tracking-tight text-white/90">Admin Gateway</span>
-              <UserCircle size={28} className="text-white/80" />
-            </div>
-          </header>
+            <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Users</span>
+          </div>
 
-          {/* TABLE DASHBOARD BODY METRICS */}
-          <div className="p-8 flex-1 overflow-y-auto">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-              <div className="flex items-center gap-4">
-                <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-80 overflow-hidden">
-                  <Search size={18} className="text-gray-400 ml-4" />
-                  <input type="text" placeholder="Search user name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" />
-                </div>
-              </div>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
+                  <th className="py-4 px-6 w-32">Username</th>
+                  <th className="py-4 px-6">Account Holder Name</th>
+                  <th className="py-4 px-6">Email Address Link</th>
+                  <th className="py-4 px-6">System Clearance</th>
+                  <th className="py-4 px-6 text-center w-40">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying active credentials database...</td></tr>
+                ) : filteredUsers.length === 0 ? (
+                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No user accounts found matching that criteria.</td></tr>
+                ) : (
+                  filteredUsers.map((user) => {
+                    const finalName = user.first_name || user.firstname 
+                      ? `${user.first_name || user.firstname} ${user.last_name || user.lastname || ''}` 
+                      : 'Unnamed Account';
 
-            {/* MASTER PROFILE DIRECTORY CARD LAYOUT */}
-            <div className="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
-              <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Users className="text-[#b32d2d]" size={22} />
-                  <h2 className="font-bold text-xl text-gray-900">Registered Users Directory</h2>
-                </div>
-                <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Users</span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                      <th className="py-4 px-6 w-32">Username</th>
-                      <th className="py-4 px-6">Account Holder Name</th>
-                      <th className="py-4 px-6">Email Address Link</th>
-                      <th className="py-4 px-6">System Clearance</th>
-                      <th className="py-4 px-6 text-center w-40">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isLoading ? (
-                      <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying active credentials database...</td></tr>
-                    ) : filteredUsers.length === 0 ? (
-                      <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No user accounts found matching that criteria.</td></tr>
-                    ) : (
-                      filteredUsers.map((user) => {
-                        const finalName = user.first_name || user.firstname 
-                          ? `${user.first_name || user.firstname} ${user.last_name || user.lastname || ''}` 
-                          : 'Unnamed Account';
-
-                        return (
-                          <tr key={user.id || user.username} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors">
-                            <td className="py-5 px-6 font-black text-gray-800 text-sm tracking-tight">@{user.username}</td>
-                            <td className="py-5 px-6 text-[15px] font-bold text-gray-700">{finalName}</td>
-                            <td className="py-5 px-6 text-sm text-gray-500 font-medium">
-                              <div className="flex items-center gap-1.5"><Mail size={14} className="text-gray-400" /> {user.email || 'No email attached'}</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <span className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit shadow-inner">
-                                <UserCircle size={12} /> Registered User
-                              </span>
-                            </td>
-                            <td className="py-5 px-6 text-center">
-                              <button onClick={() => openViewModal(user)} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 font-bold text-xs uppercase tracking-tight rounded flex items-center gap-1 mx-auto transition-all active:scale-95">
-                                <Eye size={12} /> View File
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                    return (
+                      <tr key={user.id || user.username} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors">
+                        <td className="py-5 px-6 font-black text-gray-800 text-sm tracking-tight">@{user.username}</td>
+                        <td className="py-5 px-6 text-[15px] font-bold text-gray-700">{finalName}</td>
+                        <td className="py-5 px-6 text-sm text-gray-500 font-medium">
+                          <div className="flex items-center gap-1.5"><Mail size={14} className="text-gray-400" /> {user.email || 'No email attached'}</div>
+                        </td>
+                        <td className="py-5 px-6">
+                          <span className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit shadow-inner">
+                            <UserCircle size={12} /> Registered User
+                          </span>
+                        </td>
+                        <td className="py-5 px-6 text-center">
+                          <button onClick={() => openViewModal(user)} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 font-bold text-xs uppercase tracking-tight rounded flex items-center gap-1 mx-auto transition-all active:scale-95">
+                            <Eye size={12} /> View File
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -265,11 +217,6 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-
-    </div>
+    </AdminLayout>
   );
-}
-
-function SidebarLink({ icon, label, active }) {
-  return (<div className={`flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 ${active ? 'bg-[#ef4444] text-white rounded-xl shadow-md font-bold' : 'text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl'}`}><span className={active ? 'text-white' : 'text-gray-400'}>{icon}</span><span className="text-[16px] tracking-tight">{label}</span></div>);
 }

@@ -1,13 +1,8 @@
-This uses Node.js
+#Navigation is removed from pages and is now moved to header.jsx for cleaner and shorter code
 
-User Management Module - Done 
-Report Management Module - Done
-Dashboard - Done (If the report is "resolved" put it on the report history and remove it off the active history)
+--Update Emergency Units page to have CRUD for the admin
+--Change the hardcoded emergency responder coordinates to a more accurate one.
 
-Admin Management Module - Complete
-Emergency Response Module - Complete
-Data Analytics Module - Complete
-
-
-installed dependencies/extensions:
-npm install html2pdf.js
+//remove server.js
+//remove Sidebar.jsx (Obsolete)
+//remove MockDataPage.jsx (Used for testing previously without backend)
