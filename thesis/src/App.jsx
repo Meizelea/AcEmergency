@@ -12,7 +12,7 @@ import UsersPage from './pages/UsersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import HeatmapPage from './pages/HeatmapPage'; 
 import EmergencyUnitsPage from './pages/emergencyUnits';
-
+import SuperAdminPage from './superadmin/superadmin';
 
 export default function App() {
   return (
@@ -31,6 +31,7 @@ export default function App() {
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/heatmap" element={<HeatmapPage />} />
           <Route path="/emergency-units" element={<EmergencyUnitsPage />} />
+          <Route path="/superadmin" element={<SuperAdminPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

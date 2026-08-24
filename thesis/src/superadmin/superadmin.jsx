@@ -5,7 +5,7 @@ import {
   Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle 
 } from 'lucide-react';
 
-import AdminLayout from '../components/AdminLayout';
+import AdminLayout from '../components/header';
 
 export const ANGELES_BARANGAYS = [
   "Agapito del Rosario",

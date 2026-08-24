@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutGrid, FileText, BarChart3, Users, Menu, UserCircle, Truck, LogOut } from 'lucide-react';
+import { 
+  LayoutGrid, 
+  FileText, 
+  BarChart3, 
+  Users, 
+  Menu, 
+  UserCircle, 
+  Truck, 
+  LogOut, 
+  ShieldCheck 
+} from 'lucide-react';
 
 export default function AdminLayout({ children }) {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -18,7 +28,9 @@ export default function AdminLayout({ children }) {
       <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         
+        {/* Flex-grow forces the nav container to fill vertical space */}
         <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
+          {/* Main Navigation Links Group */}
           <div className="flex flex-col">
             <div onClick={() => navigate('/dashboard')}>
               <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
@@ -35,8 +47,12 @@ export default function AdminLayout({ children }) {
             <div onClick={() => navigate('/emergency-units')}>
               <SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} />
             </div>
+            <div onClick={() => navigate('/superadmin')}>
+              <SidebarLink icon={<ShieldCheck size={24} />} label="Admin Roster" active={location.pathname === '/superadmin'} />
+            </div>
           </div>
 
+          {/* Dedicated Logout Trigger Anchor at the Bottom */}
           <div className="border-t border-white/10 pt-4">
             <div onClick={handleLogout}>
               <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
@@ -48,6 +64,7 @@ export default function AdminLayout({ children }) {
         </nav>
       </aside>
 
+      {/* MAIN CONTAINER */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 bg-gray-200 flex flex-col rounded-t-xl overflow-hidden mx-2 mb-2 shadow-2xl relative">
           
@@ -58,53 +75,63 @@ export default function AdminLayout({ children }) {
               <div className="flex gap-2 items-center">
                 <span 
                   onClick={() => navigate('/dashboard')} 
-                  className={`text-sm px-4 py-1.5 rounded-md cursor-pointer transition-all ${
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/dashboard' 
-                      ? 'bg-[#8b2323] px-5 font-bold shadow-inner' 
-                      : 'font-medium opacity-90 hover:opacity-100'
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
                   Dashboard
                 </span>
                 <span 
                   onClick={() => navigate('/reports')} 
-                  className={`text-sm px-4 py-1.5 rounded-md cursor-pointer transition-all ${
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/reports' 
-                      ? 'bg-[#8b2323] px-5 font-bold shadow-inner' 
-                      : 'font-medium opacity-90 hover:opacity-100'
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
                   Reports
                 </span>
                 <span 
                   onClick={() => navigate('/analytics')} 
-                  className={`text-sm px-4 py-1.5 rounded-md cursor-pointer transition-all ${
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/analytics' 
-                      ? 'bg-[#8b2323] px-5 font-bold shadow-inner' 
-                      : 'font-medium opacity-90 hover:opacity-100'
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
                   Analytics
                 </span>
                 <span 
                   onClick={() => navigate('/users')} 
-                  className={`text-sm px-4 py-1.5 rounded-md cursor-pointer transition-all ${
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/users' 
-                      ? 'bg-[#8b2323] px-5 font-bold shadow-inner' 
-                      : 'font-medium opacity-90 hover:opacity-100'
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
                   Users
                 </span>
                 <span 
                   onClick={() => navigate('/emergency-units')} 
-                  className={`text-sm px-4 py-1.5 rounded-md cursor-pointer transition-all ${
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/emergency-units' 
-                      ? 'bg-[#8b2323] px-5 font-bold shadow-inner' 
-                      : 'font-medium opacity-90 hover:opacity-100'
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
                   Emergency Units
+                </span>
+                <span 
+                  onClick={() => navigate('/superadmin')} 
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
+                    location.pathname === '/superadmin' 
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                  }`}
+                >
+                  Admin Roster
                 </span>
               </div>
             </div>
