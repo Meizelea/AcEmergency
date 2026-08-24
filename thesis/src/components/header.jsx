@@ -48,7 +48,7 @@ export default function AdminLayout({ children }) {
               <SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} />
             </div>
             <div onClick={() => navigate('/superadmin')}>
-              <SidebarLink icon={<ShieldCheck size={24} />} label="Admin Roster" active={location.pathname === '/superadmin'} />
+              <SidebarLink icon={<ShieldCheck size={24} />} label="AdminPage (TEMP)" active={location.pathname === '/superadmin'} />
             </div>
           </div>
 
@@ -131,7 +131,7 @@ export default function AdminLayout({ children }) {
                       : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                   }`}
                 >
-                  Admin Roster
+                  AdminTemp
                 </span>
               </div>
             </div>
