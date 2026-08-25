@@ -7,40 +7,12 @@ import {
 
 import AdminLayout from '../components/header';
 
+// Backend Valid Choices (core/choices.py)
 export const ANGELES_BARANGAYS = [
-  "Agapito del Rosario",
-  "Amsic",
-  "Anunas",
-  "Balibago",
-  "Capaya",
-  "Claro M. Recto",
-  "Cuayan",
-  "Cutcut",
-  "Cutud",
-  "Lourdes North West",
-  "Lourdes Sur",
-  "Lourdes Sur East",
-  "Malabanias",
-  "Margot",
-  "Mining",
-  "Ninoy Aquino (Marisol)",
-  "Pampang",
-  "Pandan",
-  "Pulung Bulu",
-  "Pulung Cacutud",
-  "Pulung Maragul",
-  "Salapungan",
-  "San Jose",
+  "Sta. Trinidad",
   "San Nicolas",
-  "Santa Teresita",
-  "Santa Trinidad",
-  "Santo Cristo",
-  "Santo Domingo",
-  "Santo Rosario",
-  "Sapalibutad",
-  "Sapangbato",
-  "Tabun",
-  "Virgen Delos Remedios"
+  "Lourdes NorthWest",
+  "Claro M. Recto"
 ];
 
 export default function SuperAdminPage() {
@@ -52,7 +24,7 @@ export default function SuperAdminPage() {
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit' | 'view'
+  const [modalMode, setModalMode] = useState('create');
   const [selectedAdmin, setSelectedAdmin] = useState(null);
 
   // Form State
@@ -70,22 +42,34 @@ export default function SuperAdminPage() {
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
 
-  // 1. READ: Fetch all Admins
+  // 1. Fetch Admins
   const fetchAdmins = async () => {
     if (!token) return;
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+
       const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         }
       });
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
       const data = await response.json();
       const userList = Array.isArray(data) ? data : (data?.results || []);
 
-      // Filter only admins / staff members
-      const adminUsers = userList.filter(u => u.is_staff === true || String(u.is_staff).toLowerCase() === 'true');
+      // Filter: Keep users with an assigned_barangay or superadmin
+      const adminUsers = userList.filter(u => 
+        (u.assigned_barangay !== null && u.assigned_barangay !== undefined && u.assigned_barangay !== '') ||
+        u.is_superuser === true ||
+        u.username === 'admin'
+      );
+
       setAdmins(adminUsers);
       setIsLoading(false);
     } catch (error) {
@@ -100,7 +84,7 @@ export default function SuperAdminPage() {
       return;
     }
     fetchAdmins();
-  }, [token, navigate]);
+  }, [token, navigate, targetHostname]);
 
   // Modal Triggers
   const openCreateModal = () => {
@@ -124,11 +108,11 @@ export default function SuperAdminPage() {
     setFormData({
       username: admin.username || '',
       email: admin.email || '',
-      password: '', // Leave blank unless updating
+      password: '',
       first_name: admin.first_name || '',
       last_name: admin.last_name || '',
-      barangay: admin.barangay || ANGELES_BARANGAYS[0],
-      contact_number: admin.contact_number || admin.phone || ''
+      barangay: ANGELES_BARANGAYS.includes(admin.assigned_barangay) ? admin.assigned_barangay : ANGELES_BARANGAYS[0],
+      contact_number: admin.contact_number || ''
     });
     setFormError('');
     setIsModalOpen(true);
@@ -146,6 +130,7 @@ export default function SuperAdminPage() {
     setFormError('');
 
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       const isEdit = modalMode === 'edit';
       const endpoint = isEdit 
         ? `http://${targetHostname}:8000/api/users/admin/users/${selectedAdmin.id}/` 
@@ -156,12 +141,11 @@ export default function SuperAdminPage() {
         email: formData.email,
         first_name: formData.first_name,
         last_name: formData.last_name,
-        barangay: formData.barangay,
-        contact_number: formData.contact_number,
-        is_staff: true
+        assigned_barangay: formData.barangay,
+        contact_number: formData.contact_number
       };
 
-      if (formData.password) {
+      if (formData.password && formData.password.trim() !== '') {
         payload.password = formData.password;
       }
 
@@ -169,7 +153,7 @@ export default function SuperAdminPage() {
         method: isEdit ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify(payload)
       });
@@ -183,11 +167,11 @@ export default function SuperAdminPage() {
       fetchAdmins();
     } catch (err) {
       console.error(err);
-      setFormError(err.message || 'Operation failed. Check your network or credentials.');
+      setFormError(err.message || 'Operation failed. Check field requirements.');
     }
   };
 
-  // 3. DISABLE / TOGGLE STATUS Admin Handler
+  // 3. Status Toggle Handler
   const handleToggleAdminStatus = async (admin) => {
     const currentActiveState = admin.is_active ?? true;
     const actionText = currentActiveState ? 'disable' : 'activate';
@@ -197,11 +181,12 @@ export default function SuperAdminPage() {
     }
 
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/${admin.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify({ is_active: !currentActiveState })
       });
@@ -214,12 +199,12 @@ export default function SuperAdminPage() {
     }
   };
 
-  // Filter Search
+  // Search Filter
   const filteredAdmins = admins.filter(admin => {
     const query = searchQuery.toLowerCase();
     const fullName = `${admin.first_name || ''} ${admin.last_name || ''}`.toLowerCase();
     const username = (admin.username || '').toLowerCase();
-    const brgy = (admin.barangay || '').toLowerCase();
+    const brgy = (admin.assigned_barangay || '').toLowerCase();
     return fullName.includes(query) || username.includes(query) || brgy.includes(query);
   });
 
@@ -283,20 +268,20 @@ export default function SuperAdminPage() {
                       <tr key={admin.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors">
                         <td className="py-5 px-6">
                           <div className="font-bold text-gray-800 text-[15px]">
-                            {admin.first_name || admin.last_name ? `${admin.first_name || ''} ${admin.last_name || ''}` : 'Unnamed Staff'}
+                            {admin.first_name || admin.last_name ? `${admin.first_name || ''} ${admin.last_name || ''}` : admin.username}
                           </div>
                           <div className="text-xs text-gray-400 font-medium mt-0.5">@{admin.username}</div>
                         </td>
                         <td className="py-5 px-6 text-sm font-semibold text-gray-700">
                           <div className="flex items-center gap-1.5">
                             <MapPin size={14} className="text-[#b32d2d]" />
-                            <span>Brgy. {admin.barangay || 'Not Assigned'}</span>
+                            <span>Brgy. {admin.assigned_barangay || 'City Headquarters'}</span>
                           </div>
                         </td>
                         <td className="py-5 px-6 text-sm text-gray-600 font-medium">
                           <div className="flex items-center gap-1.5">
                             <Phone size={14} className="text-gray-400" />
-                            <span>{admin.contact_number || admin.phone || 'No phone set'}</span>
+                            <span>{admin.contact_number || 'No phone set'}</span>
                           </div>
                         </td>
                         <td className="py-5 px-6">
@@ -372,7 +357,9 @@ export default function SuperAdminPage() {
                 <div className="space-y-4">
                   <div>
                     <label className="text-[10px] font-black uppercase text-gray-400">Full Name</label>
-                    <p className="text-base font-bold text-gray-900 mt-0.5">{selectedAdmin.first_name} {selectedAdmin.last_name}</p>
+                    <p className="text-base font-bold text-gray-900 mt-0.5">
+                      {selectedAdmin.first_name || selectedAdmin.last_name ? `${selectedAdmin.first_name || ''} ${selectedAdmin.last_name || ''}` : selectedAdmin.username}
+                    </p>
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase text-gray-400">System Username</label>
@@ -380,7 +367,7 @@ export default function SuperAdminPage() {
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase text-gray-400">Jurisdiction Barangay</label>
-                    <p className="text-sm font-bold text-gray-700 mt-0.5">Brgy. {selectedAdmin.barangay || 'Not Specified'}</p>
+                    <p className="text-sm font-bold text-gray-700 mt-0.5">Brgy. {selectedAdmin.assigned_barangay || 'City Headquarters'}</p>
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase text-gray-400">Emergency Phone Number</label>

@@ -5,12 +5,8 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-// Import your new reusable layout component here
 import AdminLayout from '../components/header';
 
-// ==========================================
-// MAP HELPERS (Angeles City)
-// ==========================================
 const barangayCoords = {
   'Balibago': [15.1667, 120.5833],
   'Cutcut': [15.1333, 120.5667],
@@ -32,7 +28,7 @@ const angelesCityBounds = [
 ];
 
 const createStatusIcon = (status) => {
-  let bgColor = '#facc15'; // Default yellow for submitted/pending
+  let bgColor = '#facc15';
   let pulseClass = 'pulse-yellow'; 
 
   if (String(status).toLowerCase() === 'ongoing' || String(status).toLowerCase() === 'responding') {
@@ -66,16 +62,38 @@ export default function DashboardPage() {
 
     const fetchDashboardData = async () => {
       try {
+        const targetHostname = window.location.hostname || '127.0.0.1';
+        
+        // Supports Token or Bearer depending on backend auth backend setup
+        const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+
         const headersConfiguration = {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         };
 
-        const targetHostname = window.location.hostname || '127.0.0.1';
-        const analyticsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, { headers: headersConfiguration });
+        const analyticsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin/`, { 
+          headers: headersConfiguration 
+        });
+
+        if (analyticsRes.status === 401) {
+          console.warn("Session expired or unauthorized token. Redirecting to login...");
+          localStorage.removeItem('ac_token');
+          navigate('/login');
+          return;
+        }
+
+        if (!analyticsRes.ok) {
+          throw new Error(`Server returned ${analyticsRes.status}: ${analyticsRes.statusText}`);
+        }
+
         const reportsData = await analyticsRes.json();
         
-        let rawList = Array.isArray(reportsData) ? reportsData : (reportsData && Array.isArray(reportsData.results)) ? reportsData.results : [];
+        let rawList = Array.isArray(reportsData) 
+          ? reportsData 
+          : (reportsData && Array.isArray(reportsData.results)) 
+            ? reportsData.results 
+            : [];
           
         setReports(rawList);
 
@@ -144,13 +162,14 @@ export default function DashboardPage() {
       };
 
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
-
       const targetHostname = window.location.hostname || '127.0.0.1';
-      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+
+      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify({ status: finalPayloadValue })
       });
@@ -253,11 +272,11 @@ export default function DashboardPage() {
             <div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>
           ) : (
             <>
-              <div className="h-[180px] w-full border-b border-gray-50 pb-6">
+              <div className="w-full h-[180px] min-w-0 border-b border-gray-50 pb-6">
                 {barData.length === 0 ? (
                   <div className="text-center text-xs text-gray-300 pt-16">No regional records</div>
                 ) : (
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={barData} margin={{ left: -25 }}>
                       <XAxis dataKey="d" tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} precision={0} />
@@ -266,8 +285,8 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 )}
               </div>
-              <div className="flex-1 flex items-center justify-center py-6">
-                <ResponsiveContainer width="100%" height={160}>
+              <div className="w-full h-[160px] min-w-0 flex items-center justify-center py-6">
+                <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={pieData} innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="value">
                       {pieData.map((e, i) => (
@@ -376,7 +395,14 @@ function StatusButton({ label, currentStatus, onClick }) {
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
   }
 
-  return (<button onClick={isActive ? null : onClick} className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}>{label}</button>);
+  return (
+    <button 
+      onClick={isActive ? null : onClick} 
+      className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}
+    >
+      {label}
+    </button>
+  );
 }
 
 function HistoryRow({ label, location, time }) {

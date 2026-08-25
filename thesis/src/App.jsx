@@ -1,16 +1,13 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
-
-import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedRoute from './components/ProtectedRoute'; // Check exact casing of filename
 
 import AdminLogin from './pages/adminLogin';
-import DashboardPage from './pages/DashboardPage';
-import ReportsPage from './pages/ReportsPage';
-import MockDataPage from './pages/MockDataPage';
-import UsersPage from './pages/UsersPage';
-import AnalyticsPage from './pages/AnalyticsPage';
-import HeatmapPage from './pages/HeatmapPage'; 
+import DashboardPage from './pages/dashboardPage';
+import ReportsPage from './pages/reportsPage';
+import UsersPage from './pages/usersPage';
+import AnalyticsPage from './pages/analyticsPage';
 import EmergencyUnitsPage from './pages/emergencyUnits';
 import SuperAdminPage from './superadmin/superadmin';
 
@@ -26,10 +23,8 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/mock-entry" element={<MockDataPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/heatmap" element={<HeatmapPage />} />
           <Route path="/emergency-units" element={<EmergencyUnitsPage />} />
           <Route path="/superadmin" element={<SuperAdminPage />} />
         </Route>
