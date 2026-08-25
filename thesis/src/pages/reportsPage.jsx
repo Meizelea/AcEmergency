@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  FileText, Search, Filter, MapPin, X, Eye, 
-  Clock, User, Mail, Phone, Navigation, AlertCircle 
+  FileText, Search, Filter, MapPin, X, 
+  AlertTriangle, Image as ImageIcon 
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -52,7 +52,7 @@ export default function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Modal State
+  // Inspection Modal State
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState(null);
@@ -60,7 +60,7 @@ export default function ReportsPage() {
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
 
-  // 1. Fetch Reports Direct & Clean
+  // 1. Fetch Reports
   const fetchReports = async () => {
     if (!token) return;
     try {
@@ -91,7 +91,7 @@ export default function ReportsPage() {
     fetchReports();
   }, [token, navigate]);
 
-  // Status Updater
+  // 2. Status Updater (Supports Pending, Responding, Resolved, & Invalid)
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
@@ -123,7 +123,14 @@ export default function ReportsPage() {
     }
   };
 
-  // Barangay Updater
+  // 3. Flag as Inaccurate / Invalid handler
+  const handleMarkAsInvalid = (reportId) => {
+    if (window.confirm("Mark this report as Invalid / False submission? This will flag it as inaccurate.")) {
+      handleStatusUpdate(reportId, 'Invalid');
+    }
+  };
+
+  // 4. Quick Inline Barangay Updater
   const handleBarangayUpdate = async (reportId, selectedBarangay) => {
     try {
       const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
@@ -157,7 +164,7 @@ export default function ReportsPage() {
     return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Filter Search Logic
+  // Filter Search
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -171,6 +178,7 @@ export default function ReportsPage() {
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
     else if (statusFilter === 'Responding') matchedStatus = (currentStat === 'ongoing' || currentStat === 'responding');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
+    else if (statusFilter === 'Invalid') matchedStatus = (currentStat === 'invalid');
 
     return matchedSearch && matchedStatus;
   });
@@ -211,6 +219,7 @@ export default function ReportsPage() {
                 <option value="Pending">Pending</option>
                 <option value="Responding">Responding</option>
                 <option value="Resolved">Resolved</option>
+                <option value="Invalid">Invalid / False</option>
               </select>
             </div>
           </div>
@@ -249,7 +258,9 @@ export default function ReportsPage() {
                       ? 'Responding' 
                       : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') 
                         ? 'Pending' 
-                        : 'Resolved';
+                        : currentStatusRaw === 'invalid'
+                          ? 'Invalid'
+                          : 'Resolved';
                     
                     return (
                       <tr 
@@ -286,7 +297,6 @@ export default function ReportsPage() {
                                 <MapPin size={12} className="text-[#b32d2d] shrink-0" />
                                 <span>Brgy. {report.barangay || report.location || 'Click to set'}</span>
                               </div>
-                              {report.street && <div className="text-[11px] text-gray-400 font-medium ml-4 truncate max-w-[180px]">St: {report.street}</div>}
                             </div>
                           )}
                         </td>
@@ -300,6 +310,7 @@ export default function ReportsPage() {
                             <StatusButton label="Pending" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Pending')} />
                             <StatusButton label="Responding" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Responding')} />
                             <StatusButton label="Resolved" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Resolved')} />
+                            <StatusButton label="Invalid" currentStatus={displayLabel} onClick={() => handleMarkAsInvalid(report.id)} />
                           </div>
                         </td>
                       </tr>
@@ -313,7 +324,7 @@ export default function ReportsPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 🔍 DETAILED REPORT INSPECTION MODAL (MATCHING SCREENSHOT) */}
+      {/* 🔍 DETAILED REPORT INSPECTION MODAL */}
       {/* ========================================================================= */}
       {isModalOpen && selectedReport && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -326,7 +337,7 @@ export default function ReportsPage() {
                   Report ID #{selectedReport.id} — {selectedReport.short_message || selectedReport.description || 'Emergency Dispatch'}
                 </h3>
                 <p className="text-xs text-gray-400 font-semibold mt-1">
-                  {formatDate(selectedReport.created_at)} • <span className="uppercase text-[#b32d2d]">{selectedReport.status || 'Pending'}</span>
+                  {formatDate(selectedReport.created_at)} • <span className={`uppercase font-black ${String(selectedReport.status).toLowerCase() === 'invalid' ? 'text-gray-500' : 'text-[#b32d2d]'}`}>{selectedReport.status || 'Pending'}</span>
                 </p>
               </div>
 
@@ -343,6 +354,13 @@ export default function ReportsPage() {
                   className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95"
                 >
                   Mark Resolved
+                </button>
+                <button 
+                  onClick={() => handleMarkAsInvalid(selectedReport.id)}
+                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+                  title="Flag report as fake, troll, or inaccurate"
+                >
+                  <AlertTriangle size={14} /> Mark as Invalid
                 </button>
                 <button 
                   onClick={() => setIsModalOpen(false)}
@@ -370,20 +388,12 @@ export default function ReportsPage() {
                       <span className="font-black text-gray-800">#{selectedReport.id}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Report Type</span>
-                      <span className="font-bold text-gray-800">{selectedReport.short_message || 'Emergency Log'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Submitted By</span>
                       <span className="font-bold text-gray-800">Citizen ID #{selectedReport.user || '2'}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Location Area</span>
                       <span className="font-bold text-gray-800">Brgy. {selectedReport.barangay || selectedReport.location || 'Angeles City'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Street Address</span>
-                      <span className="font-bold text-gray-800">{selectedReport.street || 'Not provided'}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Coordinates</span>
@@ -403,7 +413,7 @@ export default function ReportsPage() {
                     <h4 className="font-black text-sm text-gray-900">Report Location</h4>
                   </div>
                   
-                  <div className="flex-1 min-h-[260px] rounded-xl overflow-hidden border border-gray-200 relative">
+                  <div className="flex-1 min-h-[220px] rounded-xl overflow-hidden border border-gray-200 relative">
                     <MapContainer 
                       center={[modalLat, modalLng]} 
                       zoom={14} 
@@ -423,12 +433,31 @@ export default function ReportsPage() {
 
               </div>
 
-              {/* BOTTOM: INCIDENT DESCRIPTION CARD */}
+              {/* INCIDENT DESCRIPTION CARD */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Description</h4>
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
                   {selectedReport.description || selectedReport.short_message || 'No additional narrative description provided for this emergency entry.'}
                 </div>
+              </div>
+
+              {/* MEDIA ATTACHMENTS (IMAGE/VIDEO) PLACEHOLDER */}
+              <div className="border-t border-gray-100 pt-4">
+                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Media Attachments</h4>
+                {selectedReport.media_url || selectedReport.image || selectedReport.file ? (
+                  <div className="rounded-xl overflow-hidden border border-gray-200 max-h-64 bg-black flex items-center justify-center">
+                    <img 
+                      src={selectedReport.media_url || selectedReport.image || selectedReport.file} 
+                      alt="Incident Evidence" 
+                      className="max-h-64 object-contain" 
+                    />
+                  </div>
+                ) : (
+                  <div className="p-6 bg-gray-50 rounded-xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
+                    <ImageIcon size={28} className="mb-2 text-gray-300" />
+                    <span className="text-xs font-semibold">No image or video attached with this incident log.</span>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -449,12 +478,13 @@ function StatusButton({ label, currentStatus, onClick }) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
     if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
+    if (label === "Invalid") colorClass = "bg-red-100 border-red-400 text-red-700 cursor-default shadow-sm";
   }
 
   return (
     <button 
       onClick={isActive ? null : onClick} 
-      className={`${colorClass} px-4 py-1.5 rounded text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}
+      className={`${colorClass} px-3 py-1.5 rounded text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}
     >
       {label}
     </button>
