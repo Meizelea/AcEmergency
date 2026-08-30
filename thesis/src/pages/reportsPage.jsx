@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
-  AlertTriangle, Image as ImageIcon 
+  Image as ImageIcon, Video, AlertTriangle 
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -10,7 +10,22 @@ import L from 'leaflet';
 
 import AdminLayout from '../components/header';
 
-// Leaflet custom marker pin setup
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace(/\/$/, "");
+  }
+
+  const hostname = window.location.hostname || '127.0.0.1';
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `http://${hostname}:8000`;
+  }
+
+  return `https://${hostname}`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
   html: `<div style="background-color: #ef4444; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.3);"></div>`,
@@ -19,30 +34,31 @@ const redMarkerIcon = L.divIcon({
 });
 
 const barangayCoordsFallback = {
-  'Balibago': [15.1667, 120.5833],
-  'Cutcut': [15.1333, 120.5667],
-  'Pampang': [15.1450, 120.5600],
-  'Malabanias': [15.1600, 120.5750],
-  'Amsic': [15.1550, 120.5650],
-  'Cutud': [15.1500, 120.6100],
-  'Margot': [15.1660, 120.5330],
-  'Sapangbato': [15.1500, 120.5160],
-  'San Nicolas': [15.1340, 120.5910],
+  'Santa Trinidad': [15.1320, 120.5950],
   'Sta. Trinidad': [15.1320, 120.5950],
+  'San Nicolas': [15.1340, 120.5910],
   'Lourdes NorthWest': [15.1410, 120.5810],
   'Claro M. Recto': [15.1420, 120.5990]
 };
 
 export const ANGELES_BARANGAYS = [
-  "Agapito del Rosario", "Amsic", "Anunas", "Balibago", "Capaya", 
-  "Claro M. Recto", "Cuayan", "Cutcut", "Cutud", "Lourdes North West", 
-  "Lourdes Sur", "Lourdes Sur East", "Malabanias", "Margot", "Mining", 
-  "Ninoy Aquino (Marisol)", "Pampang", "Pandan", "Pulung Bulu", 
-  "Pulung Cacutud", "Pulung Maragul", "Salapungan", "San Jose", 
-  "San Nicolas", "Santa Teresita", "Santa Trinidad", "Santo Cristo", 
-  "Santo Domingo", "Santo Rosario", "Sapalibutad", "Sapangbato", 
-  "Tabun", "Virgen Delos Remedios"
+  "Santa Trinidad",
+  "Sta. Trinidad",
+  "San Nicolas",
+  "Lourdes NorthWest",
+  "Claro M. Recto"
 ];
+
+const getReporterName = (user) => {
+  if (!user) return 'Anonymous Citizen';
+  if (typeof user === 'object') {
+    if (user.first_name || user.last_name) {
+      return `${user.first_name || ''} ${user.last_name || ''}`.trim();
+    }
+    return user.username || `User #${user.id || 'N/A'}`;
+  }
+  return `Citizen ID #${user}`;
+};
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -52,29 +68,31 @@ export default function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Inspection Modal State
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState(null);
 
   const token = localStorage.getItem('ac_token');
-  const targetHostname = window.location.hostname || '127.0.0.1';
 
-  // 1. Fetch Reports
   const fetchReports = async () => {
     if (!token) return;
     try {
-      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/`, {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+      
+      const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         }
       });
       
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      }
+
       const data = await response.json();
       const rawList = Array.isArray(data) ? data : (data?.results || []);
-      
       setReports(rawList.sort((a, b) => b.id - a.id));
       setIsLoading(false);
     } catch (error) {
@@ -91,23 +109,27 @@ export default function ReportsPage() {
     fetchReports();
   }, [token, navigate]);
 
-  // 2. Status Updater (Supports Pending, Responding, Resolved, & Invalid)
+  const handleOpenReportModal = (report) => {
+    setSelectedReport(report);
+    setIsModalOpen(true);
+  };
+
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
         'Pending': 'pending',       
         'Responding': 'ongoing',   
-        'Resolved': 'resolved',
-        'Invalid': 'invalid'
+        'Resolved': 'resolved'
       };
 
-      const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
+      const finalPayloadValue = statusDatabaseMap[newStatus] || 'pending';
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
-      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
+      const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify({ status: finalPayloadValue })
       });
@@ -123,21 +145,14 @@ export default function ReportsPage() {
     }
   };
 
-  // 3. Flag as Inaccurate / Invalid handler
-  const handleMarkAsInvalid = (reportId) => {
-    if (window.confirm("Mark this report as Invalid / False submission? This will flag it as inaccurate.")) {
-      handleStatusUpdate(reportId, 'Invalid');
-    }
-  };
-
-  // 4. Quick Inline Barangay Updater
   const handleBarangayUpdate = async (reportId, selectedBarangay) => {
     try {
-      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin-reports/${reportId}/`, {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+      const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify({ barangay: selectedBarangay })
       });
@@ -164,7 +179,6 @@ export default function ReportsPage() {
     return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Filter Search
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -178,21 +192,28 @@ export default function ReportsPage() {
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
     else if (statusFilter === 'Responding') matchedStatus = (currentStat === 'ongoing' || currentStat === 'responding');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
-    else if (statusFilter === 'Invalid') matchedStatus = (currentStat === 'invalid');
 
     return matchedSearch && matchedStatus;
   });
 
-  // Modal Coordinate Resolver
   let modalLat = parseFloat(selectedReport?.latitude);
   let modalLng = parseFloat(selectedReport?.longitude);
-  const selectedBrgy = selectedReport?.barangay || selectedReport?.location || 'San Nicolas';
+  const selectedBrgy = selectedReport?.barangay || selectedReport?.location || 'Santa Trinidad';
 
   if (isNaN(modalLat) || isNaN(modalLng)) {
-    const fallback = barangayCoordsFallback[selectedBrgy] || [15.1440, 120.5880];
+    const fallback = barangayCoordsFallback[selectedBrgy] || [15.1320, 120.5950];
     modalLat = fallback[0];
     modalLng = fallback[1];
   }
+
+  // Media resolution with https protocol enforcement
+  let mediaUrl = selectedReport?.media_url || selectedReport?.media || null;
+  if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http://') && window.location.protocol === 'https:') {
+    mediaUrl = mediaUrl.replace('http://', 'https://');
+  }
+
+  const isVideoAsset = selectedReport?.media_type === 'video' || (typeof mediaUrl === 'string' && (mediaUrl.includes('.mp4') || mediaUrl.includes('.mov')));
+  const hasValidMedia = typeof mediaUrl === 'string' && (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://'));
 
   return (
     <AdminLayout>
@@ -219,7 +240,6 @@ export default function ReportsPage() {
                 <option value="Pending">Pending</option>
                 <option value="Responding">Responding</option>
                 <option value="Resolved">Resolved</option>
-                <option value="Invalid">Invalid / False</option>
               </select>
             </div>
           </div>
@@ -232,7 +252,7 @@ export default function ReportsPage() {
               <FileText className="text-[#b32d2d]" size={22} />
               <h2 className="font-bold text-xl text-gray-900">Emergency Incident Reports</h2>
             </div>
-            <span className="text-sm text-gray-400 font-bold">{filteredReports.length} Total Matched Records</span>
+            <span className="text-sm text-gray-400 font-bold">{filteredReports.length} Total Records</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -243,7 +263,7 @@ export default function ReportsPage() {
                   <th className="py-4 px-6">Emergency Details</th>
                   <th className="py-4 px-6 w-64">Location (Barangay)</th>
                   <th className="py-4 px-6">Timestamp</th>
-                  <th className="py-4 px-6 text-center w-80">Quick Workflow</th>
+                  <th className="py-4 px-6 text-center w-72">Quick Workflow</th>
                 </tr>
               </thead>
               <tbody>
@@ -258,20 +278,20 @@ export default function ReportsPage() {
                       ? 'Responding' 
                       : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') 
                         ? 'Pending' 
-                        : currentStatusRaw === 'invalid'
-                          ? 'Invalid'
-                          : 'Resolved';
+                        : 'Resolved';
                     
                     return (
                       <tr 
                         key={report.id} 
-                        onClick={() => { setSelectedReport(report); setIsModalOpen(true); }}
+                        onClick={() => handleOpenReportModal(report)}
                         className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
                         <td className="py-5 px-6 font-black text-gray-400 text-sm">#{report.id}</td>
                         <td className="py-5 px-6">
                           <div className="font-bold text-gray-800 text-[15px]">{report.short_message || report.description || 'Emergency Incident'}</div>
-                          <div className="text-xs text-gray-400 mt-0.5 font-medium">Reporter ID: {report.user || '2'}</div>
+                          <div className="text-xs text-gray-400 mt-0.5 font-medium">
+                            Reporter: {getReporterName(report.user)}
+                          </div>
                         </td>
                         
                         <td className="py-5 px-6 text-sm" onClick={(e) => e.stopPropagation()}>
@@ -310,7 +330,6 @@ export default function ReportsPage() {
                             <StatusButton label="Pending" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Pending')} />
                             <StatusButton label="Responding" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Responding')} />
                             <StatusButton label="Resolved" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Resolved')} />
-                            <StatusButton label="Invalid" currentStatus={displayLabel} onClick={() => handleMarkAsInvalid(report.id)} />
                           </div>
                         </td>
                       </tr>
@@ -323,25 +342,21 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* 🔍 DETAILED REPORT INSPECTION MODAL */}
-      {/* ========================================================================= */}
+      {/* INSPECTION MODAL */}
       {isModalOpen && selectedReport && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
             
-            {/* MODAL TOP HEADER */}
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <div>
                 <h3 className="font-black text-xl text-gray-900 tracking-tight flex items-center gap-2">
                   Report ID #{selectedReport.id} — {selectedReport.short_message || selectedReport.description || 'Emergency Dispatch'}
                 </h3>
                 <p className="text-xs text-gray-400 font-semibold mt-1">
-                  {formatDate(selectedReport.created_at)} • <span className={`uppercase font-black ${String(selectedReport.status).toLowerCase() === 'invalid' ? 'text-gray-500' : 'text-[#b32d2d]'}`}>{selectedReport.status || 'Pending'}</span>
+                  {formatDate(selectedReport.created_at)} • <span className="uppercase font-black text-[#b32d2d]">{selectedReport.status || 'Pending'}</span>
                 </p>
               </div>
 
-              {/* ACTION BUTTONS WORKFLOW */}
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => handleStatusUpdate(selectedReport.id, 'Responding')}
@@ -356,13 +371,6 @@ export default function ReportsPage() {
                   Mark Resolved
                 </button>
                 <button 
-                  onClick={() => handleMarkAsInvalid(selectedReport.id)}
-                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
-                  title="Flag report as fake, troll, or inaccurate"
-                >
-                  <AlertTriangle size={14} /> Mark as Invalid
-                </button>
-                <button 
                   onClick={() => setIsModalOpen(false)}
                   className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 ml-2"
                 >
@@ -371,11 +379,10 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* MODAL MAIN CONTENT BODY */}
             <div className="p-6 overflow-y-auto space-y-6">
               <div className="grid grid-cols-12 gap-6">
                 
-                {/* LEFT: REPORT DETAILS SPECS TABLE */}
+                {/* LEFT: REPORT DETAILS */}
                 <div className="col-span-6 space-y-4">
                   <div>
                     <h4 className="font-black text-sm text-gray-900">Report Details</h4>
@@ -389,7 +396,7 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Submitted By</span>
-                      <span className="font-bold text-gray-800">Citizen ID #{selectedReport.user || '2'}</span>
+                      <span className="font-bold text-gray-800">{getReporterName(selectedReport.user)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Location Area</span>
@@ -406,7 +413,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                {/* RIGHT: LEAFLET PIN LOCATION MAP */}
+                {/* RIGHT: MAP */}
                 <div className="col-span-6 flex flex-col">
                   <div className="flex items-center gap-1.5 mb-4">
                     <MapPin size={16} className="text-[#b32d2d]" />
@@ -420,7 +427,10 @@ export default function ReportsPage() {
                       style={{ height: '100%', width: '100%' }} 
                       zoomControl={false}
                     >
-                      <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                      <TileLayer 
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
+                      />
                       <Marker position={[modalLat, modalLng]} icon={redMarkerIcon}>
                         <Popup>
                           <div className="font-bold text-xs">{selectedReport.short_message || 'Emergency'}</div>
@@ -433,24 +443,38 @@ export default function ReportsPage() {
 
               </div>
 
-              {/* INCIDENT DESCRIPTION CARD */}
+              {/* DESCRIPTION */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Description</h4>
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
-                  {selectedReport.description || selectedReport.short_message || 'No additional narrative description provided for this emergency entry.'}
+                  {selectedReport.description || selectedReport.short_message || 'No additional narrative description provided.'}
                 </div>
               </div>
 
-              {/* MEDIA ATTACHMENTS (IMAGE/VIDEO) PLACEHOLDER */}
+              {/* MEDIA ATTACHMENTS (IMAGE / VIDEO) */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Incident Media Attachments</h4>
-                {selectedReport.media_url || selectedReport.image || selectedReport.file ? (
-                  <div className="rounded-xl overflow-hidden border border-gray-200 max-h-64 bg-black flex items-center justify-center">
-                    <img 
-                      src={selectedReport.media_url || selectedReport.image || selectedReport.file} 
-                      alt="Incident Evidence" 
-                      className="max-h-64 object-contain" 
-                    />
+                {hasValidMedia ? (
+                  <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex items-center justify-center">
+                    {isVideoAsset ? (
+                      <video 
+                        src={mediaUrl} 
+                        controls 
+                        className="max-h-80 w-full object-contain"
+                        preload="metadata"
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    ) : (
+                      <img 
+                        src={mediaUrl} 
+                        alt="Incident Evidence" 
+                        className="max-h-80 object-contain w-full" 
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
                   </div>
                 ) : (
                   <div className="p-6 bg-gray-50 rounded-xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
@@ -478,7 +502,6 @@ function StatusButton({ label, currentStatus, onClick }) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
     if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
-    if (label === "Invalid") colorClass = "bg-red-100 border-red-400 text-red-700 cursor-default shadow-sm";
   }
 
   return (

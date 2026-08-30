@@ -8,14 +8,10 @@ import {
 import AdminLayout from '../components/header';
 
 export const ANGELES_BARANGAYS = [
-  "Agapito del Rosario", "Amsic", "Anunas", "Balibago", "Capaya", 
-  "Claro M. Recto", "Cuayan", "Cutcut", "Cutud", "Lourdes North West", 
-  "Lourdes Sur", "Lourdes Sur East", "Malabanias", "Margot", "Mining", 
-  "Ninoy Aquino (Marisol)", "Pampang", "Pandan", "Pulung Bulu", 
-  "Pulung Cacutud", "Pulung Maragul", "Salapungan", "San Jose", 
-  "San Nicolas", "Santa Teresita", "Santa Trinidad", "Santo Cristo", 
-  "Santo Domingo", "Santo Rosario", "Sapalibutad", "Sapangbato", 
-  "Tabun", "Virgen Delos Remedios"
+  "Sta. Trinidad",
+  "San Nicolas",
+  "Lourdes NorthWest",
+  "Claro M. Recto"
 ];
 
 export default function UsersPage() {
@@ -34,7 +30,7 @@ export default function UsersPage() {
     last_name: '',
     email: '',
     contact_number: '',
-    barangay: ''
+    barangay: ANGELES_BARANGAYS[0]
   });
   const [errorMsg, setErrorMsg] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -49,11 +45,12 @@ export default function UsersPage() {
       return;
     }
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         }
       });
       const data = await response.json();
@@ -68,37 +65,41 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-  }, [token, navigate]);
+  }, [token, navigate, targetHostname]);
 
   if (!token) {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  // Filter out staff/admins from regular user management list
+  // Filter out admins/staff and show only regular resident users
   const filteredUsers = users.filter(user => {
     if (!user) return false;
-    const isStaffUser = user.is_staff === true || String(user.is_staff).toLowerCase() === 'true';
-    if (isStaffUser) return false;
+    
+    // An admin has an assigned_barangay or is superadmin/admin username
+    const isAdminAccount = Boolean(user.assigned_barangay) || user.username === 'admin' || user.is_staff === true;
+    if (isAdminAccount) return false;
 
-    const firstName = user.first_name || user.firstname || '';
-    const lastName = user.last_name || user.lastname || '';
+    const firstName = user.first_name || '';
+    const lastName = user.last_name || '';
     const fullName = `${firstName} ${lastName}`.toLowerCase();
     const emailStr = (user.email || '').toLowerCase();
     const usernameStr = (user.username || '').toLowerCase();
+    const brgyStr = (user.residential_barangay || user.barangay || '').toLowerCase();
     const query = searchQuery.toLowerCase();
 
-    return fullName.includes(query) || emailStr.includes(query) || usernameStr.includes(query);
+    return fullName.includes(query) || emailStr.includes(query) || usernameStr.includes(query) || brgyStr.includes(query);
   });
 
   // Modal open trigger
   const handleOpenUserModal = (user) => {
     setSelectedUser(user);
+    const userBrgy = user.residential_barangay || user.barangay;
     setEditFormData({
-      first_name: user.first_name || user.firstname || '',
-      last_name: user.last_name || user.lastname || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
       email: user.email || '',
-      contact_number: user.contact_number || user.phone || '',
-      barangay: user.barangay || user.location || ANGELES_BARANGAYS[0]
+      contact_number: user.contact_number || '',
+      barangay: ANGELES_BARANGAYS.includes(userBrgy) ? userBrgy : ANGELES_BARANGAYS[0]
     });
     setIsEditing(false);
     setErrorMsg('');
@@ -116,11 +117,12 @@ export default function UsersPage() {
     }
 
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/${selectedUser.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
         body: JSON.stringify({ is_active: !currentActiveState })
       });
@@ -145,17 +147,30 @@ export default function UsersPage() {
     setErrorMsg('');
 
     try {
+      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
+      const payload = {
+        first_name: editFormData.first_name,
+        last_name: editFormData.last_name,
+        email: editFormData.email,
+        contact_number: editFormData.contact_number,
+        residential_barangay: editFormData.barangay
+      };
+
       const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/${selectedUser.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Token ${token}`
+          'Authorization': authPrefix
         },
-        body: JSON.stringify(editFormData)
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
-        const updated = { ...selectedUser, ...editFormData };
+        const updated = { 
+          ...selectedUser, 
+          ...payload,
+          residential_barangay: editFormData.barangay 
+        };
         setSelectedUser(updated);
         setUsers(prev => prev.map(u => u.id === selectedUser.id ? updated : u));
         setIsEditing(false);
@@ -181,7 +196,7 @@ export default function UsersPage() {
             <Search size={18} className="text-gray-400 ml-4" />
             <input 
               type="text" 
-              placeholder="Search user name or email..." 
+              placeholder="Search user name, email, or brgy..." 
               value={searchQuery} 
               onChange={(e) => setSearchQuery(e.target.value)} 
               className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" 
@@ -194,9 +209,9 @@ export default function UsersPage() {
           <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Users className="text-[#b32d2d]" size={22} />
-              <h2 className="font-bold text-xl text-gray-900">Registered Users Directory</h2>
+              <h2 className="font-bold text-xl text-gray-900">Registered Citizens Directory</h2>
             </div>
-            <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Users</span>
+            <span className="text-sm text-gray-400 font-bold">{filteredUsers.length} Enrolled Citizens</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -205,6 +220,7 @@ export default function UsersPage() {
                 <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
                   <th className="py-4 px-6 w-32">Username</th>
                   <th className="py-4 px-6">Account Holder Name</th>
+                  <th className="py-4 px-6">Residential Barangay</th>
                   <th className="py-4 px-6">Email Address Link</th>
                   <th className="py-4 px-6">Status</th>
                   <th className="py-4 px-6 text-center w-36">Actions</th>
@@ -212,14 +228,12 @@ export default function UsersPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying active credentials database...</td></tr>
+                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-bold">Querying active credentials database...</td></tr>
                 ) : filteredUsers.length === 0 ? (
-                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No user accounts found matching that criteria.</td></tr>
+                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-medium">No citizen accounts found matching that criteria.</td></tr>
                 ) : (
                   filteredUsers.map((user) => {
-                    const finalName = user.first_name || user.firstname 
-                      ? `${user.first_name || user.firstname} ${user.last_name || user.lastname || ''}` 
-                      : 'Unnamed Account';
+                    const finalName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
                     const isActive = user.is_active ?? true;
 
                     return (
@@ -230,6 +244,12 @@ export default function UsersPage() {
                       >
                         <td className="py-5 px-6 font-black text-gray-800 text-sm tracking-tight">@{user.username}</td>
                         <td className="py-5 px-6 text-[15px] font-bold text-gray-700">{finalName}</td>
+                        <td className="py-5 px-6 text-sm font-semibold text-gray-700">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin size={14} className="text-[#b32d2d]" />
+                            <span>Brgy. {user.residential_barangay || user.barangay || 'Not Specified'}</span>
+                          </div>
+                        </td>
                         <td className="py-5 px-6 text-sm text-gray-500 font-medium">
                           <div className="flex items-center gap-1.5">
                             <Mail size={14} className="text-gray-400" /> {user.email || 'No email attached'}
@@ -261,17 +281,16 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* INTERACTIVE USER FILE MODAL (VIEW / EDIT / DISABLE) */}
+      {/* USER FILE MODAL */}
       {isModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden border border-gray-100">
             
-            {/* Modal Header */}
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <div className="flex items-center gap-3">
                 <UserCircle size={32} className="text-[#b32d2d]" />
                 <div>
-                  <h3 className="font-bold text-xl text-gray-900">User Account Profile</h3>
+                  <h3 className="font-bold text-xl text-gray-900">Citizen Account Profile</h3>
                   <p className="text-xs text-gray-400 font-medium">Database Identifier: #{selectedUser.id || 'N/A'}</p>
                 </div>
               </div>
@@ -327,7 +346,7 @@ export default function UsersPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-gray-700 block mb-1">Barangay Location</label>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">Residential Barangay</label>
                     <select 
                       value={editFormData.barangay} 
                       onChange={(e) => setEditFormData({ ...editFormData, barangay: e.target.value })}
@@ -383,9 +402,7 @@ export default function UsersPage() {
                   <div>
                     <span className="text-[10px] font-black uppercase text-gray-400">Full Name</span>
                     <p className="text-base font-black text-gray-900 mt-0.5">
-                      {selectedUser.first_name || selectedUser.firstname 
-                        ? `${selectedUser.first_name || selectedUser.firstname} ${selectedUser.last_name || selectedUser.lastname || ''}` 
-                        : 'Unnamed Account'}
+                      {`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.username}
                     </p>
                   </div>
 
@@ -394,14 +411,14 @@ export default function UsersPage() {
                       <span className="text-[10px] font-black uppercase text-gray-400">Contact Number</span>
                       <p className="text-sm font-semibold text-gray-700 mt-0.5 flex items-center gap-1">
                         <Phone size={14} className="text-gray-400" />
-                        {selectedUser.contact_number || selectedUser.phone || 'No phone attached'}
+                        {selectedUser.contact_number || 'No phone attached'}
                       </p>
                     </div>
                     <div>
-                      <span className="text-[10px] font-black uppercase text-gray-400">Barangay</span>
+                      <span className="text-[10px] font-black uppercase text-gray-400">Residential Barangay</span>
                       <p className="text-sm font-semibold text-gray-700 mt-0.5 flex items-center gap-1">
                         <MapPin size={14} className="text-[#b32d2d]" />
-                        Brgy. {selectedUser.barangay || selectedUser.location || 'Not Specified'}
+                        Brgy. {selectedUser.residential_barangay || selectedUser.barangay || 'Not Specified'}
                       </p>
                     </div>
                   </div>
@@ -426,7 +443,7 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  {/* ACTION BUTTONS (EDIT & DISABLE/ENABLE) */}
+                  {/* ACTION BUTTONS */}
                   <div className="flex gap-3 pt-6 border-t border-gray-100">
                     <button 
                       onClick={() => setIsEditing(true)}
