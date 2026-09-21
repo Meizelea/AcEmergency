@@ -46,7 +46,7 @@ export default function AnalyticsPage() {
       }
 
       // 2. Fetch Users Count
-      const usersRes = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, { method: 'GET', headers });
+      const usersRes = await fetch(`http://${targetHostname}:8000/api/users/admin/`, { method: 'GET', headers });
       if (usersRes.ok) {
         const uData = await usersRes.json();
         const uList = Array.isArray(uData) ? uData : (uData?.results || []);

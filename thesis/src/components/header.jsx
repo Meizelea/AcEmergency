@@ -9,7 +9,9 @@ import {
   UserCircle, 
   Truck, 
   LogOut, 
-  ShieldCheck 
+  ShieldCheck,
+  Megaphone,
+  UserCheck
 } from 'lucide-react';
 
 export default function AdminLayout({ children }) {
@@ -19,8 +21,13 @@ export default function AdminLayout({ children }) {
 
   const handleLogout = () => {
     localStorage.removeItem('ac_token');
+    localStorage.removeItem('ac_user');
     navigate('/login');
   };
+
+  // Pull cached user data if available
+  const storedUser = JSON.parse(localStorage.getItem('ac_user') || '{}');
+  const displayName = storedUser.username || storedUser.name || 'Admin';
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a]">
@@ -28,9 +35,7 @@ export default function AdminLayout({ children }) {
       <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
         <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
         
-        {/* Flex-grow forces the nav container to fill vertical space */}
         <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
-          {/* Main Navigation Links Group */}
           <div className="flex flex-col">
             <div onClick={() => navigate('/dashboard')}>
               <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
@@ -47,12 +52,18 @@ export default function AdminLayout({ children }) {
             <div onClick={() => navigate('/emergency-units')}>
               <SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} />
             </div>
+            <div onClick={() => navigate('/announcements')}>
+              <SidebarLink icon={<Megaphone size={24} />} label="Announcements" active={location.pathname === '/announcements'} />
+            </div>
+            <div onClick={() => navigate('/profile')}>
+              <SidebarLink icon={<UserCheck size={24} />} label="Admin Profile" active={location.pathname === '/profile'} />
+            </div>
             <div onClick={() => navigate('/superadmin')}>
               <SidebarLink icon={<ShieldCheck size={24} />} label="AdminPage (TEMP)" active={location.pathname === '/superadmin'} />
             </div>
           </div>
 
-          {/* Dedicated Logout Trigger Anchor at the Bottom */}
+          {/* Dedicated Logout Trigger Anchor */}
           <div className="border-t border-white/10 pt-4">
             <div onClick={handleLogout}>
               <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
@@ -72,7 +83,7 @@ export default function AdminLayout({ children }) {
           <header className="bg-[#b32d2d] text-white p-3 flex justify-between items-center shrink-0 border-b border-black/10">
             <div className="flex items-center gap-4">
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center flex-wrap">
                 <span 
                   onClick={() => navigate('/dashboard')} 
                   className={`text-sm rounded-md cursor-pointer transition-all ${
@@ -124,6 +135,16 @@ export default function AdminLayout({ children }) {
                   Emergency Units
                 </span>
                 <span 
+                  onClick={() => navigate('/announcements')} 
+                  className={`text-sm rounded-md cursor-pointer transition-all ${
+                    location.pathname === '/announcements' 
+                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                  }`}
+                >
+                  Announcements
+                </span>
+                <span 
                   onClick={() => navigate('/superadmin')} 
                   className={`text-sm rounded-md cursor-pointer transition-all ${
                     location.pathname === '/superadmin' 
@@ -135,14 +156,24 @@ export default function AdminLayout({ children }) {
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 pr-4">
-              <span className="text-sm font-bold tracking-tight text-white/90">Admin</span>
+
+            {/* Clickable Profile Badge */}
+            <div 
+              onClick={() => navigate('/profile')}
+              className={`flex items-center gap-2 pr-4 pl-3 py-1.5 rounded-lg cursor-pointer transition-all select-none ${
+                location.pathname === '/profile'
+                  ? 'bg-[#8b2323] shadow-inner font-bold text-white'
+                  : 'hover:bg-black/10 text-white/90 hover:text-white'
+              }`}
+              title="View Admin Profile"
+            >
+              <span className="text-sm font-bold tracking-tight">{displayName}</span>
               <UserCircle size={28} className="text-white/80" />
             </div>
           </header>
 
           {/* PAGE CONTENT CONTAINER */}
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-y-auto">
             {children}
           </main>
 

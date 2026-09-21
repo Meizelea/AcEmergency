@@ -15,7 +15,7 @@ export default function AdminLogin() {
 
     try {
       // 👇 Absolute 127.0.0.1 alignment with explicit trailing slash '/'
-      const response = await fetch('http://127.0.0.1:8000/api/users/login/', {
+      const response = await fetch('http://localhost:8000/api/users/login/', {
         method: 'POST',
         mode: 'cors', 
         headers: { 

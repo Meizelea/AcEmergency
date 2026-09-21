@@ -46,7 +46,7 @@ export default function UsersPage() {
     }
     try {
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/`, {
+      const response = await fetch(`http://${targetHostname}:8000/api/users/admin/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -71,11 +71,9 @@ export default function UsersPage() {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  // Filter out admins/staff and show only regular resident users
   const filteredUsers = users.filter(user => {
     if (!user) return false;
-    
-    // An admin has an assigned_barangay or is superadmin/admin username
+
     const isAdminAccount = Boolean(user.assigned_barangay) || user.username === 'admin' || user.is_staff === true;
     if (isAdminAccount) return false;
 
