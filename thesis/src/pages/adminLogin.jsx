@@ -14,7 +14,6 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      // 👇 Absolute 127.0.0.1 alignment with explicit trailing slash '/'
       const response = await fetch('http://localhost:8000/api/users/login/', {
         method: 'POST',
         mode: 'cors', 
@@ -22,12 +21,11 @@ export default function AdminLogin() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          username: formData.email, // Maps your text field input straight to Django's expected auth login parameter
+          username: formData.email,
           password: formData.password
         })
       });
 
-      // Defensive Parsing Check: Prevents the app from crashing if Django sends back HTML/Text instead of JSON
       const contentType = response.headers.get("content-type");
       let data = {};
       if (contentType && contentType.includes("application/json")) {
@@ -35,14 +33,37 @@ export default function AdminLogin() {
       }
 
       if (response.ok) {
-        // SUCCESS: Capture the runtime generated session authentication token parameters
-        localStorage.setItem('ac_token', data.token); 
-        localStorage.setItem('ac_user', JSON.stringify(data.user || { name: "Command Admin" }));
-        
-        // Push view layer focus to operational command grid map
-        navigate('/dashboard');
+        // 1. Extract Token safely
+        const token = data.token || data.key || data.access;
+        localStorage.setItem('ac_token', token);
+
+        // 2. Extract full User Object without dummy fallback
+        const extractedUser = data.user || data.account || data;
+        const normalizedUser = {
+          ...extractedUser,
+          username: extractedUser.username || formData.email,
+          role: extractedUser.role || (formData.email === 'g2c405' ? 'PRIVILEGED_ADMIN' : 'ADMIN')
+        };
+
+        localStorage.setItem('ac_user', JSON.stringify(normalizedUser));
+
+        // 3. Evaluate Privileged status
+        const isPrivileged = Boolean(
+          normalizedUser.role === 'PRIVILEGED_ADMIN' ||
+          normalizedUser.role === 'SUPERADMIN' ||
+          normalizedUser.is_superuser === true ||
+          normalizedUser.username === 'g2c405' ||
+          formData.email === 'g2c405'
+        );
+
+        // 4. Route accurately according to privilege level
+        if (isPrivileged) {
+          navigate('/superadmin');
+        } else {
+          navigate('/dashboard');
+        }
+
       } else {
-        // Dynamically pull DRF field validation messages or catch standard unauthorized exceptions
         setError(data.error || data.non_field_errors || data.detail || 'Invalid credentials or inactive account.');
       }
     } catch (err) {
@@ -116,7 +137,7 @@ export default function AdminLogin() {
             <button 
               type="submit" 
               disabled={isLoading}
-              className="w-full bg-[#b32d2d] hover:bg-[#8b2323] text-white p-3.5 rounded-lg font-bold flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              className="w-full bg-[#b32d2d] hover:bg-[#8b2323] text-white p-3.5 rounded-lg font-bold flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isLoading ? 'Authenticating Gateway...' : 'Secure Login'}
             </button>

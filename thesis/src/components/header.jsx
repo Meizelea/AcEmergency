@@ -25,42 +25,67 @@ export default function AdminLayout({ children }) {
     navigate('/login');
   };
 
-  // Pull cached user data if available
+  // Pull cached user data
   const storedUser = JSON.parse(localStorage.getItem('ac_user') || '{}');
   const displayName = storedUser.username || storedUser.name || 'Admin';
+
+  // Privileged check evaluating all potential role keys as well as specific privileged accounts
+  const isPrivilegedAdmin = Boolean(
+    storedUser.is_superuser === true ||
+    storedUser.is_staff === true ||
+    storedUser.role?.toUpperCase() === 'SUPERADMIN' ||
+    storedUser.role?.toUpperCase() === 'PRIVILEGED_ADMIN' ||
+    storedUser.account_type?.toUpperCase() === 'SUPERADMIN' ||
+    storedUser.user_type?.toUpperCase() === 'SUPERADMIN' ||
+    storedUser.username === 'g2c405' ||
+    displayName === 'g2c405'
+  );
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-[#2a2a2a]">
       {/* SIDEBAR NAVIGATION */}
       <aside className={`bg-[#2d2d2d] text-white flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 z-30 ${showSidebar ? 'w-64' : 'w-0 overflow-hidden'}`}>
-        <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">ADMIN</div>
+        <div className="p-6 text-sm font-black tracking-widest border-b border-white/10 uppercase">
+          {isPrivilegedAdmin ? 'SUPERADMIN' : 'ADMIN'}
+        </div>
         
         <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
           <div className="flex flex-col">
-            <div onClick={() => navigate('/dashboard')}>
-              <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
-            </div>
-            <div onClick={() => navigate('/reports')}>
-              <SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} />
-            </div>
-            <div onClick={() => navigate('/analytics')}>
-              <SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} />
-            </div>
-            <div onClick={() => navigate('/users')}>
-              <SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} />
-            </div>
-            <div onClick={() => navigate('/emergency-units')}>
-              <SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} />
-            </div>
-            <div onClick={() => navigate('/announcements')}>
-              <SidebarLink icon={<Megaphone size={24} />} label="Announcements" active={location.pathname === '/announcements'} />
-            </div>
-            <div onClick={() => navigate('/profile')}>
-              <SidebarLink icon={<UserCheck size={24} />} label="Admin Profile" active={location.pathname === '/profile'} />
-            </div>
-            <div onClick={() => navigate('/superadmin')}>
-              <SidebarLink icon={<ShieldCheck size={24} />} label="AdminPage (TEMP)" active={location.pathname === '/superadmin'} />
-            </div>
+            {isPrivilegedAdmin ? (
+              /* PRIVILEGED ADMIN: ONLY ADMINTEMP */
+              <div onClick={() => navigate('/superadmin')}>
+                <SidebarLink 
+                  icon={<ShieldCheck size={24} />} 
+                  label="AdminPage (TEMP)" 
+                  active={location.pathname === '/superadmin'} 
+                />
+              </div>
+            ) : (
+              /* REGULAR ADMIN: FULL OPERATIONAL SUITE */
+              <>
+                <div onClick={() => navigate('/dashboard')}>
+                  <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
+                </div>
+                <div onClick={() => navigate('/reports')}>
+                  <SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} />
+                </div>
+                <div onClick={() => navigate('/analytics')}>
+                  <SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} />
+                </div>
+                <div onClick={() => navigate('/users')}>
+                  <SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} />
+                </div>
+                <div onClick={() => navigate('/emergency-units')}>
+                  <SidebarLink icon={<Truck size={24} />} label="Emergency Units" active={location.pathname === '/emergency-units'} />
+                </div>
+                <div onClick={() => navigate('/announcements')}>
+                  <SidebarLink icon={<Megaphone size={24} />} label="Announcements" active={location.pathname === '/announcements'} />
+                </div>
+                <div onClick={() => navigate('/profile')}>
+                  <SidebarLink icon={<UserCheck size={24} />} label="Admin Profile" active={location.pathname === '/profile'} />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Dedicated Logout Trigger Anchor */}
@@ -84,76 +109,83 @@ export default function AdminLayout({ children }) {
             <div className="flex items-center gap-4">
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
               <div className="flex gap-2 items-center flex-wrap">
-                <span 
-                  onClick={() => navigate('/dashboard')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/dashboard' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Dashboard
-                </span>
-                <span 
-                  onClick={() => navigate('/reports')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/reports' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Reports
-                </span>
-                <span 
-                  onClick={() => navigate('/analytics')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/analytics' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Analytics
-                </span>
-                <span 
-                  onClick={() => navigate('/users')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/users' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Users
-                </span>
-                <span 
-                  onClick={() => navigate('/emergency-units')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/emergency-units' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Emergency Units
-                </span>
-                <span 
-                  onClick={() => navigate('/announcements')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/announcements' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  Announcements
-                </span>
-                <span 
-                  onClick={() => navigate('/superadmin')} 
-                  className={`text-sm rounded-md cursor-pointer transition-all ${
-                    location.pathname === '/superadmin' 
-                      ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                      : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  AdminTemp
-                </span>
+                {isPrivilegedAdmin ? (
+                  /* PRIVILEGED ADMIN: ONLY ADMINTEMP */
+                  <span 
+                    onClick={() => navigate('/superadmin')} 
+                    className={`text-sm rounded-md cursor-pointer transition-all ${
+                      location.pathname === '/superadmin' 
+                        ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                        : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                    }`}
+                  >
+                    AdminTemp
+                  </span>
+                ) : (
+                  /* REGULAR ADMIN: ALL TABS UP TO ANNOUNCEMENTS */
+                  <>
+                    <span 
+                      onClick={() => navigate('/dashboard')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/dashboard' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Dashboard
+                    </span>
+                    <span 
+                      onClick={() => navigate('/reports')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/reports' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Reports
+                    </span>
+                    <span 
+                      onClick={() => navigate('/analytics')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/analytics' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Analytics
+                    </span>
+                    <span 
+                      onClick={() => navigate('/users')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/users' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Users
+                    </span>
+                    <span 
+                      onClick={() => navigate('/emergency-units')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/emergency-units' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Emergency Units
+                    </span>
+                    <span 
+                      onClick={() => navigate('/announcements')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/announcements' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Announcements
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 

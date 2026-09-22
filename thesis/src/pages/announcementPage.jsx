@@ -3,7 +3,7 @@ import AdminLayout from '../components/header';
 import {
   Megaphone, Plus, Search, Eye, Edit3, Trash2, X,
   Image as ImageIcon, Video, AlertCircle, CheckCircle, Loader2,
-  Calendar, MapPin, FileText
+  MapPin, FileText
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -30,12 +30,19 @@ export default function AnnouncementPage() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
-  // Get Auth Token Helper
+  // Get Auth Token Helper supporting standard DRF Token & Bearer JWT
   const getAuthHeaders = (isJson = true) => {
-    const token = localStorage.getItem('ac_token');
+    const rawToken = localStorage.getItem('ac_token') || '';
+    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    if (isJson) headers['Content-Type'] = 'application/json';
+
+    if (cleanToken) {
+      // Use 'Token ' prefix for standard DRF / Knox TokenAuthentication
+      headers['Authorization'] = `Token ${cleanToken}`;
+    }
+    if (isJson) {
+      headers['Content-Type'] = 'application/json';
+    }
     return headers;
   };
 
@@ -46,12 +53,29 @@ export default function AnnouncementPage() {
       const res = await fetch(`${API_BASE}/api/announcements/admin/`, {
         headers: getAuthHeaders(),
       });
+
+      // Retry with Bearer prefix if Token prefix encounters 401
+      if (res.status === 401) {
+        const rawToken = localStorage.getItem('ac_token') || '';
+        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+        const fallbackRes = await fetch(`${API_BASE}/api/announcements/admin/`, {
+          headers: {
+            'Authorization': `Bearer ${cleanToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!fallbackRes.ok) throw new Error(`HTTP error ${fallbackRes.status}`);
+        const data = await fallbackRes.json();
+        setAnnouncements(Array.isArray(data) ? data : data.results || []);
+        return;
+      }
+
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       const data = await res.json();
       setAnnouncements(Array.isArray(data) ? data : data.results || []);
     } catch (err) {
-      console.error(err);
-      setFeedback({ error: 'Failed to fetch announcements.', success: '' });
+      console.error('Fetch announcements failure:', err);
+      setFeedback({ error: 'Failed to fetch announcements. Verify credentials and assigned barangay.', success: '' });
     } finally {
       setLoading(false);
     }
@@ -100,7 +124,6 @@ export default function AnnouncementPage() {
     setActiveVideoUrl(null);
     setIsDetailModalOpen(true);
 
-    // If item has a video thumbnail or is a video, fetch full playback signed URL
     if (announcement.video_thumbnail_url || (!announcement.image_url && announcement.media)) {
       setFetchingVideo(true);
       try {
@@ -129,7 +152,6 @@ export default function AnnouncementPage() {
 
   // Upload file helper via pre-signed URL protocol
   const uploadMediaToSupabase = async (announcementId, file) => {
-    // 1. Get signed upload URL from Django backend
     const urlRes = await fetch(`${API_BASE}/api/announcements/admin/media-upload-url/`, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -147,7 +169,6 @@ export default function AnnouncementPage() {
     const { upload_url, path } = await urlRes.json();
     if (!upload_url) throw new Error('Signed upload URL was empty.');
 
-    // 2. Direct PUT to Supabase Storage
     const uploadRes = await fetch(upload_url, {
       method: 'PUT',
       headers: {
@@ -158,7 +179,6 @@ export default function AnnouncementPage() {
 
     if (!uploadRes.ok) throw new Error('Failed to upload file to storage bucket.');
 
-    // 3. Patch announcement record with storage path
     const patchRes = await fetch(`${API_BASE}/api/announcements/admin/${announcementId}/`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
@@ -183,7 +203,6 @@ export default function AnnouncementPage() {
         : `${API_BASE}/api/announcements/admin/`;
       const method = isEditing ? 'PATCH' : 'POST';
 
-      // 1. Create/Update core title and content
       const res = await fetch(endpoint, {
         method,
         headers: getAuthHeaders(),
@@ -195,12 +214,11 @@ export default function AnnouncementPage() {
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(JSON.stringify(errJson) || 'Failed to save announcement details.');
+        throw new Error(errJson.detail || errJson.error || 'Failed to save announcement details.');
       }
 
       const savedRecord = await res.json();
 
-      // 2. Process file attachment if selected
       if (formData.mediaFile) {
         await uploadMediaToSupabase(savedRecord.id, formData.mediaFile);
       }
@@ -324,12 +342,10 @@ export default function AnnouncementPage() {
                 ) : (
                   filteredAnnouncements.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50/75 transition-colors">
-                      {/* ID */}
                       <td className="py-4 px-6 font-semibold text-gray-400">
                         #{item.id}
                       </td>
 
-                      {/* Details */}
                       <td className="py-4 px-6 max-w-sm">
                         <div className="font-bold text-gray-800 text-sm">{item.title}</div>
                         <div className="text-gray-400 text-xs line-clamp-1 mt-0.5">
@@ -337,7 +353,6 @@ export default function AnnouncementPage() {
                         </div>
                       </td>
 
-                      {/* Barangay */}
                       <td className="py-4 px-6">
                         <span className="flex items-center gap-1.5 text-gray-600 font-medium">
                           <MapPin size={14} className="text-red-500 shrink-0" />
@@ -345,7 +360,6 @@ export default function AnnouncementPage() {
                         </span>
                       </td>
 
-                      {/* Attachment Tag */}
                       <td className="py-4 px-6">
                         {item.image_url ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-blue-50 text-blue-600">
@@ -360,12 +374,10 @@ export default function AnnouncementPage() {
                         )}
                       </td>
 
-                      {/* Date Published */}
                       <td className="py-4 px-6 text-gray-500">
                         {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
                       </td>
 
-                      {/* Actions */}
                       <td className="py-4 px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
@@ -440,7 +452,6 @@ export default function AnnouncementPage() {
               </div>
 
               <div className="p-6 space-y-5 text-xs text-gray-600 max-h-[75vh] overflow-y-auto">
-                
                 <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
                   <div>
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">

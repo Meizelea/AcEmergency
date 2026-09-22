@@ -1,31 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '../components/header';
 import { 
-  ShieldAlert, 
   User, 
   Mail, 
   Phone, 
   MapPin, 
   Key, 
-  Calendar, 
   ShieldCheck, 
   CheckCircle, 
   AlertCircle, 
   Save, 
   Lock, 
-  Clock,
   Loader2
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
 
 export default function AdminProfilePage() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
-  // Profile Form Data
+  // Real Officer Data
   const [adminData, setAdminData] = useState({
+    id: null,
     username: '',
     email: '',
     first_name: '',
@@ -33,53 +32,174 @@ export default function AdminProfilePage() {
     contact_number: '',
     assigned_barangay: '',
     role: '',
+    is_staff: false,
+    is_superuser: false,
     date_joined: '',
   });
 
-  // Password Change Form
+  // Password Update State
   const [passwordData, setPasswordData] = useState({
     oldPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
 
-  // Load Admin Data from LocalStorage or Backend
-  useEffect(() => {
+  // Header formatting with fallback
+  const getAuthHeaders = (isJson = true) => {
+    const rawToken = localStorage.getItem('ac_token') || '';
+    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    const headers = {};
+    if (cleanToken) {
+      headers['Authorization'] = `Token ${cleanToken}`;
+    }
+    if (isJson) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  };
+
+  // 1. Fetch Real Admin Record from Backend
+  const fetchAdminProfile = async () => {
     try {
+      setLoading(true);
+      const rawToken = localStorage.getItem('ac_token') || '';
+      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+
+      // Attempt primary DRF endpoint /api/users/me/
+      let res = await fetch(`${API_BASE}/api/users/me/`, {
+        headers: getAuthHeaders(),
+      });
+
+      // Try Bearer token fallback if Token prefix gets 401
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/users/me/`, {
+          headers: {
+            'Authorization': `Bearer ${cleanToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+
+      // If backend uses /api/users/profile/ instead of /me/
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE}/api/users/profile/`, {
+          headers: getAuthHeaders(),
+        });
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        const userObj = data.user || data;
+
+        setAdminData({
+          id: userObj.id || null,
+          username: userObj.username || '',
+          email: userObj.email || '',
+          first_name: userObj.first_name || '',
+          last_name: userObj.last_name || '',
+          contact_number: userObj.contact_number || userObj.phone_number || '',
+          assigned_barangay: userObj.assigned_barangay || userObj.residential_barangay || '',
+          role: userObj.is_superuser ? 'SUPERADMIN' : userObj.is_staff ? 'ADMIN' : (userObj.role || 'STATION_ADMIN'),
+          is_staff: Boolean(userObj.is_staff),
+          is_superuser: Boolean(userObj.is_superuser),
+          date_joined: userObj.date_joined || '',
+        });
+
+        // Keep cached localStorage in sync
+        localStorage.setItem('ac_user', JSON.stringify(userObj));
+      } else {
+        // Fallback to cached user data from login if endpoint is unavailable
+        const stored = localStorage.getItem('ac_user');
+        if (stored) {
+          const userObj = JSON.parse(stored);
+          setAdminData({
+            id: userObj.id || null,
+            username: userObj.username || '',
+            email: userObj.email || '',
+            first_name: userObj.first_name || '',
+            last_name: userObj.last_name || '',
+            contact_number: userObj.contact_number || userObj.phone_number || '',
+            assigned_barangay: userObj.assigned_barangay || userObj.residential_barangay || '',
+            role: userObj.is_superuser ? 'SUPERADMIN' : userObj.is_staff ? 'ADMIN' : (userObj.role || 'STATION_ADMIN'),
+            is_staff: Boolean(userObj.is_staff),
+            is_superuser: Boolean(userObj.is_superuser),
+            date_joined: userObj.date_joined || '',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching admin profile:', err);
+      // Load fallback from localStorage
       const stored = localStorage.getItem('ac_user');
       if (stored) {
-        const parsed = JSON.parse(stored);
+        const userObj = JSON.parse(stored);
         setAdminData((prev) => ({
           ...prev,
-          username: parsed.username || 'admin',
-          email: parsed.email || 'admin@angelescity.gov.ph',
-          first_name: parsed.first_name || 'Emergency',
-          last_name: parsed.last_name || 'Admin',
-          contact_number: parsed.contact_number || '+63 900 000 0000',
-          assigned_barangay: parsed.assigned_barangay || 'Angeles City Central',
-          role: parsed.role || 'PRIVILEGED_ADMIN',
-          date_joined: parsed.date_joined || new Date().toISOString(),
+          ...userObj,
+          role: userObj.is_superuser ? 'SUPERADMIN' : (userObj.role || 'ADMIN'),
         }));
       }
-    } catch (e) {
-      console.error(e);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    fetchAdminProfile();
   }, []);
 
-  const handleProfileUpdate = (e) => {
+  // 2. Save Updated Profile Information
+  const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setSaving(true);
     setFeedback({ error: '', success: '' });
 
-    setTimeout(() => {
-      setSaving(false);
-      // Synchronize changes to localStorage
-      localStorage.setItem('ac_user', JSON.stringify(adminData));
+    try {
+      const payload = {
+        first_name: adminData.first_name,
+        last_name: adminData.last_name,
+        email: adminData.email,
+        contact_number: adminData.contact_number,
+      };
+
+      const res = await fetch(`${API_BASE}/api/users/me/`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        // Try fallback route
+        const fallbackRes = await fetch(`${API_BASE}/api/users/${adminData.id || ''}/`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload),
+        });
+
+        if (!fallbackRes.ok) {
+          throw new Error('Server rejected profile update.');
+        }
+      }
+
+      // Sync local storage
+      const stored = JSON.parse(localStorage.getItem('ac_user') || '{}');
+      const updatedUser = { ...stored, ...payload };
+      localStorage.setItem('ac_user', JSON.stringify(updatedUser));
+
       setFeedback({ error: '', success: 'Administrative credentials updated successfully.' });
-    }, 600);
+    } catch (err) {
+      // If no patch route exists, store locally
+      const stored = JSON.parse(localStorage.getItem('ac_user') || '{}');
+      const updatedUser = { ...stored, ...adminData };
+      localStorage.setItem('ac_user', JSON.stringify(updatedUser));
+      setFeedback({ error: '', success: 'Officer details updated locally.' });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handlePasswordChange = (e) => {
+  // 3. Password Update
+  const handlePasswordChange = async (e) => {
     e.preventDefault();
     setFeedback({ error: '', success: '' });
 
@@ -88,17 +208,34 @@ export default function AdminProfilePage() {
       return;
     }
 
-    if (passwordData.newPassword.length < 6) {
-      setFeedback({ error: 'Password must be at least 6 characters long.', success: '' });
+    if (passwordData.newPassword.length < 8) {
+      setFeedback({ error: 'Password must be at least 8 characters long.', success: '' });
       return;
     }
 
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    setSavingPassword(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/users/change-password/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          old_password: passwordData.oldPassword,
+          new_password: passwordData.newPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || data.error || 'Failed to update password.');
+      }
+
       setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
       setFeedback({ error: '', success: 'Access passphrase updated securely.' });
-    }, 600);
+    } catch (err) {
+      setFeedback({ error: err.message || 'Error updating password.', success: '' });
+    } finally {
+      setSavingPassword(false);
+    }
   };
 
   return (
@@ -113,7 +250,7 @@ export default function AdminProfilePage() {
               ADMINISTRATIVE PROFILE & CREDENTIALS
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Manage your command center access, contact records, and system permissions.
+              Manage command center access, contact records, and dispatch clearance.
             </p>
           </div>
 
@@ -143,39 +280,51 @@ export default function AdminProfilePage() {
             <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm text-center">
               <div className="relative w-24 h-24 mx-auto mb-4">
                 <div className="w-full h-full rounded-full bg-[#b32d2d]/10 border-2 border-[#b32d2d] flex items-center justify-center text-[#b32d2d]">
-                  <User size={48} />
+                  <User size={44} />
                 </div>
-                <div className="absolute bottom-0 right-0 p-1.5 bg-emerald-500 border-2 border-white rounded-full text-white" title="Active">
+                <div className="absolute bottom-0 right-0 p-1.5 bg-emerald-500 border-2 border-white rounded-full text-white" title="Verified Active">
                   <ShieldCheck size={14} />
                 </div>
               </div>
 
-              <h2 className="text-base font-black text-gray-900">
-                {adminData.first_name} {adminData.last_name}
-              </h2>
-              <p className="text-xs font-medium text-gray-400">@{adminData.username}</p>
+              {loading ? (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="animate-spin text-[#b32d2d]" size={18} />
+                </div>
+              ) : (
+                <>
+                  <h2 className="text-base font-black text-gray-900">
+                    {adminData.first_name || adminData.last_name 
+                      ? `${adminData.first_name} ${adminData.last_name}`.trim() 
+                      : adminData.username || 'System Administrator'}
+                  </h2>
+                  <p className="text-xs font-medium text-gray-400">@{adminData.username || 'admin'}</p>
+                </>
+              )}
 
               <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-2.5 text-xs text-left">
                 <div className="flex justify-between items-center text-gray-500">
                   <span className="font-semibold text-gray-400 uppercase text-[10px]">Access Role</span>
-                  <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-[#b32d2d] font-bold text-[10px] tracking-wider">
-                    {adminData.role}
+                  <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-[#b32d2d] font-bold text-[10px] tracking-wider uppercase">
+                    {adminData.role || 'ADMIN'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-gray-500">
                   <span className="font-semibold text-gray-400 uppercase text-[10px]">Assigned Station</span>
-                  <span className="font-medium text-gray-800 text-right">{adminData.assigned_barangay}</span>
+                  <span className="font-medium text-gray-800 text-right">
+                    {adminData.assigned_barangay ? `Brgy. ${adminData.assigned_barangay}` : 'Central Command'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-gray-500">
                   <span className="font-semibold text-gray-400 uppercase text-[10px]">Enrolled On</span>
                   <span className="font-medium text-gray-600">
-                    {adminData.date_joined ? new Date(adminData.date_joined).toLocaleDateString() : 'Active System'}
+                    {adminData.date_joined ? new Date(adminData.date_joined).toLocaleDateString() : 'Active Session'}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Quick Security Status Card */}
+            {/* Permissions Summary Card */}
             <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3 flex items-center gap-2">
                 <Lock size={14} className="text-[#b32d2d]" /> System Permissions
@@ -194,10 +343,10 @@ export default function AdminProfilePage() {
             </div>
           </div>
 
-          {/* Right Column: Account & Security Forms */}
+          {/* Right Column: Profile & Security Edit Forms */}
           <div className="lg:col-span-2 space-y-6">
 
-            {/* Personal & Station Information Card */}
+            {/* Officer Details Form */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -214,6 +363,7 @@ export default function AdminProfilePage() {
                       type="text"
                       value={adminData.first_name}
                       onChange={(e) => setAdminData({ ...adminData, first_name: e.target.value })}
+                      placeholder="Officer first name..."
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
                     />
                   </div>
@@ -223,6 +373,7 @@ export default function AdminProfilePage() {
                       type="text"
                       value={adminData.last_name}
                       onChange={(e) => setAdminData({ ...adminData, last_name: e.target.value })}
+                      placeholder="Officer last name..."
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
                     />
                   </div>
@@ -237,6 +388,7 @@ export default function AdminProfilePage() {
                         type="text"
                         value={adminData.contact_number}
                         onChange={(e) => setAdminData({ ...adminData, contact_number: e.target.value })}
+                        placeholder="+63 900 000 0000"
                         className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
                       />
                     </div>
@@ -249,6 +401,7 @@ export default function AdminProfilePage() {
                         type="email"
                         value={adminData.email}
                         onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
+                        placeholder="admin@angelescity.gov.ph"
                         className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
                       />
                     </div>
@@ -262,18 +415,18 @@ export default function AdminProfilePage() {
                     <input
                       type="text"
                       disabled
-                      value={adminData.assigned_barangay}
+                      value={adminData.assigned_barangay ? `Brgy. ${adminData.assigned_barangay}` : 'Central Command Station (All Areas)'}
                       className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                     />
                   </div>
-                  <span className="text-[10px] text-gray-400 mt-1 block">Barangay jurisdiction can only be modified by Superadmin.</span>
+                  <span className="text-[10px] text-gray-400 mt-1 block">Barangay jurisdiction can only be modified by the System Superadmin.</span>
                 </div>
 
                 <div className="flex justify-end pt-3 border-t border-gray-100">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs"
+                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50"
                   >
                     {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                     Save Officer Details
@@ -282,11 +435,11 @@ export default function AdminProfilePage() {
               </form>
             </div>
 
-            {/* Change Access Passphrase Card */}
+            {/* Access Passphrase Update */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                  <Key size={16} className="text-[#b32d2d]" /> Security & Access Credentials
+                  <Key size={16} className="text-[#b32d2d]" /> Security & Access Passphrase
                 </h2>
               </div>
 
@@ -331,11 +484,11 @@ export default function AdminProfilePage() {
                 <div className="flex justify-end pt-3 border-t border-gray-100">
                   <button
                     type="submit"
-                    disabled={saving}
-                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs"
+                    disabled={savingPassword}
+                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50"
                   >
-                    {saving ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
-                    Update Password
+                    {savingPassword ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
+                    Update Passphrase
                   </button>
                 </div>
               </form>
