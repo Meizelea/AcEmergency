@@ -1,6 +1,5 @@
 ===============================================================================
                     ACEMERGENCY FRONTEND REQUIREMENTS
-===============================================================================
 
 [RUNTIME DEPENDENCIES]
 npm install react react-dom react-router-dom lucide-react leaflet react-leaflet recharts
@@ -38,4 +37,4 @@ VITE_API_BASE_URL=http://localhost:8000
 [BACKEND REQUIREMENT]
 - Django REST Framework running on port 8000
 - CORS allowed for http://localhost:5173
-================================================================================
+===============================================================================
