@@ -18,10 +18,12 @@ const getApiBaseUrl = () => {
   const hostname = window.location.hostname || '127.0.0.1';
 
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `http://${hostname}:8000`;
+    return `https://api.aksyon.online`;
+    //return `http://${hostname}:8000`;
   }
 
-  return `https://${hostname}`;
+  return `https://api.aksyon.online`;
+  //return `https://${hostname}`;
 };
 
 const API_BASE_URL = getApiBaseUrl();

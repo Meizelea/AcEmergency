@@ -61,7 +61,7 @@ export default function EmergencyUnitsPage() {
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       
       // Pull raw reports from the active admin endpoint
-      const reportsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin/`, {
+      const reportsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

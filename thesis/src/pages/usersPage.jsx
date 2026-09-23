@@ -46,7 +46,7 @@ export default function UsersPage() {
     }
     try {
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      const response = await fetch(`http://${targetHostname}:8000/api/users/admin/`, {
+      const response = await fetch(`https://api.aksyon.online/api/users/admin/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

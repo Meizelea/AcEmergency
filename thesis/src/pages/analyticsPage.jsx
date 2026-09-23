@@ -39,14 +39,14 @@ export default function AnalyticsPage() {
       const headers = { 'Content-Type': 'application/json', 'Authorization': authPrefix };
 
       // 1. Fetch Reports
-      const reportsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin/`, { method: 'GET', headers });
+      const reportsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, { method: 'GET', headers });
       if (reportsRes.ok) {
         const data = await reportsRes.json();
         setReports(Array.isArray(data) ? data : (data?.results || []));
       }
 
       // 2. Fetch Users Count
-      const usersRes = await fetch(`http://${targetHostname}:8000/api/users/admin/`, { method: 'GET', headers });
+      const usersRes = await fetch(`https://api.aksyon.online/api/users/admin/`, { method: 'GET', headers });
       if (usersRes.ok) {
         const uData = await usersRes.json();
         const uList = Array.isArray(uData) ? uData : (uData?.results || []);

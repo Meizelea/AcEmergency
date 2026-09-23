@@ -14,7 +14,8 @@ import {
   Loader2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://api.aksyon.online/api/';
+//const API_BASE = 'http://localhost:8000';
 
 export default function AdminProfilePage() {
   const [loading, setLoading] = useState(true);

@@ -72,7 +72,7 @@ export default function DashboardPage() {
           'Authorization': authPrefix
         };
 
-        const analyticsRes = await fetch(`http://${targetHostname}:8000/api/reports/admin/`, { 
+        const analyticsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, { 
           headers: headersConfiguration 
         });
 

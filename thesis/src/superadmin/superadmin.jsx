@@ -16,7 +16,7 @@ export const ANGELES_BARANGAYS = [
   "Claro M. Recto"
 ];
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://api.aksyon.online/api/';
 
 export default function SuperAdminPage() {
   const navigate = useNavigate();
