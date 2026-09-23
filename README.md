@@ -1,8 +1,41 @@
-#Navigation is removed from pages and is now moved to header.jsx for cleaner and shorter code
+================================================================================
+                    ACEMERGENCY FRONTEND REQUIREMENTS
+================================================================================
 
---Update Emergency Units page to have CRUD for the admin
---Change the hardcoded emergency responder coordinates to a more accurate one.
+[RUNTIME DEPENDENCIES]
+npm install react react-dom react-router-dom lucide-react leaflet react-leaflet recharts
 
-//remove server.js
-//remove Sidebar.jsx (Obsolete)
-//remove MockDataPage.jsx (Used for testing previously without backend)
+- react & react-dom
+- react-router-dom
+- lucide-react
+- leaflet
+- react-leaflet
+- recharts
+
+--------------------------------------------------------------------------------
+[DEV DEPENDENCIES]
+npm install -D vite @vitejs/plugin-react tailwindcss @tailwindcss/vite
+
+- vite
+- @vitejs/plugin-react
+- tailwindcss
+- @tailwindcss/vite (or postcss + autoprefixer if using Tailwind v3)
+
+--------------------------------------------------------------------------------
+[LEAFLET CSS REQUIREMENT]
+Must be included in src/main.jsx, src/index.css, or index.html:
+
+import "leaflet/dist/leaflet.css";
+
+OR via CDN in index.html:
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+
+--------------------------------------------------------------------------------
+[ENVIRONMENT VARIABLE (.env)]
+VITE_API_BASE_URL=http://localhost:8000
+
+--------------------------------------------------------------------------------
+[BACKEND REQUIREMENT]
+- Django REST Framework running on port 8000
+- CORS allowed for http://localhost:5173
+================================================================================
