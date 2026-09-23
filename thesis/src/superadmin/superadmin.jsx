@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, UserPlus, Search, Edit3, Trash2, 
-  Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2 
+  Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
 
 // Backend Valid Choices (core/choices.py)
 export const ANGELES_BARANGAYS = [
+  "Santa Trinidad",
   "Sta. Trinidad",
   "San Nicolas",
   "Lourdes NorthWest",
@@ -23,6 +24,7 @@ export default function SuperAdminPage() {
   const [admins, setAdmins] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +43,21 @@ export default function SuperAdminPage() {
   });
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Helper to extract barangay from all possible backend field names
+  const getAdminBarangay = (admin) => {
+    return (
+      admin?.residential_barangay ||
+      admin?.assigned_barangay ||
+      admin?.barangay ||
+      null
+    );
+  };
+
+  // Helper to extract contact number
+  const getAdminContact = (admin) => {
+    return admin?.contact_number || admin?.phone_number || null;
+  };
 
   // Token & Header extraction
   const getAuthHeaders = (isJson = true) => {
@@ -66,12 +83,13 @@ export default function SuperAdminPage() {
     }
 
     setIsLoading(true);
+    setPermissionDenied(false);
+
     try {
       let res = await fetch(`${API_BASE}/api/users/admin/`, {
         headers: getAuthHeaders(),
       });
 
-      // Bearer token fallback if Token prefix gets 401
       if (res.status === 401) {
         res = await fetch(`${API_BASE}/api/users/admin/`, {
           headers: {
@@ -81,6 +99,12 @@ export default function SuperAdminPage() {
         });
       }
 
+      if (res.status === 403) {
+        setPermissionDenied(true);
+        setIsLoading(false);
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(`Server returned ${res.status}`);
       }
@@ -88,17 +112,17 @@ export default function SuperAdminPage() {
       const data = await res.json();
       const userList = Array.isArray(data) ? data : (data?.results || []);
 
-      // Filter: Keep active staff/superusers/assigned barangay users
-      const adminUsers = userList.filter(u => 
-        (u.assigned_barangay !== null && u.assigned_barangay !== undefined && u.assigned_barangay !== '') ||
-        u.is_superuser === true ||
-        u.is_staff === true ||
-        u.role?.toUpperCase() === 'ADMIN' ||
-        u.role?.toUpperCase() === 'PRIVILEGED_ADMIN' ||
-        u.username === 'admin'
-      );
+      // Filter: Keep standard barangay admins, EXCLUDE privileged admins / system superadmins
+      const barangayAdmins = userList.filter((u) => {
+        const isPrivileged =
+          u.is_superuser === true ||
+          u.role?.toUpperCase() === 'PRIVILEGED_ADMIN' ||
+          u.username === 'g2c405';
 
-      setAdmins(adminUsers.length > 0 ? adminUsers : userList);
+        return !isPrivileged;
+      });
+
+      setAdmins(barangayAdmins);
     } catch (error) {
       console.error("Failed to load admin roster:", error);
     } finally {
@@ -127,6 +151,7 @@ export default function SuperAdminPage() {
   };
 
   const openEditModal = (admin) => {
+    const currentBrgy = getAdminBarangay(admin);
     setModalMode('edit');
     setSelectedAdmin(admin);
     setFormData({
@@ -135,8 +160,8 @@ export default function SuperAdminPage() {
       password: '',
       first_name: admin.first_name || '',
       last_name: admin.last_name || '',
-      barangay: ANGELES_BARANGAYS.includes(admin.assigned_barangay) ? admin.assigned_barangay : ANGELES_BARANGAYS[0],
-      contact_number: admin.contact_number || admin.phone_number || ''
+      barangay: ANGELES_BARANGAYS.includes(currentBrgy) ? currentBrgy : ANGELES_BARANGAYS[0],
+      contact_number: getAdminContact(admin) || ''
     });
     setFormError('');
     setIsModalOpen(true);
@@ -167,7 +192,9 @@ export default function SuperAdminPage() {
         email: formData.email,
         first_name: formData.first_name,
         last_name: formData.last_name,
+        residential_barangay: formData.barangay,
         assigned_barangay: formData.barangay,
+        barangay: formData.barangay,
         contact_number: formData.contact_number
       };
 
@@ -250,7 +277,7 @@ export default function SuperAdminPage() {
     const query = searchQuery.toLowerCase();
     const fullName = `${admin.first_name || ''} ${admin.last_name || ''}`.toLowerCase();
     const username = (admin.username || '').toLowerCase();
-    const brgy = (admin.assigned_barangay || '').toLowerCase();
+    const brgy = (getAdminBarangay(admin) || '').toLowerCase();
     return fullName.includes(query) || username.includes(query) || brgy.includes(query);
   });
 
@@ -258,6 +285,21 @@ export default function SuperAdminPage() {
     <AdminLayout>
       <div className="p-8 h-full overflow-y-auto bg-[#f3f4f6]">
         
+        {/* Permission 403 Warning Banner */}
+        {permissionDenied && (
+          <div className="mb-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-4">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+              <Lock size={20} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">Access Restricted to Privileged Admins</h4>
+              <p className="text-xs text-amber-700 mt-1">
+                Your account does not possess privileged administration permissions to view or edit the administrators directory.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* HEADER TOOLBAR */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
@@ -267,15 +309,17 @@ export default function SuperAdminPage() {
                 type="text" 
                 placeholder="Search admin name, username, or brgy..." 
                 value={searchQuery} 
+                disabled={permissionDenied}
                 onChange={(e) => setSearchQuery(e.target.value)} 
-                className="w-full py-2.5 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
+                className="w-full py-2.5 px-3 text-xs font-medium text-gray-700 focus:outline-none disabled:bg-gray-50" 
               />
             </div>
           </div>
 
           <button 
             onClick={openCreateModal}
-            className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-xs transition-all active:scale-95"
+            disabled={permissionDenied}
+            className="bg-[#b32d2d] hover:bg-[#8b2323] disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
           >
             <UserPlus size={16} /> Register New Admin
           </button>
@@ -288,7 +332,7 @@ export default function SuperAdminPage() {
               <ShieldCheck className="text-[#b32d2d]" size={22} />
               <h2 className="font-bold text-base text-gray-900 tracking-tight">System Administrators Directory</h2>
             </div>
-            <span className="text-xs text-gray-400 font-medium">{filteredAdmins.length} Active Staff</span>
+            <span className="text-xs text-gray-400 font-medium">{filteredAdmins.length} Barangay Admins</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -310,15 +354,24 @@ export default function SuperAdminPage() {
                       Querying administrator roster...
                     </td>
                   </tr>
+                ) : permissionDenied ? (
+                  <tr>
+                    <td colSpan="5" className="py-12 text-center text-gray-400 font-medium">
+                      403 Forbidden: Privileged admin credentials required.
+                    </td>
+                  </tr>
                 ) : filteredAdmins.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="py-12 text-center text-gray-400 font-medium">
-                      No admin accounts found matching criteria.
+                      No barangay admin accounts found.
                     </td>
                   </tr>
                 ) : (
                   filteredAdmins.map((admin) => {
                     const isActive = admin.is_active ?? true;
+                    const brgy = getAdminBarangay(admin);
+                    const contact = getAdminContact(admin);
+
                     return (
                       <tr key={admin.id} className="hover:bg-gray-50/80 transition-colors">
                         <td className="py-4 px-6">
@@ -330,13 +383,13 @@ export default function SuperAdminPage() {
                         <td className="py-4 px-6 text-xs font-semibold text-gray-700">
                           <div className="flex items-center gap-1.5">
                             <MapPin size={14} className="text-[#b32d2d] shrink-0" />
-                            <span>Brgy. {admin.assigned_barangay || 'Central Command'}</span>
+                            <span>{brgy ? `Brgy. ${brgy}` : 'Central Command'}</span>
                           </div>
                         </td>
                         <td className="py-4 px-6 text-xs text-gray-600 font-medium">
                           <div className="flex items-center gap-1.5">
                             <Phone size={14} className="text-gray-400 shrink-0" />
-                            <span>{admin.contact_number || admin.phone_number || 'No phone set'}</span>
+                            <span>{contact || 'No phone set'}</span>
                           </div>
                         </td>
                         <td className="py-4 px-6">
@@ -351,21 +404,21 @@ export default function SuperAdminPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button 
                               onClick={() => openViewModal(admin)} 
-                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-all"
+                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-all cursor-pointer"
                               title="View Admin File"
                             >
                               <Eye size={14} />
                             </button>
                             <button 
                               onClick={() => openEditModal(admin)} 
-                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all"
+                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all cursor-pointer"
                               title="Edit Admin Information"
                             >
                               <Edit3 size={14} />
                             </button>
                             <button 
                               onClick={() => handleToggleAdminStatus(admin)} 
-                              className={`p-1.5 rounded-lg transition-all ${
+                              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                                 isActive ? 'bg-red-50 hover:bg-red-100 text-red-600' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600'
                               }`}
                               title={isActive ? "Disable Admin" : "Enable Admin"}
@@ -423,20 +476,22 @@ export default function SuperAdminPage() {
                     </div>
                     <div>
                       <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Assigned Station</label>
-                      <p className="text-xs font-bold text-gray-700">Brgy. {selectedAdmin.assigned_barangay || 'Central Command'}</p>
+                      <p className="text-xs font-bold text-gray-700">
+                        {getAdminBarangay(selectedAdmin) ? `Brgy. ${getAdminBarangay(selectedAdmin)}` : 'Central Command'}
+                      </p>
                     </div>
                   </div>
                   <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Contact Number</label>
-                      <p className="text-xs font-medium text-gray-700">{selectedAdmin.contact_number || selectedAdmin.phone_number || 'N/A'}</p>
+                      <p className="text-xs font-medium text-gray-700">{getAdminContact(selectedAdmin) || 'N/A'}</p>
                     </div>
                     <div>
                       <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Email Routing</label>
                       <p className="text-xs font-medium text-gray-700">{selectedAdmin.email || 'N/A'}</p>
                     </div>
                   </div>
-                  <button onClick={() => setIsModalOpen(false)} className="mt-4 w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl transition-colors">
+                  <button onClick={() => setIsModalOpen(false)} className="mt-4 w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl transition-colors cursor-pointer">
                     Close File
                   </button>
                 </div>
@@ -533,14 +588,14 @@ export default function SuperAdminPage() {
                     <button 
                       type="button" 
                       onClick={() => setIsModalOpen(false)}
-                      className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors"
+                      className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button 
                       type="submit" 
                       disabled={submitting}
-                      className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       {submitting && <Loader2 className="animate-spin" size={14} />}
                       {modalMode === 'create' ? 'Create Admin Account' : 'Save Changes'}

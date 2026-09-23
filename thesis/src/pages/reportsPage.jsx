@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
-  Image as ImageIcon, Video, AlertTriangle 
+  Image as ImageIcon, Video, AlertTriangle, Loader2 
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -19,11 +19,9 @@ const getApiBaseUrl = () => {
 
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return `http://${hostname}:8000`;
-    //return `https://api.aksyon.online`;
   }
 
   return `https://${hostname}`;
-  //return `https://api.aksyon.online`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -74,19 +72,29 @@ export default function ReportsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState(null);
 
+  // Dynamic Media States
+  const [activeVideoUrl, setActiveVideoUrl] = useState(null);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+
   const token = localStorage.getItem('ac_token');
+
+  const getAuthHeaders = () => {
+    const rawToken = token || '';
+    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': rawToken.startsWith('Bearer ') || rawToken.startsWith('Token ') 
+        ? rawToken 
+        : `Token ${cleanToken}`
+    };
+  };
 
   const fetchReports = async () => {
     if (!token) return;
     try {
-      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      
       const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authPrefix
-        }
+        headers: getAuthHeaders()
       });
       
       if (!response.ok) {
@@ -111,9 +119,32 @@ export default function ReportsPage() {
     fetchReports();
   }, [token, navigate]);
 
-  const handleOpenReportModal = (report) => {
+  // Open modal and resolve media
+  const handleOpenReportModal = async (report) => {
     setSelectedReport(report);
+    setActiveVideoUrl(null);
     setIsModalOpen(true);
+
+    // If report is a video (has video_thumbnail_url or no image_url)
+    if (report.video_thumbnail_url) {
+      setIsVideoLoading(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/video-url/`, {
+          headers: getAuthHeaders()
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.video_url) {
+            setActiveVideoUrl(data.video_url);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch signed video URL:", err);
+      } finally {
+        setIsVideoLoading(false);
+      }
+    }
   };
 
   const handleStatusUpdate = async (reportId, newStatus) => {
@@ -125,14 +156,10 @@ export default function ReportsPage() {
       };
 
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'pending';
-      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
       const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': authPrefix
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status: finalPayloadValue })
       });
 
@@ -149,13 +176,9 @@ export default function ReportsPage() {
 
   const handleBarangayUpdate = async (reportId, selectedBarangay) => {
     try {
-      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
       const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authPrefix
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ barangay: selectedBarangay })
       });
 
@@ -208,14 +231,9 @@ export default function ReportsPage() {
     modalLng = fallback[1];
   }
 
-  // Media resolution with https protocol enforcement
-  let mediaUrl = selectedReport?.media_url || selectedReport?.media || null;
-  if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http://') && window.location.protocol === 'https:') {
-    mediaUrl = mediaUrl.replace('http://', 'https://');
-  }
-
-  const isVideoAsset = selectedReport?.media_type === 'video' || (typeof mediaUrl === 'string' && (mediaUrl.includes('.mp4') || mediaUrl.includes('.mov')));
-  const hasValidMedia = typeof mediaUrl === 'string' && (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://'));
+  // Determine Media Type & Source
+  const hasImage = Boolean(selectedReport?.image_url);
+  const hasVideo = Boolean(selectedReport?.video_thumbnail_url || activeVideoUrl);
 
   return (
     <AdminLayout>
@@ -268,7 +286,7 @@ export default function ReportsPage() {
                   <th className="py-4 px-6 text-center w-72">Quick Workflow</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
                   <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
                 ) : filteredReports.length === 0 ? (
@@ -291,8 +309,18 @@ export default function ReportsPage() {
                         <td className="py-5 px-6 font-black text-gray-400 text-sm">#{report.id}</td>
                         <td className="py-5 px-6">
                           <div className="font-bold text-gray-800 text-[15px]">{report.short_message || report.description || 'Emergency Incident'}</div>
-                          <div className="text-xs text-gray-400 mt-0.5 font-medium">
-                            Reporter: {getReporterName(report.user)}
+                          <div className="text-xs text-gray-400 mt-0.5 font-medium flex items-center gap-2">
+                            <span>Reporter: {getReporterName(report.user)}</span>
+                            {report.video_thumbnail_url && (
+                              <span className="flex items-center gap-0.5 text-blue-500 font-bold text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">
+                                <Video size={10} /> Video
+                              </span>
+                            )}
+                            {report.image_url && (
+                              <span className="flex items-center gap-0.5 text-emerald-600 font-bold text-[10px] bg-emerald-50 px-1.5 py-0.5 rounded">
+                                <ImageIcon size={10} /> Image
+                              </span>
+                            )}
                           </div>
                         </td>
                         
@@ -362,19 +390,19 @@ export default function ReportsPage() {
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => handleStatusUpdate(selectedReport.id, 'Responding')}
-                  className="bg-[#0f766e] hover:bg-[#115e59] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95"
+                  className="bg-[#0f766e] hover:bg-[#115e59] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
                   Mark In Progress
                 </button>
                 <button 
                   onClick={() => handleStatusUpdate(selectedReport.id, 'Resolved')}
-                  className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95"
+                  className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
                   Mark Resolved
                 </button>
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 ml-2"
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 ml-2 cursor-pointer"
                 >
                   Close
                 </button>
@@ -456,26 +484,44 @@ export default function ReportsPage() {
               {/* MEDIA ATTACHMENTS (IMAGE / VIDEO) */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Incident Media Attachments</h4>
-                {hasValidMedia ? (
+                
+                {hasImage ? (
                   <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex items-center justify-center">
-                    {isVideoAsset ? (
+                    <img 
+                      src={selectedReport.image_url} 
+                      alt="Incident Evidence" 
+                      className="max-h-80 object-contain w-full" 
+                    />
+                  </div>
+                ) : hasVideo ? (
+                  <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex flex-col items-center justify-center relative">
+                    {isVideoLoading ? (
+                      <div className="p-12 flex flex-col items-center justify-center text-white gap-2">
+                        <Loader2 className="animate-spin text-[#b32d2d]" size={28} />
+                        <span className="text-xs font-semibold">Loading secure video stream...</span>
+                      </div>
+                    ) : activeVideoUrl ? (
                       <video 
-                        src={mediaUrl} 
+                        src={activeVideoUrl} 
                         controls 
+                        autoPlay
                         className="max-h-80 w-full object-contain"
                         preload="metadata"
                       >
-                        Your browser does not support the video tag.
+                        Your browser does not support video playback.
                       </video>
                     ) : (
-                      <img 
-                        src={mediaUrl} 
-                        alt="Incident Evidence" 
-                        className="max-h-80 object-contain w-full" 
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
+                      <div className="relative w-full h-80 flex items-center justify-center">
+                        <img 
+                          src={selectedReport.video_thumbnail_url} 
+                          alt="Video Thumbnail" 
+                          className="max-h-80 w-full object-contain filter brightness-75" 
+                        />
+                        <div className="absolute flex flex-col items-center justify-center bg-black/60 px-4 py-2 rounded-lg text-white text-xs font-bold gap-1">
+                          <Video size={20} className="text-red-500" />
+                          <span>Video Processing / Preview</span>
+                        </div>
+                      </div>
                     )}
                   </div>
                 ) : (

@@ -30,14 +30,12 @@ export default function AnnouncementPage() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
-  // Get Auth Token Helper supporting standard DRF Token & Bearer JWT
   const getAuthHeaders = (isJson = true) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     const headers = {};
 
     if (cleanToken) {
-      // Use 'Token ' prefix for standard DRF / Knox TokenAuthentication
       headers['Authorization'] = `Token ${cleanToken}`;
     }
     if (isJson) {
@@ -46,28 +44,22 @@ export default function AnnouncementPage() {
     return headers;
   };
 
-  // 1. Fetch announcements list
   const fetchAnnouncements = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/api/announcements/admin/`, {
+      let res = await fetch(`${API_BASE}/api/announcements/admin/`, {
         headers: getAuthHeaders(),
       });
 
-      // Retry with Bearer prefix if Token prefix encounters 401
       if (res.status === 401) {
         const rawToken = localStorage.getItem('ac_token') || '';
         const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-        const fallbackRes = await fetch(`${API_BASE}/api/announcements/admin/`, {
+        res = await fetch(`${API_BASE}/api/announcements/admin/`, {
           headers: {
             'Authorization': `Bearer ${cleanToken}`,
             'Content-Type': 'application/json',
           },
         });
-        if (!fallbackRes.ok) throw new Error(`HTTP error ${fallbackRes.status}`);
-        const data = await fallbackRes.json();
-        setAnnouncements(Array.isArray(data) ? data : data.results || []);
-        return;
       }
 
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -85,7 +77,6 @@ export default function AnnouncementPage() {
     fetchAnnouncements();
   }, []);
 
-  // Filtered list
   const filteredAnnouncements = useMemo(() => {
     return announcements.filter((item) => {
       const q = searchTerm.toLowerCase();
@@ -97,7 +88,6 @@ export default function AnnouncementPage() {
     });
   }, [announcements, searchTerm]);
 
-  // Open Form Modal (Create or Edit)
   const handleOpenForm = (announcement = null) => {
     if (announcement) {
       setSelectedAnnouncement(announcement);
@@ -118,13 +108,12 @@ export default function AnnouncementPage() {
     setIsFormModalOpen(true);
   };
 
-  // Open Details Modal & fetch video URL if needed
   const handleOpenDetail = async (announcement) => {
     setSelectedAnnouncement(announcement);
     setActiveVideoUrl(null);
     setIsDetailModalOpen(true);
 
-    if (announcement.video_thumbnail_url || (!announcement.image_url && announcement.media)) {
+    if (announcement.video_thumbnail_url) {
       setFetchingVideo(true);
       try {
         const res = await fetch(`${API_BASE}/api/announcements/admin/${announcement.id}/video-url/`, {
@@ -132,17 +121,18 @@ export default function AnnouncementPage() {
         });
         if (res.ok) {
           const data = await res.json();
-          setActiveVideoUrl(data.video_url);
+          if (data.video_url) {
+            setActiveVideoUrl(data.video_url);
+          }
         }
       } catch (err) {
-        console.error('Failed to load video URL:', err);
+        console.error('Failed to load signed video URL:', err);
       } finally {
         setFetchingVideo(false);
       }
     }
   };
 
-  // Handle direct file input
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -150,11 +140,10 @@ export default function AnnouncementPage() {
     }
   };
 
-  // Upload file helper via pre-signed URL protocol
   const uploadMediaToSupabase = async (announcementId, file) => {
     const urlRes = await fetch(`${API_BASE}/api/announcements/admin/media-upload-url/`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders(true),
       body: JSON.stringify({
         announcement_id: announcementId,
         content_type: file.type,
@@ -166,22 +155,34 @@ export default function AnnouncementPage() {
       throw new Error(errData.detail || errData.error || 'Failed to acquire upload authorization');
     }
 
-    const { upload_url, path } = await urlRes.json();
+    const { upload_url, path, token: uploadToken } = await urlRes.json();
     if (!upload_url) throw new Error('Signed upload URL was empty.');
+
+    const uploadHeaders = {
+      'Content-Type': file.type,
+    };
+    if (uploadToken) {
+      uploadHeaders['Authorization'] = `Bearer ${uploadToken}`;
+    }
 
     const uploadRes = await fetch(upload_url, {
       method: 'PUT',
-      headers: {
-        'Content-Type': file.type,
-      },
+      headers: uploadHeaders,
       body: file,
     });
 
-    if (!uploadRes.ok) throw new Error('Failed to upload file to storage bucket.');
+    if (!uploadRes.ok) {
+      const retryPost = await fetch(upload_url, {
+        method: 'POST',
+        headers: uploadHeaders,
+        body: file,
+      });
+      if (!retryPost.ok) throw new Error('Failed to upload file to storage bucket.');
+    }
 
     const patchRes = await fetch(`${API_BASE}/api/announcements/admin/${announcementId}/`, {
       method: 'PATCH',
-      headers: getAuthHeaders(),
+      headers: getAuthHeaders(true),
       body: JSON.stringify({
         media: path,
       }),
@@ -190,37 +191,40 @@ export default function AnnouncementPage() {
     if (!patchRes.ok) throw new Error('Failed to associate media path with announcement.');
   };
 
-  // Submit Create or Edit
   const handleSubmitForm = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setFeedback({ error: '', success: '' });
 
     try {
-      const isEditing = Boolean(selectedAnnouncement);
+      const isEditing = Boolean(selectedAnnouncement && selectedAnnouncement.id);
       const endpoint = isEditing
         ? `${API_BASE}/api/announcements/admin/${selectedAnnouncement.id}/`
         : `${API_BASE}/api/announcements/admin/`;
       const method = isEditing ? 'PATCH' : 'POST';
 
+      const payload = {
+        title: formData.title.trim(),
+        content: formData.content.trim(),
+      };
+
       const res = await fetch(endpoint, {
         method,
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          title: formData.title,
-          content: formData.content,
-        }),
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.error || 'Failed to save announcement details.');
+        const msg = errJson.detail || errJson.error || JSON.stringify(errJson) || 'Failed to save announcement details.';
+        throw new Error(msg);
       }
 
       const savedRecord = await res.json();
+      const targetId = isEditing ? selectedAnnouncement.id : savedRecord.id;
 
-      if (formData.mediaFile) {
-        await uploadMediaToSupabase(savedRecord.id, formData.mediaFile);
+      if (formData.mediaFile && targetId) {
+        await uploadMediaToSupabase(targetId, formData.mediaFile);
       }
 
       setFeedback({
@@ -228,16 +232,16 @@ export default function AnnouncementPage() {
         success: `Announcement ${isEditing ? 'updated' : 'published'} successfully!`,
       });
       setIsFormModalOpen(false);
-      fetchAnnouncements();
+      setSelectedAnnouncement(null);
+      await fetchAnnouncements();
     } catch (err) {
-      console.error(err);
+      console.error('Submit form error:', err);
       setFeedback({ error: err.message || 'Operation failed.', success: '' });
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Delete Announcement
   const handleDelete = async () => {
     if (!selectedAnnouncement) return;
     setSubmitting(true);
@@ -265,19 +269,17 @@ export default function AnnouncementPage() {
     <AdminLayout>
       <div className="min-h-screen bg-[#f3f4f6] p-6 lg:p-10 font-sans text-gray-800">
         
-        {/* Feedback Banners */}
         {feedback.error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm">
-            <AlertCircle size={18} /> {feedback.error}
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold">
+            <AlertCircle size={16} /> {feedback.error}
           </div>
         )}
         {feedback.success && (
-          <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm">
-            <CheckCircle size={18} /> {feedback.success}
+          <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold">
+            <CheckCircle size={16} /> {feedback.success}
           </div>
         )}
 
-        {/* Action Toolbar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -292,15 +294,13 @@ export default function AnnouncementPage() {
 
           <button
             onClick={() => handleOpenForm()}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
           >
             <Plus size={16} /> Post Announcement
           </button>
         </div>
 
-        {/* Directory Card / Table */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          
           <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Megaphone className="text-[#b32d2d]" size={20} />
@@ -345,21 +345,18 @@ export default function AnnouncementPage() {
                       <td className="py-4 px-6 font-semibold text-gray-400">
                         #{item.id}
                       </td>
-
                       <td className="py-4 px-6 max-w-sm">
                         <div className="font-bold text-gray-800 text-sm">{item.title}</div>
                         <div className="text-gray-400 text-xs line-clamp-1 mt-0.5">
                           {item.content}
                         </div>
                       </td>
-
                       <td className="py-4 px-6">
                         <span className="flex items-center gap-1.5 text-gray-600 font-medium">
                           <MapPin size={14} className="text-red-500 shrink-0" />
                           {item.barangay ? `Brgy. ${item.barangay}` : 'Brgy. Not Specified'}
                         </span>
                       </td>
-
                       <td className="py-4 px-6">
                         {item.image_url ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-blue-50 text-blue-600">
@@ -373,23 +370,21 @@ export default function AnnouncementPage() {
                           <span className="text-gray-300 text-[11px] font-medium">—</span>
                         )}
                       </td>
-
                       <td className="py-4 px-6 text-gray-500">
                         {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
                       </td>
-
                       <td className="py-4 px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenDetail(item)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                           >
                             <Eye size={13} />
                             VIEW FILE
                           </button>
                           <button
                             onClick={() => handleOpenForm(item)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                             title="Edit"
                           >
                             <Edit3 size={13} />
@@ -404,11 +399,10 @@ export default function AnnouncementPage() {
           </div>
         </div>
 
-        {/* Modal: View Announcement Details */}
+        {/* Modal: View Details */}
         {isDetailModalOpen && selectedAnnouncement && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
             <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              
               <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">
@@ -422,14 +416,13 @@ export default function AnnouncementPage() {
                     </span>
                   </p>
                 </div>
-
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setIsDetailModalOpen(false);
                       handleOpenForm(selectedAnnouncement);
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
                   >
                     Edit
                   </button>
@@ -438,13 +431,13 @@ export default function AnnouncementPage() {
                       setIsDetailModalOpen(false);
                       setIsDeleteModalOpen(true);
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-[#b32d2d] transition-colors"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-[#b32d2d] transition-colors cursor-pointer"
                   >
                     Delete
                   </button>
                   <button
                     onClick={() => setIsDetailModalOpen(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors cursor-pointer"
                   >
                     Close
                   </button>
@@ -491,11 +484,19 @@ export default function AnnouncementPage() {
                     </div>
                   ) : activeVideoUrl ? (
                     <div className="rounded-xl overflow-hidden border border-gray-200 bg-black/5 flex items-center justify-center max-h-80">
-                      <video src={activeVideoUrl} controls className="max-h-80 w-full object-contain" />
+                      <video src={activeVideoUrl} controls autoPlay className="max-h-80 w-full object-contain" />
                     </div>
                   ) : selectedAnnouncement.image_url ? (
                     <div className="rounded-xl overflow-hidden border border-gray-200 bg-black/5 flex items-center justify-center max-h-80">
                       <img src={selectedAnnouncement.image_url} alt="Attachment" className="max-h-80 w-full object-contain" />
+                    </div>
+                  ) : selectedAnnouncement.video_thumbnail_url ? (
+                    <div className="relative w-full h-80 flex items-center justify-center bg-black rounded-xl overflow-hidden">
+                      <img src={selectedAnnouncement.video_thumbnail_url} alt="Video Preview" className="max-h-80 w-full object-contain filter brightness-75" />
+                      <div className="absolute flex flex-col items-center justify-center bg-black/60 px-4 py-2 rounded-lg text-white text-xs font-bold gap-1">
+                        <Video size={20} className="text-red-500" />
+                        <span>Video Processing</span>
+                      </div>
                     </div>
                   ) : (
                     <div className="bg-gray-50 p-8 rounded-xl border border-dashed border-gray-200 text-center text-gray-400">
@@ -504,7 +505,6 @@ export default function AnnouncementPage() {
                     </div>
                   )}
                 </div>
-
               </div>
             </div>
           </div>
@@ -576,14 +576,14 @@ export default function AnnouncementPage() {
                   <button
                     type="button"
                     onClick={() => setIsFormModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#b32d2d] hover:bg-[#962626] transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#b32d2d] hover:bg-[#962626] transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     {submitting && <Loader2 className="animate-spin" size={14} />}
                     {selectedAnnouncement ? 'Update Announcement' : 'Broadcast Advisory'}
@@ -608,14 +608,14 @@ export default function AnnouncementPage() {
               <div className="flex justify-center gap-2">
                 <button
                   onClick={() => setIsDeleteModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 font-bold text-xs hover:bg-gray-200 transition-colors"
+                  className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 font-bold text-xs hover:bg-gray-200 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDelete}
                   disabled={submitting}
-                  className="px-4 py-2 rounded-xl bg-[#b32d2d] text-white font-bold text-xs hover:bg-[#962626] transition-all"
+                  className="px-4 py-2 rounded-xl bg-[#b32d2d] text-white font-bold text-xs hover:bg-[#962626] transition-all cursor-pointer"
                 >
                   Confirm Delete
                 </button>
