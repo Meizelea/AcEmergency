@@ -165,7 +165,7 @@ export default function DashboardPage() {
       const targetHostname = window.location.hostname || '127.0.0.1';
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
-      const response = await fetch(`http://${targetHostname}:8000/api/reports/admin/${reportId}/`, {
+      const response = await fetch(`https://https://api.aksyon.online/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -228,7 +228,7 @@ export default function DashboardPage() {
             style={{ height: '100%', width: '100%' }} 
             zoomControl={false} 
           >
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+            <TileLayer url="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_4j01_1_3e910495fb3acf0fe46163b9" />
             
             {activeReports.map((report) => {
               let targetBarangay = report.barangay || report.location || 'San Nicolas';

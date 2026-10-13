@@ -11,19 +11,20 @@ import {
   AlertCircle, 
   Save, 
   Lock, 
-  Loader2
+  Loader2,
+  Info
 } from 'lucide-react';
 
-const API_BASE = 'https://api.aksyon.online/api/';
-//const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://api.aksyon.online';
+// const API_BASE = 'http://localhost:8000';
 
 export default function AdminProfilePage() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-  const [feedback, setFeedback] = useState({ error: '', success: '' });
+  const [feedback, setFeedback] = useState({ error: '', success: '', info: '' });
 
-  // Real Officer Data
+  // Officer Profile State
   const [adminData, setAdminData] = useState({
     id: null,
     username: '',
@@ -32,10 +33,19 @@ export default function AdminProfilePage() {
     last_name: '',
     contact_number: '',
     assigned_barangay: '',
+    residential_barangay: '',
     role: '',
     is_staff: false,
     is_superuser: false,
     date_joined: '',
+  });
+
+  // Track pristine values to detect exact field modifications
+  const [initialState, setInitialState] = useState({
+    email: '',
+    contact_number: '',
+    first_name: '',
+    last_name: ''
   });
 
   // Password Update State
@@ -45,7 +55,6 @@ export default function AdminProfilePage() {
     confirmPassword: '',
   });
 
-  // Header formatting with fallback
   const getAuthHeaders = (isJson = true) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
@@ -59,19 +68,17 @@ export default function AdminProfilePage() {
     return headers;
   };
 
-  // 1. Fetch Real Admin Record from Backend
+  // 1. Fetch Admin Profile via GET /api/users/me/
   const fetchAdminProfile = async () => {
     try {
       setLoading(true);
-      const rawToken = localStorage.getItem('ac_token') || '';
-      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+      setFeedback({ error: '', success: '', info: '' });
 
-      // Attempt primary DRF endpoint /api/users/me/
+      const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
       let res = await fetch(`${API_BASE}/api/users/me/`, {
         headers: getAuthHeaders(),
       });
 
-      // Try Bearer token fallback if Token prefix gets 401
       if (res.status === 401) {
         res = await fetch(`${API_BASE}/api/users/me/`, {
           headers: {
@@ -81,39 +88,46 @@ export default function AdminProfilePage() {
         });
       }
 
-      // If backend uses /api/users/profile/ instead of /me/
-      if (res.status === 404) {
-        res = await fetch(`${API_BASE}/api/users/profile/`, {
-          headers: getAuthHeaders(),
-        });
-      }
-
       if (res.ok) {
-        const data = await res.json();
-        const userObj = data.user || data;
+        const userObj = await res.json();
 
-        setAdminData({
+        const resolvedRole = userObj.is_superuser
+          ? 'PRIVILEGED ADMIN'
+          : userObj.role?.toUpperCase() || (userObj.is_staff ? 'ADMIN' : 'STAFF');
+
+        const resolvedBarangay =
+          userObj.assigned_barangay ||
+          userObj.residential_barangay ||
+          '';
+
+        const profileData = {
           id: userObj.id || null,
           username: userObj.username || '',
           email: userObj.email || '',
           first_name: userObj.first_name || '',
           last_name: userObj.last_name || '',
           contact_number: userObj.contact_number || userObj.phone_number || '',
-          assigned_barangay: userObj.assigned_barangay || userObj.residential_barangay || '',
-          role: userObj.is_superuser ? 'SUPERADMIN' : userObj.is_staff ? 'ADMIN' : (userObj.role || 'STATION_ADMIN'),
+          assigned_barangay: resolvedBarangay,
+          role: resolvedRole,
           is_staff: Boolean(userObj.is_staff),
           is_superuser: Boolean(userObj.is_superuser),
           date_joined: userObj.date_joined || '',
+        };
+
+        setAdminData(profileData);
+        setInitialState({
+          email: profileData.email,
+          contact_number: profileData.contact_number,
+          first_name: profileData.first_name,
+          last_name: profileData.last_name,
         });
 
-        // Keep cached localStorage in sync
         localStorage.setItem('ac_user', JSON.stringify(userObj));
       } else {
-        // Fallback to cached user data from login if endpoint is unavailable
         const stored = localStorage.getItem('ac_user');
         if (stored) {
           const userObj = JSON.parse(stored);
-          setAdminData({
+          const profileData = {
             id: userObj.id || null,
             username: userObj.username || '',
             email: userObj.email || '',
@@ -121,25 +135,23 @@ export default function AdminProfilePage() {
             last_name: userObj.last_name || '',
             contact_number: userObj.contact_number || userObj.phone_number || '',
             assigned_barangay: userObj.assigned_barangay || userObj.residential_barangay || '',
-            role: userObj.is_superuser ? 'SUPERADMIN' : userObj.is_staff ? 'ADMIN' : (userObj.role || 'STATION_ADMIN'),
+            role: userObj.is_superuser ? 'PRIVILEGED ADMIN' : (userObj.role || 'ADMIN'),
             is_staff: Boolean(userObj.is_staff),
             is_superuser: Boolean(userObj.is_superuser),
             date_joined: userObj.date_joined || '',
+          };
+          setAdminData(profileData);
+          setInitialState({
+            email: profileData.email,
+            contact_number: profileData.contact_number,
+            first_name: profileData.first_name,
+            last_name: profileData.last_name,
           });
         }
       }
     } catch (err) {
       console.error('Error fetching admin profile:', err);
-      // Load fallback from localStorage
-      const stored = localStorage.getItem('ac_user');
-      if (stored) {
-        const userObj = JSON.parse(stored);
-        setAdminData((prev) => ({
-          ...prev,
-          ...userObj,
-          role: userObj.is_superuser ? 'SUPERADMIN' : (userObj.role || 'ADMIN'),
-        }));
-      }
+      setFeedback({ error: 'Failed to synchronize profile data.', success: '', info: '' });
     } finally {
       setLoading(false);
     }
@@ -149,68 +161,131 @@ export default function AdminProfilePage() {
     fetchAdminProfile();
   }, []);
 
-  // 2. Save Updated Profile Information
+  // 2. Dispatch profile updates strictly through specialized backend endpoints
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
-    setSaving(true);
-    setFeedback({ error: '', success: '' });
+    setSavingDetails(true);
+    setFeedback({ error: '', success: '', info: '' });
+
+    const successLogs = [];
+    const infoLogs = [];
 
     try {
-      const payload = {
-        first_name: adminData.first_name,
-        last_name: adminData.last_name,
-        email: adminData.email,
-        contact_number: adminData.contact_number,
-      };
-
-      const res = await fetch(`${API_BASE}/api/users/me/`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        // Try fallback route
-        const fallbackRes = await fetch(`${API_BASE}/api/users/${adminData.id || ''}/`, {
-          method: 'PATCH',
+      // 1. Update Contact Number -> POST /api/users/change-contact-number/
+      if (
+        adminData.contact_number !== initialState.contact_number && 
+        adminData.contact_number.trim() !== ''
+      ) {
+        const contactRes = await fetch(`${API_BASE}/api/users/change-contact-number/`, {
+          method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            contact_number: adminData.contact_number.trim(),
+          }),
         });
 
-        if (!fallbackRes.ok) {
-          throw new Error('Server rejected profile update.');
+        if (!contactRes.ok) {
+          const err = await contactRes.json().catch(() => ({}));
+          throw new Error(err.contact_number?.[0] || err.detail || 'Failed to update contact number.');
         }
+
+        setInitialState((prev) => ({ ...prev, contact_number: adminData.contact_number.trim() }));
+        successLogs.push('Contact number updated.');
       }
 
-      // Sync local storage
-      const stored = JSON.parse(localStorage.getItem('ac_user') || '{}');
-      const updatedUser = { ...stored, ...payload };
-      localStorage.setItem('ac_user', JSON.stringify(updatedUser));
+      // 2. Update Email -> POST /api/users/change-email/ (Resend verification token workflow)
+      if (
+        adminData.email !== initialState.email && 
+        adminData.email.trim() !== ''
+      ) {
+        const emailRes = await fetch(`${API_BASE}/api/users/change-email/`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            new_email: adminData.email.trim(),
+          }),
+        });
 
-      setFeedback({ error: '', success: 'Administrative credentials updated successfully.' });
-    } catch (err) {
-      // If no patch route exists, store locally
+        const emailData = await emailRes.json().catch(() => ({}));
+        if (!emailRes.ok) {
+          throw new Error(emailData.new_email?.[0] || emailData.detail || 'Failed to request email update.');
+        }
+
+        infoLogs.push(
+          emailData.message || 'Verification link sent to your new email. Please verify to finalize the change.'
+        );
+      }
+
+      // 3. Update First & Last Name -> PATCH /api/users/admin/<id>/ (AdminUserView)
+      if (
+        (adminData.first_name !== initialState.first_name || 
+         adminData.last_name !== initialState.last_name) && 
+        adminData.id
+      ) {
+        const namesRes = await fetch(`${API_BASE}/api/users/admin/${adminData.id}/`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            first_name: adminData.first_name,
+            last_name: adminData.last_name,
+          }),
+        });
+
+        if (!namesRes.ok) {
+          const err = await namesRes.json().catch(() => ({}));
+          throw new Error(err.detail || 'Failed to update officer name.');
+        }
+
+        setInitialState((prev) => ({
+          ...prev,
+          first_name: adminData.first_name,
+          last_name: adminData.last_name,
+        }));
+        successLogs.push('Officer name updated.');
+      }
+
+      // 4. Synchronize localStorage cache
       const stored = JSON.parse(localStorage.getItem('ac_user') || '{}');
-      const updatedUser = { ...stored, ...adminData };
-      localStorage.setItem('ac_user', JSON.stringify(updatedUser));
-      setFeedback({ error: '', success: 'Officer details updated locally.' });
+      localStorage.setItem('ac_user', JSON.stringify({
+        ...stored,
+        first_name: adminData.first_name,
+        last_name: adminData.last_name,
+        contact_number: adminData.contact_number,
+      }));
+
+      const combinedSuccess = successLogs.join(' ');
+      const combinedInfo = infoLogs.join(' ');
+
+      if (!combinedSuccess && !combinedInfo) {
+        setFeedback({ error: '', success: '', info: 'No changes detected.' });
+      } else {
+        setFeedback({
+          error: '',
+          success: combinedSuccess,
+          info: combinedInfo,
+        });
+      }
+
+    } catch (err) {
+      console.error('Profile update failed:', err);
+      setFeedback({ error: err.message || 'Update failed.', success: '', info: '' });
     } finally {
-      setSaving(false);
+      setSavingDetails(false);
     }
   };
 
-  // 3. Password Update
+  // 3. Password Update -> POST /api/users/change-password/
   const handlePasswordChange = async (e) => {
     e.preventDefault();
-    setFeedback({ error: '', success: '' });
+    setFeedback({ error: '', success: '', info: '' });
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setFeedback({ error: 'New password and confirmation do not match.', success: '' });
+      setFeedback({ error: 'New password and confirmation do not match.', success: '', info: '' });
       return;
     }
 
     if (passwordData.newPassword.length < 8) {
-      setFeedback({ error: 'Password must be at least 8 characters long.', success: '' });
+      setFeedback({ error: 'Password must be at least 8 characters long.', success: '', info: '' });
       return;
     }
 
@@ -225,15 +300,21 @@ export default function AdminProfilePage() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || data.error || 'Failed to update password.');
+        const errorMsg = 
+          data.detail || 
+          data.new_password?.[0] || 
+          data.old_password?.[0] || 
+          (Array.isArray(data.detail) ? data.detail.join(' ') : 'Failed to update password.');
+        throw new Error(errorMsg);
       }
 
       setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
-      setFeedback({ error: '', success: 'Access passphrase updated securely.' });
+      setFeedback({ error: '', success: 'Access passphrase updated securely.', info: '' });
     } catch (err) {
-      setFeedback({ error: err.message || 'Error updating password.', success: '' });
+      setFeedback({ error: err.message || 'Error updating password.', success: '', info: '' });
     } finally {
       setSavingPassword(false);
     }
@@ -264,12 +345,17 @@ export default function AdminProfilePage() {
         {/* Feedback Messages */}
         {feedback.error && (
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shadow-xs">
-            <AlertCircle size={16} /> {feedback.error}
+            <AlertCircle size={16} className="shrink-0" /> {feedback.error}
           </div>
         )}
         {feedback.success && (
           <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shadow-xs">
-            <CheckCircle size={16} /> {feedback.success}
+            <CheckCircle size={16} className="shrink-0" /> {feedback.success}
+          </div>
+        )}
+        {feedback.info && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shadow-xs">
+            <Info size={16} className="shrink-0" /> {feedback.info}
           </div>
         )}
 
@@ -426,10 +512,10 @@ export default function AdminProfilePage() {
                 <div className="flex justify-end pt-3 border-t border-gray-100">
                   <button
                     type="submit"
-                    disabled={saving}
-                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50"
+                    disabled={savingDetails}
+                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
                   >
-                    {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                    {savingDetails ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                     Save Officer Details
                   </button>
                 </div>
@@ -486,7 +572,7 @@ export default function AdminProfilePage() {
                   <button
                     type="submit"
                     disabled={savingPassword}
-                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50"
+                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
                   >
                     {savingPassword ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
                     Update Passphrase
