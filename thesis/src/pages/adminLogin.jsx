@@ -1,12 +1,20 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Mail, Lock, AlertCircle } from 'lucide-react';
+import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2 } from 'lucide-react';
 
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Forgot Password States
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -81,11 +89,59 @@ export default function AdminLogin() {
     } catch (err) {
       console.error('Login connection diagnostic failure:', err);
       setError(
-        'Connection refused. Double-check that your Django terminal is running on port 8000 and CORS settings allow this request.'
+        'Connection refused. Double-check that your server is running and CORS settings allow this request.'
       );
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    setForgotError('');
+
+    try {
+      const response = await fetch('https://api.aksyon.online/api/users/forgot-password/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        setForgotMessage(
+          data.message || 
+          'If an account with that email exists, a password reset link has been dispatched to your inbox.'
+        );
+        setForgotSuccess(true);
+      } else {
+        setForgotError(
+          data.detail ||
+          data.error ||
+          data.email?.[0] ||
+          'Failed to send password reset request. Verify your email address.'
+        );
+      }
+    } catch (err) {
+      console.error('Forgot password submission failed:', err);
+      setForgotError('Connection error. Please try again later.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const closeForgotModal = () => {
+    setIsForgotModalOpen(false);
+    setForgotEmail('');
+    setForgotError('');
+    setForgotSuccess(false);
+    setForgotMessage('');
   };
 
   return (
@@ -133,7 +189,7 @@ export default function AdminLogin() {
               </div>
             </div>
 
-            <div className="mb-8">
+            <div className="mb-2">
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
                 Password
               </label>
@@ -152,12 +208,33 @@ export default function AdminLogin() {
               </div>
             </div>
 
+            {/* Forgot Password Trigger */}
+            <div className="flex justify-end mb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotEmail(formData.email.includes('@') ? formData.email : '');
+                  setIsForgotModalOpen(true);
+                }}
+                className="text-xs text-gray-400 hover:text-red-400 transition-colors cursor-pointer"
+              >
+                Forgot Password?
+              </button>
+            </div>
+
             <button
               type="submit"
               disabled={isLoading}
               className="w-full bg-[#b32d2d] hover:bg-[#8b2323] text-white p-3.5 rounded-lg font-bold flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
-              {isLoading ? 'Authenticating Gateway...' : 'Secure Login'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="animate-spin" size={18} />
+                  Authenticating Gateway...
+                </>
+              ) : (
+                'Secure Login'
+              )}
             </button>
           </form>
 
@@ -166,6 +243,97 @@ export default function AdminLogin() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-[#2a2a2a] border border-white/10 w-full max-w-md rounded-2xl shadow-2xl p-6 relative">
+            <button
+              onClick={closeForgotModal}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 className="text-lg font-black text-white uppercase tracking-wide mb-1">
+              Reset Password
+            </h3>
+            <p className="text-gray-400 text-xs mb-5">
+              Enter your registered administrator email to receive a password recovery link.
+            </p>
+
+            {forgotError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/50 text-red-400 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold">
+                <AlertCircle size={16} /> {forgotError}
+              </div>
+            )}
+
+            {forgotSuccess ? (
+              <div className="text-center py-4">
+                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle size={24} />
+                </div>
+                <h4 className="text-white text-sm font-bold mb-1">Recovery Email Sent</h4>
+                <p className="text-gray-400 text-xs mb-5">
+                  {forgotMessage}
+                </p>
+                <button
+                  type="button"
+                  onClick={closeForgotModal}
+                  className="w-full bg-[#1f1f1f] hover:bg-[#333333] text-white py-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Return to Login
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword}>
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                    Registered Email Address
+                  </label>
+                  <div className="flex items-center bg-[#1f1f1f] border border-gray-700 rounded-lg overflow-hidden focus-within:border-[#b32d2d] transition-colors">
+                    <div className="pl-4 text-gray-500">
+                      <Mail size={18} />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="admin@aksyon.online"
+                      className="w-full p-3 text-gray-200 bg-transparent focus:outline-none text-sm"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeForgotModal}
+                    className="flex-1 bg-[#1f1f1f] hover:bg-[#333333] text-gray-300 py-3 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="flex-1 bg-[#b32d2d] hover:bg-[#8b2323] text-white py-3 rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {forgotLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={14} />
+                        Sending...
+                      </>
+                    ) : (
+                      'Send Reset Link'
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
