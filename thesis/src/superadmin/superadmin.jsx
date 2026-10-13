@@ -16,7 +16,8 @@ export const ANGELES_BARANGAYS = [
   "Claro M. Recto"
 ];
 
-const API_BASE = 'https://api.aksyon.online/api/';
+const API_BASE = 'https://api.aksyon.online';
+// const API_BASE = 'http://localhost:8000';
 
 export default function SuperAdminPage() {
   const navigate = useNavigate();
@@ -47,8 +48,8 @@ export default function SuperAdminPage() {
   // Helper to extract barangay from all possible backend field names
   const getAdminBarangay = (admin) => {
     return (
-      admin?.residential_barangay ||
       admin?.assigned_barangay ||
+      admin?.residential_barangay ||
       admin?.barangay ||
       null
     );
@@ -86,16 +87,24 @@ export default function SuperAdminPage() {
     setPermissionDenied(false);
 
     try {
-      let res = await fetch(`${API_BASE}/api/users/admin/`, {
+      // 1. First try privileged-admin endpoint
+      let res = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
         headers: getAuthHeaders(),
       });
 
       if (res.status === 401) {
-        res = await fetch(`${API_BASE}/api/users/admin/`, {
+        res = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
           headers: {
             'Authorization': `Bearer ${cleanToken}`,
             'Content-Type': 'application/json',
           },
+        });
+      }
+
+      // 2. Fallback to /admin/ endpoint if privileged endpoint is not used
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE}/api/users/admin/`, {
+          headers: getAuthHeaders(),
         });
       }
 
@@ -180,20 +189,18 @@ export default function SuperAdminPage() {
     setSubmitting(true);
 
     try {
-      const rawToken = localStorage.getItem('ac_token') || '';
-      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
       const isEdit = modalMode === 'edit';
       const endpoint = isEdit 
-        ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/` 
-        : `${API_BASE}/api/users/admin/`;
+        ? `${API_BASE}/api/users/privileged-admin/${selectedAdmin.id}/` 
+        : `${API_BASE}/api/users/privileged-admin/register/`;
       
       const payload = {
         username: formData.username,
         email: formData.email,
         first_name: formData.first_name,
         last_name: formData.last_name,
-        residential_barangay: formData.barangay,
         assigned_barangay: formData.barangay,
+        residential_barangay: formData.barangay,
         barangay: formData.barangay,
         contact_number: formData.contact_number
       };
@@ -208,13 +215,14 @@ export default function SuperAdminPage() {
         body: JSON.stringify(payload)
       });
 
-      if (response.status === 401) {
-        response = await fetch(endpoint, {
+      // Fallback to /api/users/admin/ if privileged endpoint isn't matched
+      if (response.status === 404) {
+        const fallbackEndpoint = isEdit 
+          ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/` 
+          : `${API_BASE}/api/users/admin/`;
+        response = await fetch(fallbackEndpoint, {
           method: isEdit ? 'PATCH' : 'POST',
-          headers: {
-            'Authorization': `Bearer ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
       }
@@ -244,22 +252,16 @@ export default function SuperAdminPage() {
     }
 
     try {
-      const rawToken = localStorage.getItem('ac_token') || '';
-      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-
-      let response = await fetch(`${API_BASE}/api/users/admin/${admin.id}/`, {
+      let response = await fetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ is_active: !currentActiveState })
       });
 
-      if (response.status === 401) {
+      if (response.status === 404) {
         response = await fetch(`${API_BASE}/api/users/admin/${admin.id}/`, {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ is_active: !currentActiveState })
         });
       }

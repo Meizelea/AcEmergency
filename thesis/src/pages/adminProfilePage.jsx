@@ -21,7 +21,7 @@ const API_BASE = 'https://api.aksyon.online';
 export default function AdminProfilePage() {
   const [loading, setLoading] = useState(true);
   const [savingDetails, setSavingDetails] = useState(false);
-  const [savingPassword, setSavingPassword] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '', info: '' });
 
   // Officer Profile State
@@ -40,21 +40,6 @@ export default function AdminProfilePage() {
     date_joined: '',
   });
 
-  // Track pristine values to detect exact field modifications
-  const [initialState, setInitialState] = useState({
-    email: '',
-    contact_number: '',
-    first_name: '',
-    last_name: ''
-  });
-
-  // Password Update State
-  const [passwordData, setPasswordData] = useState({
-    oldPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-
   const getAuthHeaders = (isJson = true) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
@@ -68,7 +53,7 @@ export default function AdminProfilePage() {
     return headers;
   };
 
-  // 1. Fetch Admin Profile via GET /api/users/me/
+  // 1. Fetch Profile Data
   const fetchAdminProfile = async () => {
     try {
       setLoading(true);
@@ -115,43 +100,21 @@ export default function AdminProfilePage() {
         };
 
         setAdminData(profileData);
-        setInitialState({
-          email: profileData.email,
-          contact_number: profileData.contact_number,
-          first_name: profileData.first_name,
-          last_name: profileData.last_name,
-        });
-
         localStorage.setItem('ac_user', JSON.stringify(userObj));
       } else {
         const stored = localStorage.getItem('ac_user');
         if (stored) {
           const userObj = JSON.parse(stored);
-          const profileData = {
-            id: userObj.id || null,
-            username: userObj.username || '',
-            email: userObj.email || '',
-            first_name: userObj.first_name || '',
-            last_name: userObj.last_name || '',
-            contact_number: userObj.contact_number || userObj.phone_number || '',
-            assigned_barangay: userObj.assigned_barangay || userObj.residential_barangay || '',
+          setAdminData((prev) => ({
+            ...prev,
+            ...userObj,
             role: userObj.is_superuser ? 'PRIVILEGED ADMIN' : (userObj.role || 'ADMIN'),
-            is_staff: Boolean(userObj.is_staff),
-            is_superuser: Boolean(userObj.is_superuser),
-            date_joined: userObj.date_joined || '',
-          };
-          setAdminData(profileData);
-          setInitialState({
-            email: profileData.email,
-            contact_number: profileData.contact_number,
-            first_name: profileData.first_name,
-            last_name: profileData.last_name,
-          });
+          }));
         }
       }
     } catch (err) {
       console.error('Error fetching admin profile:', err);
-      setFeedback({ error: 'Failed to synchronize profile data.', success: '', info: '' });
+      setFeedback({ error: 'Failed to synchronize live profile data.', success: '', info: '' });
     } finally {
       setLoading(false);
     }
@@ -161,162 +124,101 @@ export default function AdminProfilePage() {
     fetchAdminProfile();
   }, []);
 
-  // 2. Dispatch profile updates strictly through specialized backend endpoints
+  // 2. Save Profile Details using correct role endpoints
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setSavingDetails(true);
     setFeedback({ error: '', success: '', info: '' });
 
-    const successLogs = [];
-    const infoLogs = [];
-
     try {
-      // 1. Update Contact Number -> POST /api/users/change-contact-number/
-      if (
-        adminData.contact_number !== initialState.contact_number && 
-        adminData.contact_number.trim() !== ''
-      ) {
-        const contactRes = await fetch(`${API_BASE}/api/users/change-contact-number/`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            contact_number: adminData.contact_number.trim(),
-          }),
-        });
-
-        if (!contactRes.ok) {
-          const err = await contactRes.json().catch(() => ({}));
-          throw new Error(err.contact_number?.[0] || err.detail || 'Failed to update contact number.');
-        }
-
-        setInitialState((prev) => ({ ...prev, contact_number: adminData.contact_number.trim() }));
-        successLogs.push('Contact number updated.');
+      if (!adminData.id) {
+        throw new Error('User ID not found. Please log in again.');
       }
 
-      // 2. Update Email -> POST /api/users/change-email/ (Resend verification token workflow)
-      if (
-        adminData.email !== initialState.email && 
-        adminData.email.trim() !== ''
-      ) {
-        const emailRes = await fetch(`${API_BASE}/api/users/change-email/`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            new_email: adminData.email.trim(),
-          }),
-        });
+      const payload = {
+        first_name: adminData.first_name.trim(),
+        last_name: adminData.last_name.trim(),
+        contact_number: adminData.contact_number.trim(),
+      };
 
-        const emailData = await emailRes.json().catch(() => ({}));
-        if (!emailRes.ok) {
-          throw new Error(emailData.new_email?.[0] || emailData.detail || 'Failed to request email update.');
-        }
+      const isPrivileged = adminData.is_superuser || adminData.role === 'PRIVILEGED ADMIN';
+      const primaryUrl = isPrivileged
+        ? `${API_BASE}/api/users/privileged-admin/${adminData.id}/`
+        : `${API_BASE}/api/users/admin/${adminData.id}/`;
 
-        infoLogs.push(
-          emailData.message || 'Verification link sent to your new email. Please verify to finalize the change.'
-        );
-      }
+      let res = await fetch(primaryUrl, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
 
-      // 3. Update First & Last Name -> PATCH /api/users/admin/<id>/ (AdminUserView)
-      if (
-        (adminData.first_name !== initialState.first_name || 
-         adminData.last_name !== initialState.last_name) && 
-        adminData.id
-      ) {
-        const namesRes = await fetch(`${API_BASE}/api/users/admin/${adminData.id}/`, {
+      // Fallback if role-routing requires the other admin endpoint
+      if (!res.ok && res.status === 403) {
+        const alternateUrl = isPrivileged
+          ? `${API_BASE}/api/users/admin/${adminData.id}/`
+          : `${API_BASE}/api/users/privileged-admin/${adminData.id}/`;
+
+        res = await fetch(alternateUrl, {
           method: 'PATCH',
           headers: getAuthHeaders(),
-          body: JSON.stringify({
-            first_name: adminData.first_name,
-            last_name: adminData.last_name,
-          }),
+          body: JSON.stringify(payload),
         });
-
-        if (!namesRes.ok) {
-          const err = await namesRes.json().catch(() => ({}));
-          throw new Error(err.detail || 'Failed to update officer name.');
-        }
-
-        setInitialState((prev) => ({
-          ...prev,
-          first_name: adminData.first_name,
-          last_name: adminData.last_name,
-        }));
-        successLogs.push('Officer name updated.');
       }
 
-      // 4. Synchronize localStorage cache
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Server rejected profile updates.');
+      }
+
+      // Update cached storage
       const stored = JSON.parse(localStorage.getItem('ac_user') || '{}');
-      localStorage.setItem('ac_user', JSON.stringify({
-        ...stored,
-        first_name: adminData.first_name,
-        last_name: adminData.last_name,
-        contact_number: adminData.contact_number,
-      }));
+      localStorage.setItem('ac_user', JSON.stringify({ ...stored, ...payload }));
 
-      const combinedSuccess = successLogs.join(' ');
-      const combinedInfo = infoLogs.join(' ');
-
-      if (!combinedSuccess && !combinedInfo) {
-        setFeedback({ error: '', success: '', info: 'No changes detected.' });
-      } else {
-        setFeedback({
-          error: '',
-          success: combinedSuccess,
-          info: combinedInfo,
-        });
-      }
-
+      setFeedback({
+        error: '',
+        success: 'Officer details updated successfully.',
+        info: '',
+      });
     } catch (err) {
-      console.error('Profile update failed:', err);
-      setFeedback({ error: err.message || 'Update failed.', success: '', info: '' });
+      console.error('Update error:', err);
+      setFeedback({ error: err.message || 'Unable to update details.', success: '', info: '' });
     } finally {
       setSavingDetails(false);
     }
   };
 
-  // 3. Password Update -> POST /api/users/change-password/
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
+  // 3. Password Reset Workflow (Triggers email link via AllowAny endpoint)
+  const handleSendPasswordReset = async () => {
+    if (!adminData.email) {
+      setFeedback({ error: 'No registered email found for this administrator account.', success: '', info: '' });
+      return;
+    }
+
+    setSendingReset(true);
     setFeedback({ error: '', success: '', info: '' });
 
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setFeedback({ error: 'New password and confirmation do not match.', success: '', info: '' });
-      return;
-    }
-
-    if (passwordData.newPassword.length < 8) {
-      setFeedback({ error: 'Password must be at least 8 characters long.', success: '', info: '' });
-      return;
-    }
-
-    setSavingPassword(true);
     try {
-      const res = await fetch(`${API_BASE}/api/users/change-password/`, {
+      const res = await fetch(`${API_BASE}/api/users/forgot-password/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          old_password: passwordData.oldPassword,
-          new_password: passwordData.newPassword,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminData.email.trim() }),
       });
 
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        const errorMsg = 
-          data.detail || 
-          data.new_password?.[0] || 
-          data.old_password?.[0] || 
-          (Array.isArray(data.detail) ? data.detail.join(' ') : 'Failed to update password.');
-        throw new Error(errorMsg);
+      if (res.ok) {
+        setFeedback({
+          error: '',
+          success: 'Password reset instructions have been dispatched to your email.',
+          info: `Check ${adminData.email} for the verification link.`,
+        });
+      } else {
+        throw new Error(data.detail || 'Failed to dispatch password reset link.');
       }
-
-      setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
-      setFeedback({ error: '', success: 'Access passphrase updated securely.', info: '' });
     } catch (err) {
-      setFeedback({ error: err.message || 'Error updating password.', success: '', info: '' });
+      setFeedback({ error: err.message || 'Error requesting password reset.', success: '', info: '' });
     } finally {
-      setSavingPassword(false);
+      setSendingReset(false);
     }
   };
 
@@ -486,10 +388,9 @@ export default function AdminProfilePage() {
                       <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="email"
+                        disabled
                         value={adminData.email}
-                        onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
-                        placeholder="admin@angelescity.gov.ph"
-                        className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
+                        className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -522,7 +423,7 @@ export default function AdminProfilePage() {
               </form>
             </div>
 
-            {/* Access Passphrase Update */}
+            {/* Access Passphrase Reset Box */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -530,55 +431,23 @@ export default function AdminProfilePage() {
                 </h2>
               </div>
 
-              <form onSubmit={handlePasswordChange} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Current Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={passwordData.oldPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, oldPassword: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white"
-                  />
-                </div>
+              <div className="p-6">
+                <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+                  To protect administrative audit integrity, passphrase changes require email verification. Requesting a reset will send a secure link directly to <span className="font-semibold text-gray-800">{adminData.email || 'your registered email'}</span>.
+                </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">New Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="••••••••"
-                      value={passwordData.newPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Confirm New Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="••••••••"
-                      value={passwordData.confirmPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-3 border-t border-gray-100">
+                <div className="flex justify-end pt-2">
                   <button
-                    type="submit"
-                    disabled={savingPassword}
-                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
+                    type="button"
+                    onClick={handleSendPasswordReset}
+                    disabled={sendingReset}
+                    className="flex items-center gap-2 bg-gray-800 hover:bg-black text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
                   >
-                    {savingPassword ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
-                    Update Passphrase
+                    {sendingReset ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
+                    Send Password Reset Link
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
 
           </div>
