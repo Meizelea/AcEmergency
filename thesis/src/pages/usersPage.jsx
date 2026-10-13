@@ -38,6 +38,10 @@ export default function UsersPage() {
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
 
+  // Base API configuration
+  // const API_BASE_URL = 'https://api.aksyon.online';
+  const API_BASE_URL = `http://${targetHostname}:8000`;
+
   // 1. Fetch Users
   const fetchUsers = async () => {
     if (!token) {
@@ -46,7 +50,9 @@ export default function UsersPage() {
     }
     try {
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      const response = await fetch(`https://api.aksyon.online/api/users/admin/`, {
+      
+      // const response = await fetch(`https://api.aksyon.online/api/users/admin/`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/admin/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -116,7 +122,9 @@ export default function UsersPage() {
 
     try {
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/${selectedUser.id}/`, {
+      
+      // const response = await fetch(`https://api.aksyon.online/api/users/admin/users/${selectedUser.id}/`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/admin/users/${selectedUser.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -154,7 +162,8 @@ export default function UsersPage() {
         residential_barangay: editFormData.barangay
       };
 
-      const response = await fetch(`http://${targetHostname}:8000/api/users/admin/users/${selectedUser.id}/`, {
+      // const response = await fetch(`https://api.aksyon.online/api/users/admin/users/${selectedUser.id}/`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/admin/users/${selectedUser.id}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

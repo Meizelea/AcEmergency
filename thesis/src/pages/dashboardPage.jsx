@@ -7,6 +7,11 @@ import L from 'leaflet';
 
 import AdminLayout from '../components/header';
 
+const targetHostname = window.location.hostname || '127.0.0.1';
+
+// const API_BASE_URL = 'https://api.aksyon.online';
+const API_BASE_URL = `http://${targetHostname}:8000`;
+
 const barangayCoords = {
   'Balibago': [15.1667, 120.5833],
   'Cutcut': [15.1333, 120.5667],
@@ -22,10 +27,13 @@ const barangayCoords = {
   'Claro M. Recto': [15.1420, 120.5990]
 };
 
-const angelesCityBounds = [
-  [15.0800, 120.4800], 
-  [15.2200, 120.6500]  
+// Precise Angeles City geographic perimeter [South-West, North-East]
+const ANGELES_CITY_BOUNDS = [
+  [15.1050, 120.5050], // Southwest perimeter (Sapangbato / Cutcut boundary)
+  [15.1850, 120.6350]  // Northeast perimeter (Balibago / Pulung Maragul boundary)
 ];
+
+const ANGELES_CENTER = [15.1450, 120.5880];
 
 const createStatusIcon = (status) => {
   let bgColor = '#facc15';
@@ -62,9 +70,6 @@ export default function DashboardPage() {
 
     const fetchDashboardData = async () => {
       try {
-        const targetHostname = window.location.hostname || '127.0.0.1';
-        
-        // Supports Token or Bearer depending on backend auth backend setup
         const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
         const headersConfiguration = {
@@ -72,7 +77,8 @@ export default function DashboardPage() {
           'Authorization': authPrefix
         };
 
-        const analyticsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, { 
+        // const analyticsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, {
+        const analyticsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
           headers: headersConfiguration 
         });
 
@@ -162,10 +168,10 @@ export default function DashboardPage() {
       };
 
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
-      const targetHostname = window.location.hostname || '127.0.0.1';
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
-      const response = await fetch(`https://https://api.aksyon.online/api/reports/admin/${reportId}/`, {
+      // const response = await fetch(`https://api.aksyon.online/api/reports/admin/${reportId}/`, {
+      const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -217,18 +223,23 @@ export default function DashboardPage() {
       {/* DASHBOARD MAIN GRID */}
       <main className="h-full grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
         
-        {/* DYNAMIC TELEMETRY LEAFLET MAP */}
+        {/* DYNAMIC TELEMETRY LEAFLET MAP — LOCKED TO ANGELES CITY */}
         <section className="col-span-8 bg-white relative overflow-hidden z-0">
           <MapContainer 
-            center={[15.1440, 120.5880]} 
+            center={ANGELES_CENTER} 
             zoom={13} 
-            minZoom={12} 
-            maxBounds={angelesCityBounds} 
+            minZoom={13} 
+            maxZoom={18}
+            maxBounds={ANGELES_CITY_BOUNDS} 
             maxBoundsViscosity={1.0} 
+            bounceAtZoomLimits={true}
             style={{ height: '100%', width: '100%' }} 
             zoomControl={false} 
           >
-            <TileLayer url="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_4j01_1_3e910495fb3acf0fe46163b9" />
+            <TileLayer 
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+              bounds={ANGELES_CITY_BOUNDS}
+            />
             
             {activeReports.map((report) => {
               let targetBarangay = report.barangay || report.location || 'San Nicolas';
@@ -333,7 +344,7 @@ export default function DashboardPage() {
                     key={report.id} 
                     id={report.id} 
                     title={report.short_message || report.description || 'Emergency Dispatch'} 
-                    subtitle={`Reporter ID: ${report.user || '2'} • Brgy. ${report.barangay || report.location || 'Angeles City'} - ${formatDate(report.created_at)}`} 
+                    subtitle={`Reporter ID: ${report.user || 'Resident'} • Brgy. ${report.barangay || report.location || 'Angeles City'} • ${formatDate(report.created_at)}`} 
                     status={displayLabel} 
                     onStatusChange={handleStatusUpdate} 
                   />
@@ -371,7 +382,7 @@ export default function DashboardPage() {
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
   return (
-    <div className="border border-gray-200 bg-white rounded-lg p-4 mb-3 flex items-center justify-between shadow-sm">
+    <div className="border border-gray-200 bg-white rounded-lg p-4 mb-3 flex items-center justify-between shadow-xs">
       <div className="max-w-[60%]">
         <div className="font-bold text-gray-900 text-lg tracking-tight truncate">{title}</div>
         <div className="text-sm text-gray-400 font-medium mt-1">{subtitle}</div>
@@ -390,9 +401,9 @@ function StatusButton({ label, currentStatus, onClick }) {
   let colorClass = "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100 cursor-pointer";
   
   if (isActive) {
-    if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
-    if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
-    if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
+    if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-xs";
+    if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-xs";
+    if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-xs";
   }
 
   return (

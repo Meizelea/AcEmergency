@@ -6,7 +6,10 @@ import {
   MapPin, FileText
 } from 'lucide-react';
 
-const API_BASE = 'https://api.aksyon.online';
+const targetHostname = window.location.hostname || '127.0.0.1';
+
+// const API_BASE = 'https://api.aksyon.online';
+const API_BASE = `http://${targetHostname}:8000`;
 
 export default function AnnouncementPage() {
   const [announcements, setAnnouncements] = useState([]);

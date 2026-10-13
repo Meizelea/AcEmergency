@@ -52,16 +52,25 @@ export default function AdminLayout({ children }) {
         <nav className="flex flex-col justify-between flex-1 mt-6 pb-6">
           <div className="flex flex-col">
             {isPrivilegedAdmin ? (
-              /* PRIVILEGED ADMIN: ONLY ADMINTEMP */
-              <div onClick={() => navigate('/superadmin')}>
-                <SidebarLink 
-                  icon={<ShieldCheck size={24} />} 
-                  label="AdminPage (TEMP)" 
-                  active={location.pathname === '/superadmin'} 
-                />
-              </div>
+              /* PRIVILEGED ADMIN NAVIGATION */
+              <>
+                <div onClick={() => navigate('/superadmin')}>
+                  <SidebarLink 
+                    icon={<ShieldCheck size={24} />} 
+                    label="AdminPage (TEMP)" 
+                    active={location.pathname === '/superadmin'} 
+                  />
+                </div>
+                <div onClick={() => navigate('/privileged-emergency-units')}>
+                  <SidebarLink 
+                    icon={<Truck size={24} />} 
+                    label="Emergency Units" 
+                    active={location.pathname === '/privileged-emergency-units'} 
+                  />
+                </div>
+              </>
             ) : (
-              /* REGULAR ADMIN: FULL OPERATIONAL SUITE */
+              /* REGULAR ADMIN NAVIGATION */
               <>
                 <div onClick={() => navigate('/dashboard')}>
                   <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
@@ -110,19 +119,31 @@ export default function AdminLayout({ children }) {
               <Menu size={22} className="ml-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setShowSidebar(!showSidebar)} />
               <div className="flex gap-2 items-center flex-wrap">
                 {isPrivilegedAdmin ? (
-                  /* PRIVILEGED ADMIN: ONLY ADMINTEMP */
-                  <span 
-                    onClick={() => navigate('/superadmin')} 
-                    className={`text-sm rounded-md cursor-pointer transition-all ${
-                      location.pathname === '/superadmin' 
-                        ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                        : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                    }`}
-                  >
-                    AdminTemp
-                  </span>
+                  /* PRIVILEGED ADMIN HEADER TABS */
+                  <>
+                    <span 
+                      onClick={() => navigate('/superadmin')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/superadmin' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      AdminTemp
+                    </span>
+                    <span 
+                      onClick={() => navigate('/privileged-emergency-units')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/privileged-emergency-units' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Emergency Units
+                    </span>
+                  </>
                 ) : (
-                  /* REGULAR ADMIN: ALL TABS UP TO ANNOUNCEMENTS */
+                  /* REGULAR ADMIN HEADER TABS */
                   <>
                     <span 
                       onClick={() => navigate('/dashboard')} 

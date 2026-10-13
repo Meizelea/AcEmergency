@@ -31,6 +31,9 @@ export default function AnalyticsPage() {
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
 
+  // const API_BASE_URL = 'https://api.aksyon.online';
+  const API_BASE_URL = `http://${targetHostname}:8000`;
+
   const fetchData = async () => {
     if (!token) return;
     setIsLoading(true);
@@ -39,14 +42,14 @@ export default function AnalyticsPage() {
       const headers = { 'Content-Type': 'application/json', 'Authorization': authPrefix };
 
       // 1. Fetch Reports
-      const reportsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, { method: 'GET', headers });
+      const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { method: 'GET', headers });
       if (reportsRes.ok) {
         const data = await reportsRes.json();
         setReports(Array.isArray(data) ? data : (data?.results || []));
       }
 
       // 2. Fetch Users Count
-      const usersRes = await fetch(`https://api.aksyon.online/api/users/admin/`, { method: 'GET', headers });
+      const usersRes = await fetch(`${API_BASE_URL}/api/users/admin/`, { method: 'GET', headers });
       if (usersRes.ok) {
         const uData = await usersRes.json();
         const uList = Array.isArray(uData) ? uData : (uData?.results || []);
@@ -177,7 +180,7 @@ export default function AnalyticsPage() {
         <div className="flex items-center justify-between mb-6">
           <button 
             onClick={fetchData} 
-            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95"
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
           >
             <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> Refresh
           </button>
@@ -235,7 +238,7 @@ export default function AnalyticsPage() {
             <select 
               value={timeRange} 
               onChange={(e) => setTimeRange(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
             >
               <option value="today">Today</option>
               <option value="7days">Last 7 Days</option>

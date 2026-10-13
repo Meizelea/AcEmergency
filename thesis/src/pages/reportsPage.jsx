@@ -10,20 +10,15 @@ import L from 'leaflet';
 
 import AdminLayout from '../components/header';
 
+const targetHostname = window.location.hostname || '127.0.0.1';
+
 const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
 
-  const hostname = window.location.hostname || '127.0.0.1';
-
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `https://api.aksyon.online`;
-    //return `http://${hostname}:8000`;
-  }
-
-  return `https://api.aksyon.online`;
-  //return `https://${hostname}`;
+  // const API_BASE_URL = `https://api.aksyon.online`;
+  return `http://${targetHostname}:8000`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -51,6 +46,17 @@ export const ANGELES_BARANGAYS = [
   "Claro M. Recto"
 ];
 
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 const getReporterName = (user) => {
   if (!user) return 'Anonymous Citizen';
   if (typeof user === 'object') {
@@ -66,6 +72,7 @@ export default function ReportsPage() {
   const navigate = useNavigate();
 
   const [reports, setReports] = useState([]);
+  const [emergencyUnits, setEmergencyUnits] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -89,6 +96,22 @@ export default function ReportsPage() {
         ? rawToken 
         : `Token ${cleanToken}`
     };
+  };
+
+  const fetchEmergencyUnits = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/emergency-units/`, {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const rawList = Array.isArray(data) ? data : (data?.results || []);
+        setEmergencyUnits(rawList);
+      }
+    } catch (error) {
+      console.error("Error fetching emergency units:", error);
+    }
   };
 
   const fetchReports = async () => {
@@ -119,7 +142,48 @@ export default function ReportsPage() {
       return;
     }
     fetchReports();
+    fetchEmergencyUnits();
   }, [token, navigate]);
+
+  // Compute nearest responder dynamically
+  const getNearestResponderText = (report) => {
+    if (report?.nearest_responder) {
+      const responderName = typeof report.nearest_responder === 'object' 
+        ? (report.nearest_responder.name || report.nearest_responder.title || 'Emergency Unit')
+        : report.nearest_responder;
+
+      const distStr = report.distance_km ? ` (${parseFloat(report.distance_km).toFixed(2)} km)` : '';
+      return `${responderName}${distStr}`;
+    }
+
+    let reportLat = parseFloat(report?.latitude);
+    let reportLng = parseFloat(report?.longitude);
+
+    if (isNaN(reportLat) || isNaN(reportLng)) {
+      const fallback = barangayCoordsFallback[report?.barangay || report?.location] || [15.1320, 120.5950];
+      reportLat = fallback[0];
+      reportLng = fallback[1];
+    }
+
+    const activeUnits = emergencyUnits.filter(u => u.is_active !== false);
+    const pool = activeUnits.length > 0 ? activeUnits : emergencyUnits;
+
+    if (pool.length === 0) return 'N/A';
+
+    let nearestUnit = pool[0];
+    let minDistance = calculateHaversineDistance(reportLat, reportLng, nearestUnit.latitude, nearestUnit.longitude);
+
+    pool.forEach((unit) => {
+      const dist = calculateHaversineDistance(reportLat, reportLng, unit.latitude, unit.longitude);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearestUnit = unit;
+      }
+    });
+
+    const unitName = typeof nearestUnit === 'object' ? (nearestUnit.name || 'Emergency Base') : nearestUnit;
+    return `${unitName} (${minDistance.toFixed(2)} km)`;
+  };
 
   // Open modal and resolve media
   const handleOpenReportModal = async (report) => {
@@ -127,7 +191,6 @@ export default function ReportsPage() {
     setActiveVideoUrl(null);
     setIsModalOpen(true);
 
-    // If report is a video (has video_thumbnail_url or no image_url)
     if (report.video_thumbnail_url) {
       setIsVideoLoading(true);
       try {
@@ -233,9 +296,10 @@ export default function ReportsPage() {
     modalLng = fallback[1];
   }
 
-  // Determine Media Type & Source
   const hasImage = Boolean(selectedReport?.image_url);
   const hasVideo = Boolean(selectedReport?.video_thumbnail_url || activeVideoUrl);
+
+  const cartoUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   return (
     <AdminLayout>
@@ -384,8 +448,10 @@ export default function ReportsPage() {
                 <h3 className="font-black text-xl text-gray-900 tracking-tight flex items-center gap-2">
                   Report ID #{selectedReport.id} — {selectedReport.short_message || selectedReport.description || 'Emergency Dispatch'}
                 </h3>
-                <p className="text-xs text-gray-400 font-semibold mt-1">
-                  {formatDate(selectedReport.created_at)} • <span className="uppercase font-black text-[#b32d2d]">{selectedReport.status || 'Pending'}</span>
+                <p className="text-xs text-gray-400 font-semibold mt-1 flex items-center gap-2">
+                  <span>{formatDate(selectedReport.created_at)}</span>
+                  <span>•</span>
+                  <span className="uppercase font-black text-[#b32d2d]">{selectedReport.status || 'Pending'}</span>
                 </p>
               </div>
 
@@ -438,34 +504,50 @@ export default function ReportsPage() {
                       <span className="font-bold text-gray-400 uppercase">Coordinates</span>
                       <span className="font-bold text-gray-800">{modalLat.toFixed(6)}, {modalLng.toFixed(6)}</span>
                     </div>
-                    <div className="flex justify-between py-1.5">
+                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Status</span>
                       <span className="font-black text-[#b32d2d] uppercase">{selectedReport.status || 'Pending'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="font-bold text-gray-400 uppercase">Nearest Responder</span>
+                      <span className="font-bold text-gray-800 text-right">{getNearestResponderText(selectedReport)}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* RIGHT: MAP */}
                 <div className="col-span-6 flex flex-col">
-                  <div className="flex items-center gap-1.5 mb-4">
-                    <MapPin size={16} className="text-[#b32d2d]" />
-                    <h4 className="font-black text-sm text-gray-900">Report Location</h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin size={16} className="text-[#b32d2d]" />
+                      <h4 className="font-black text-sm text-gray-900">Report Location</h4>
+                    </div>
+                    <a
+                      href={`https://www.google.com/maps?q=${modalLat},${modalLng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Open Google Street View ↗
+                    </a>
                   </div>
                   
-                  <div className="flex-1 min-h-[220px] rounded-xl overflow-hidden border border-gray-200 relative">
+                  <div className="flex-1 min-h-[240px] rounded-xl overflow-hidden border border-gray-200 relative shadow-inner">
                     <MapContainer 
                       center={[modalLat, modalLng]} 
-                      zoom={14} 
+                      zoom={17} 
                       style={{ height: '100%', width: '100%' }} 
-                      zoomControl={false}
+                      zoomControl={true}
                     >
                       <TileLayer 
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                        url={cartoUrl} 
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
+                        maxZoom={19}
                       />
+
                       <Marker position={[modalLat, modalLng]} icon={redMarkerIcon}>
                         <Popup>
-                          <div className="font-bold text-xs">{selectedReport.short_message || 'Emergency'}</div>
+                          <div className="font-bold text-xs">{selectedReport.short_message || 'Emergency Location'}</div>
                           <div className="text-[10px] text-gray-500">Brgy. {selectedBrgy}</div>
                         </Popup>
                       </Marker>

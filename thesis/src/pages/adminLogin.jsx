@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2 } from 'lucide-react';
 
+const targetHostname = window.location.hostname || '127.0.0.1';
+
+// const API_BASE = 'https://api.aksyon.online';
+const API_BASE = `http://${targetHostname}:8000`;
+
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -22,7 +27,8 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      const response = await fetch('https://api.aksyon.online/api/users/login/', {
+      // const response = await fetch('https://api.aksyon.online/api/users/login/', {
+      const response = await fetch(`${API_BASE}/api/users/login/`, {
         method: 'POST',
         mode: 'cors',
         headers: {
@@ -102,7 +108,8 @@ export default function AdminLogin() {
     setForgotError('');
 
     try {
-      const response = await fetch('https://api.aksyon.online/api/users/forgot-password/', {
+      // const response = await fetch('https://api.aksyon.online/api/users/forgot-password/', {
+      const response = await fetch(`${API_BASE}/api/users/forgot-password/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
