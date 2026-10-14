@@ -13,7 +13,9 @@ import {
   Lock, 
   Loader2,
   Info,
-  X
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
@@ -43,11 +45,16 @@ export default function AdminProfilePage() {
     date_joined: '',
   });
 
-  // Password State
+  // Password State & Visibility Toggles
   const [passwordForm, setPasswordForm] = useState({
     current_password: '',
     new_password: '',
     confirm_password: '',
+  });
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false,
   });
   const [passwordError, setPasswordError] = useState('');
 
@@ -117,7 +124,7 @@ export default function AdminProfilePage() {
     fetchAdminProfile();
   }, []);
 
-  // 2. Update Profile Details (First Name, Last Name, Email, Contact Number)
+  // 2. Update Profile Details (Contact Number & Email only, as First/Last Name are locked)
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setSavingDetails(true);
@@ -129,8 +136,8 @@ export default function AdminProfilePage() {
       }
 
       const payload = {
-        first_name: adminData.first_name.trim(),
-        last_name: adminData.last_name.trim(),
+        first_name: adminData.first_name,
+        last_name: adminData.last_name,
         email: adminData.email.trim(),
         contact_number: adminData.contact_number.trim(),
       };
@@ -185,7 +192,7 @@ export default function AdminProfilePage() {
     }
   };
 
-  // 3. Password Update Workflow (Submits current_password and new_password to backend)
+  // 3. Password Update Workflow (Submits current_password and new_password)
   const handlePasswordChangeSubmit = async (e) => {
     e.preventDefault();
     setPasswordError('');
@@ -233,9 +240,10 @@ export default function AdminProfilePage() {
 
       setIsPasswordModalOpen(false);
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      setShowPasswords({ current: false, new: false, confirm: false });
       setFeedback({
         error: '',
-        success: 'Passphrase changed successfully.',
+        success: 'Password changed successfully.',
         info: '',
       });
     } catch (err) {
@@ -373,20 +381,20 @@ export default function AdminProfilePage() {
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">First Name</label>
                     <input
                       type="text"
+                      disabled
                       value={adminData.first_name}
-                      onChange={(e) => setAdminData({ ...adminData, first_name: e.target.value })}
                       placeholder="Officer first name..."
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
+                      className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Last Name</label>
                     <input
                       type="text"
+                      disabled
                       value={adminData.last_name}
-                      onChange={(e) => setAdminData({ ...adminData, last_name: e.target.value })}
                       placeholder="Officer last name..."
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
+                      className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -447,7 +455,7 @@ export default function AdminProfilePage() {
               </form>
             </div>
 
-            {/* Access Passphrase Reset / Change Box */}
+            {/* Security Passphrase Box */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -457,7 +465,7 @@ export default function AdminProfilePage() {
 
               <div className="p-6">
                 <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                  Update your administrative command account password or request a reset verification link sent to <span className="font-semibold text-gray-800">{adminData.email || 'your email'}</span>.
+                  Update your administrative account password directly.
                 </p>
 
                 <div className="flex justify-end gap-2 pt-2">
@@ -467,7 +475,7 @@ export default function AdminProfilePage() {
                     className="flex items-center gap-2 bg-gray-800 hover:bg-black text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs cursor-pointer"
                   >
                     <Lock size={14} />
-                    Change Password Directly
+                    Change Password
                   </button>
                 </div>
               </div>
@@ -500,40 +508,70 @@ export default function AdminProfilePage() {
                 </div>
               )}
 
+              {/* Current Password Field */}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Current Password</label>
-                <input
-                  type="password"
-                  required
-                  value={passwordForm.current_password}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                  placeholder="Enter current password..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
-                />
+                <div className="relative">
+                  <input
+                    type={showPasswords.current ? "text" : "password"}
+                    required
+                    value={passwordForm.current_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                    placeholder="Enter current password..."
+                    className="w-full p-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, current: !prev.current }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showPasswords.current ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
+              {/* New Password Field */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">New Password</label>
-                <input
-                  type="password"
-                  required
-                  value={passwordForm.new_password}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                  placeholder="At least 8 characters..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
-                />
+                <label className="block font-bold text-gray-700 mb-1">Enter new password</label>
+                <div className="relative">
+                  <input
+                    type={showPasswords.new ? "text" : "password"}
+                    required
+                    value={passwordForm.new_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                    placeholder="At least 8 characters..."
+                    className="w-full p-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, new: !prev.new }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showPasswords.new ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
+              {/* Re-enter New Password Field */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Confirm New Password</label>
-                <input
-                  type="password"
-                  required
-                  value={passwordForm.confirm_password}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-                  placeholder="Re-enter new password..."
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
-                />
+                <label className="block font-bold text-gray-700 mb-1">Re-enter new password</label>
+                <div className="relative">
+                  <input
+                    type={showPasswords.confirm ? "text" : "password"}
+                    required
+                    value={passwordForm.confirm_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                    placeholder="Re-enter new password..."
+                    className="w-full p-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#b32d2d]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, confirm: !prev.confirm }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showPasswords.confirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2 border-t border-gray-100">
