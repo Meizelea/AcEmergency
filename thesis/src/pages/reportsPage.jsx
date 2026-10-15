@@ -216,7 +216,7 @@ export default function ReportsPage() {
     try {
       const statusDatabaseMap = {
         'Pending': 'pending',       
-        'Responding': 'ongoing',   
+        'Ongoing': 'ongoing',   
         'Resolved': 'resolved'
       };
 
@@ -280,7 +280,7 @@ export default function ReportsPage() {
     
     let matchedStatus = true;
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
-    else if (statusFilter === 'Responding') matchedStatus = (currentStat === 'ongoing' || currentStat === 'responding');
+    else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing' || currentStat === 'ongoing');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
 
     return matchedSearch && matchedStatus;
@@ -324,7 +324,7 @@ export default function ReportsPage() {
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2.5 bg-transparent focus:outline-none cursor-pointer pr-4">
                 <option value="All">All Statuses</option>
                 <option value="Pending">Pending</option>
-                <option value="Responding">Responding</option>
+                <option value="Ongoing">Ongoing</option>
                 <option value="Resolved">Resolved</option>
               </select>
             </div>
@@ -360,8 +360,8 @@ export default function ReportsPage() {
                 ) : (
                   filteredReports.map((report) => {
                     const currentStatusRaw = String(report.status).toLowerCase();
-                    const displayLabel = currentStatusRaw === 'ongoing' || currentStatusRaw === 'responding' 
-                      ? 'Responding' 
+                    const displayLabel = currentStatusRaw === 'ongoing' || currentStatusRaw === 'ongoing' 
+                      ? 'Ongoing' 
                       : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') 
                         ? 'Pending' 
                         : 'Resolved';
@@ -424,7 +424,7 @@ export default function ReportsPage() {
                         <td className="py-5 px-6" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1.5 justify-center">
                             <StatusButton label="Pending" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Pending')} />
-                            <StatusButton label="Responding" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Responding')} />
+                            <StatusButton label="Ongoing" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Ongoing')} />
                             <StatusButton label="Resolved" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Resolved')} />
                           </div>
                         </td>
@@ -457,10 +457,10 @@ export default function ReportsPage() {
 
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => handleStatusUpdate(selectedReport.id, 'Responding')}
+                  onClick={() => handleStatusUpdate(selectedReport.id, 'Ongoing')}
                   className="bg-[#0f766e] hover:bg-[#115e59] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
-                  Mark In Progress
+                  Mark Ongoing
                 </button>
                 <button 
                   onClick={() => handleStatusUpdate(selectedReport.id, 'Resolved')}
@@ -632,7 +632,7 @@ function StatusButton({ label, currentStatus, onClick }) {
   
   if (isActive) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
-    if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
+    if (label === "Ongoing") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
   }
 

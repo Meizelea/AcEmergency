@@ -164,7 +164,7 @@ export default function AdminLogin() {
           <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <ShieldAlert size={32} className="text-white" />
           </div>
-          <h1 className="text-2xl font-black tracking-tight uppercase">ACEmergency</h1>
+          <h1 className="text-2xl font-black tracking-tight uppercase">Aksyon</h1>
           <p className="text-red-100 text-sm mt-1 font-medium">Command Center Portal</p>
         </div>
 
