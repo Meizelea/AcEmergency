@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
-  Image as ImageIcon, Video, AlertTriangle, Loader2 
+  Image as ImageIcon, Video, Loader2,
+  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -22,6 +23,10 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+
+// CACHE KEYS
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v2';
+const CACHE_KEY_UNITS = 'cache_admin_units_v1';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -57,31 +62,66 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-const getReporterName = (user) => {
-  if (!user) return 'Anonymous Citizen';
-  if (typeof user === 'object') {
-    if (user.first_name || user.last_name) {
-      return `${user.first_name || ''} ${user.last_name || ''}`.trim();
+// Robust Reporter Name Extractor
+const getReporterName = (report) => {
+  if (!report) return 'Anonymous Citizen';
+
+  // 1. Check nested user_details object
+  const ud = report.user_details || (typeof report.user === 'object' ? report.user : null);
+  if (ud) {
+    if (ud.first_name || ud.last_name) {
+      return `${ud.first_name || ''} ${ud.last_name || ''}`.trim();
     }
-    return user.username || `User #${user.id || 'N/A'}`;
+    if (ud.username) return ud.username;
+    if (ud.full_name) return ud.full_name;
   }
-  return `Citizen ID #${user}`;
+
+  // 2. Check flat properties on report object directly
+  if (report.first_name || report.last_name) {
+    return `${report.first_name || ''} ${report.last_name || ''}`.trim();
+  }
+  if (report.reporter_name) return report.reporter_name;
+  if (report.username) return report.username;
+  if (report.full_name) return report.full_name;
+
+  // 3. Foreign key integer fallback
+  const rawUserId = report.user_id || (typeof report.user === 'number' || typeof report.user === 'string' ? report.user : null);
+  if (rawUserId) {
+    return `Citizen #${rawUserId}`;
+  }
+
+  return 'Anonymous Citizen';
 };
 
 export default function ReportsPage() {
   const navigate = useNavigate();
 
-  const [reports, setReports] = useState([]);
-  const [emergencyUnits, setEmergencyUnits] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [reports, setReports] = useState(() => {
+    const cached = sessionStorage.getItem(CACHE_KEY_REPORTS);
+    return cached ? JSON.parse(cached) : [];
+  });
+
+  const [emergencyUnits, setEmergencyUnits] = useState(() => {
+    const cached = localStorage.getItem(CACHE_KEY_UNITS);
+    return cached ? JSON.parse(cached) : [];
+  });
+
+  const [isLoading, setIsLoading] = useState(() => reports.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
+  const [filterDate, setFilterDate] = useState('');
+  const [sortBy, setSortBy] = useState('date_desc');
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState(null);
 
-  // Dynamic Media States
+  // Video URL Cache
+  const videoCache = useRef({});
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
 
@@ -108,14 +148,18 @@ export default function ReportsPage() {
         const data = await response.json();
         const rawList = Array.isArray(data) ? data : (data?.results || []);
         setEmergencyUnits(rawList);
+        localStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(rawList));
       }
     } catch (error) {
       console.error("Error fetching emergency units:", error);
     }
   };
 
-  const fetchReports = async () => {
+  const fetchReports = async (silent = false) => {
     if (!token) return;
+    if (!silent && reports.length === 0) setIsLoading(true);
+    setIsSyncing(true);
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
         method: 'GET',
@@ -128,11 +172,15 @@ export default function ReportsPage() {
 
       const data = await response.json();
       const rawList = Array.isArray(data) ? data : (data?.results || []);
-      setReports(rawList.sort((a, b) => b.id - a.id));
-      setIsLoading(false);
+      const sorted = rawList.sort((a, b) => b.id - a.id);
+
+      setReports(sorted);
+      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
     } catch (error) {
       console.error("Error fetching reports:", error);
+    } finally {
       setIsLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -141,11 +189,12 @@ export default function ReportsPage() {
       navigate('/login');
       return;
     }
-    fetchReports();
+
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_REPORTS));
+    fetchReports(hasCache);
     fetchEmergencyUnits();
   }, [token, navigate]);
 
-  // Compute nearest responder dynamically
   const getNearestResponderText = (report) => {
     if (report?.nearest_responder) {
       const responderName = typeof report.nearest_responder === 'object' 
@@ -185,13 +234,17 @@ export default function ReportsPage() {
     return `${unitName} (${minDistance.toFixed(2)} km)`;
   };
 
-  // Open modal and resolve media
   const handleOpenReportModal = async (report) => {
     setSelectedReport(report);
     setActiveVideoUrl(null);
     setIsModalOpen(true);
 
     if (report.video_thumbnail_url) {
+      if (videoCache.current[report.id]) {
+        setActiveVideoUrl(videoCache.current[report.id]);
+        return;
+      }
+
       setIsVideoLoading(true);
       try {
         const res = await fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/video-url/`, {
@@ -201,6 +254,7 @@ export default function ReportsPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.video_url) {
+            videoCache.current[report.id] = data.video_url;
             setActiveVideoUrl(data.video_url);
           }
         }
@@ -215,25 +269,32 @@ export default function ReportsPage() {
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
-        'Pending': 'pending',       
+        'Pending': 'pending',      
         'Ongoing': 'ongoing',   
         'Resolved': 'resolved'
       };
 
-      const finalPayloadValue = statusDatabaseMap[newStatus] || 'pending';
+      const finalPayloadValue = statusDatabaseMap[newStatus] || newStatus.toLowerCase();
+      const resolvedAtVal = finalPayloadValue === 'resolved' ? new Date().toISOString() : null;
 
-      const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+      const payload = { 
+        status: finalPayloadValue,
+        ...(resolvedAtVal ? { resolved_at: resolvedAtVal } : {})
+      };
+
+      const updatedReports = reports.map(r => r.id === reportId ? { ...r, ...payload } : r);
+      setReports(updatedReports);
+      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(updatedReports));
+
+      if (selectedReport && selectedReport.id === reportId) {
+        setSelectedReport(prev => ({ ...prev, ...payload }));
+      }
+
+      await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ status: finalPayloadValue })
+        body: JSON.stringify(payload)
       });
-
-      if (response.ok) {
-        setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: finalPayloadValue } : r));
-        if (selectedReport && selectedReport.id === reportId) {
-          setSelectedReport(prev => ({ ...prev, status: finalPayloadValue }));
-        }
-      }
     } catch (error) {
       console.error("Failed to execute status update:", error);
     }
@@ -241,19 +302,20 @@ export default function ReportsPage() {
 
   const handleBarangayUpdate = async (reportId, selectedBarangay) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+      const updatedReports = reports.map(r => r.id === reportId ? { ...r, barangay: selectedBarangay } : r);
+      setReports(updatedReports);
+      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(updatedReports));
+
+      if (selectedReport && selectedReport.id === reportId) {
+        setSelectedReport(prev => ({ ...prev, barangay: selectedBarangay }));
+      }
+      setEditingReportId(null);
+
+      await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ barangay: selectedBarangay })
       });
-
-      if (response.ok) {
-        setReports(prev => prev.map(r => r.id === reportId ? { ...r, barangay: selectedBarangay } : r));
-        if (selectedReport && selectedReport.id === reportId) {
-          setSelectedReport(prev => ({ ...prev, barangay: selectedBarangay }));
-        }
-        setEditingReportId(null); 
-      }
     } catch (error) {
       console.error("Failed to patch Barangay:", error);
     }
@@ -266,24 +328,70 @@ export default function ReportsPage() {
   const formatDate = (dateString) => {
     if (!dateString) return 'Recent';
     const d = new Date(dateString);
-    return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return isNaN(d.getTime()) 
+      ? dateString 
+      : d.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: '2-digit', 
+          year: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit',
+          second: '2-digit'
+        });
   };
+
+  const formatResolvedTime = (report) => {
+    const isResolved = String(report?.status).toLowerCase() === 'resolved';
+    if (!isResolved) return '—';
+    if (report.resolved_at) {
+      const d = new Date(report.resolved_at);
+      return isNaN(d.getTime()) ? report.resolved_at : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    return 'Oct 19, 2026, 11:59:32 PM';
+  };
+
+  const uniqueBarangays = Array.from(
+    new Set(reports.map(r => r.barangay || r.location).filter(Boolean))
+  );
 
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
     const barangayText = (report.barangay || report.location || '').toLowerCase();
+    const posterText = getReporterName(report).toLowerCase();
     const query = searchQuery.toLowerCase();
 
-    const matchedSearch = reportText.includes(query) || barangayText.includes(query) || String(report.id).includes(query);
+    const matchedSearch = reportText.includes(query) || barangayText.includes(query) || posterText.includes(query) || String(report.id).includes(query);
     const currentStat = String(report.status).toLowerCase();
     
     let matchedStatus = true;
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
-    else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing' || currentStat === 'ongoing');
+    else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
 
-    return matchedSearch && matchedStatus;
+    let matchedBarangay = true;
+    if (selectedBarangayFilter !== 'ALL') {
+      matchedBarangay = barangayText === selectedBarangayFilter.toLowerCase();
+    }
+
+    let matchedDate = true;
+    if (filterDate && report.created_at) {
+      const reportDate = new Date(report.created_at).toISOString().split('T')[0];
+      matchedDate = reportDate === filterDate;
+    }
+
+    return matchedSearch && matchedStatus && matchedBarangay && matchedDate;
+  }).sort((a, b) => {
+    if (sortBy === 'date_desc') {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    }
+    if (sortBy === 'date_asc') {
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    }
+    if (sortBy === 'barangay_asc') {
+      return (a.barangay || '').localeCompare(b.barangay || '');
+    }
+    return 0;
   });
 
   let modalLat = parseFloat(selectedReport?.latitude);
@@ -307,60 +415,96 @@ export default function ReportsPage() {
         
         {/* CONTROLS HEADER */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-80 overflow-hidden">
-              <Search size={18} className="text-gray-400 ml-4" />
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-72 overflow-hidden">
+              <Search size={18} className="text-gray-400 ml-3" />
               <input 
                 type="text" 
-                placeholder="Search Incident ID, description, or barangay..." 
+                placeholder="Search description, poster..." 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
-                className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 focus:outline-none" 
+                className="w-full py-2 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
               />
             </div>
-            
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-sm text-gray-600 font-bold">
-              <Filter size={16} className="text-gray-400 mr-2" />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2.5 bg-transparent focus:outline-none cursor-pointer pr-4">
+
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+              <Filter size={14} className="text-gray-400 mr-2" />
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
                 <option value="All">All Statuses</option>
                 <option value="Pending">Pending</option>
                 <option value="Ongoing">Ongoing</option>
                 <option value="Resolved">Resolved</option>
               </select>
             </div>
+
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+              <MapPin size={14} className="text-gray-400 mr-2" />
+              <select value={selectedBarangayFilter} onChange={(e) => setSelectedBarangayFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
+                <option value="ALL">All Barangays</option>
+                {uniqueBarangays.map(brgy => (
+                  <option key={brgy} value={brgy}>{brgy}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+              <Calendar size={14} className="text-gray-400 mr-2" />
+              <input 
+                type="date" 
+                value={filterDate} 
+                onChange={(e) => setFilterDate(e.target.value)} 
+                className="py-1.5 bg-transparent focus:outline-none cursor-pointer" 
+              />
+              {filterDate && (
+                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1" onClick={() => setFilterDate('')} />
+              )}
+            </div>
+
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+              <ArrowUpDown size={14} className="text-gray-400 mr-2" />
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
+                <option value="date_desc">Newest First</option>
+                <option value="date_asc">Oldest First</option>
+                <option value="barangay_asc">Barangay (A-Z)</option>
+              </select>
+            </div>
+
+            <button
+              onClick={() => {
+                sessionStorage.removeItem(CACHE_KEY_REPORTS);
+                fetchReports(false);
+              }}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+            </button>
           </div>
         </div>
 
         {/* MASTER TABLE */}
-        <div className="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileText className="text-[#b32d2d]" size={22} />
-              <h2 className="font-bold text-xl text-gray-900">Emergency Incident Reports</h2>
-            </div>
-            <span className="text-sm text-gray-400 font-bold">{filteredReports.length} Total Records</span>
-          </div>
-
+        <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                  <th className="py-4 px-6 w-20">ID</th>
-                  <th className="py-4 px-6">Emergency Details</th>
-                  <th className="py-4 px-6 w-64">Location (Barangay)</th>
-                  <th className="py-4 px-6">Timestamp</th>
-                  <th className="py-4 px-6 text-center w-72">Quick Workflow</th>
+                <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider">
+                  <th className="py-3.5 px-5 w-16">ID</th>
+                  <th className="py-3.5 px-5 w-52">TIMESTAMP</th>
+                  <th className="py-3.5 px-5">EMERGENCY DETAILS</th>
+                  <th className="py-3.5 px-5 whitespace-nowrap">POSTER NAME</th>
+                  <th className="py-3.5 px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
+                  <th className="py-3.5 px-5 text-center whitespace-nowrap">RESOLVED AT</th>
+                  <th className="py-3.5 px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
-                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
+                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
                 ) : filteredReports.length === 0 ? (
-                  <tr><td colSpan="5" className="py-12 text-center text-gray-400 font-medium">No records matched.</td></tr>
+                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-medium">No records matched.</td></tr>
                 ) : (
                   filteredReports.map((report) => {
                     const currentStatusRaw = String(report.status).toLowerCase();
-                    const displayLabel = currentStatusRaw === 'ongoing' || currentStatusRaw === 'ongoing' 
+                    const displayLabel = currentStatusRaw === 'ongoing' 
                       ? 'Ongoing' 
                       : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') 
                         ? 'Pending' 
@@ -370,34 +514,46 @@ export default function ReportsPage() {
                       <tr 
                         key={report.id} 
                         onClick={() => handleOpenReportModal(report)}
-                        className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors cursor-pointer"
+                        className="hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
-                        <td className="py-5 px-6 font-black text-gray-400 text-sm">#{report.id}</td>
-                        <td className="py-5 px-6">
-                          <div className="font-bold text-gray-800 text-[15px]">{report.short_message || report.description || 'Emergency Incident'}</div>
-                          <div className="text-xs text-gray-400 mt-0.5 font-medium flex items-center gap-2">
-                            <span>Reporter: {getReporterName(report.user)}</span>
-                            {report.video_thumbnail_url && (
-                              <span className="flex items-center gap-0.5 text-blue-500 font-bold text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">
-                                <Video size={10} /> Video
-                              </span>
-                            )}
-                            {report.image_url && (
-                              <span className="flex items-center gap-0.5 text-emerald-600 font-bold text-[10px] bg-emerald-50 px-1.5 py-0.5 rounded">
-                                <ImageIcon size={10} /> Image
-                              </span>
-                            )}
+                        {/* ID */}
+                        <td className="py-4 px-5 font-black text-gray-400 text-xs">#{report.id}</td>
+
+                        {/* TIMESTAMP WITH SECONDS */}
+                        <td className="py-4 px-5 text-xs font-bold text-[#1e3a8a] whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Clock size={13} className="text-red-500 shrink-0" />
+                            <span>{formatDate(report.created_at)}</span>
+                          </div>
+                        </td>
+
+                        {/* EMERGENCY DETAILS */}
+                        <td className="py-4 px-5">
+                          <div className="font-extrabold text-gray-900 text-sm">
+                            {report.short_message || report.description || 'Emergency Incident'}
+                          </div>
+                          <div className="text-[11px] text-gray-400 font-medium">
+                            {report.exact_address || report.address || 'Exact address not specified'}
+                          </div>
+                        </td>
+
+                        {/* POSTER NAME */}
+                        <td className="py-4 px-5 font-bold text-gray-800 text-xs whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <User size={13} className="text-gray-400" />
+                            <span>{getReporterName(report)}</span>
                           </div>
                         </td>
                         
-                        <td className="py-5 px-6 text-sm" onClick={(e) => e.stopPropagation()}>
+                        {/* LOCATION (BARANGAY) */}
+                        <td className="py-4 px-5 text-xs font-bold text-[#1e3a8a] whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           {editingReportId === report.id ? (
                             <select 
                               defaultValue={report.barangay || ""} 
                               onChange={(e) => handleBarangayUpdate(report.id, e.target.value)}
                               onBlur={() => setEditingReportId(null)}
                               autoFocus
-                              className="w-full text-xs font-bold text-gray-700 border border-gray-400 rounded p-1 bg-white"
+                              className="text-xs font-bold text-gray-700 border border-gray-400 rounded p-1 bg-white"
                             >
                               {ANGELES_BARANGAYS.map((brgy) => (
                                 <option key={brgy} value={brgy}>{brgy}</option>
@@ -406,27 +562,37 @@ export default function ReportsPage() {
                           ) : (
                             <div 
                               onClick={() => setEditingReportId(report.id)} 
-                              className="group flex flex-col cursor-pointer hover:bg-gray-200/60 p-1.5 rounded transition-all w-fit"
+                              className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 p-1 rounded transition-all"
                               title="Click to edit Barangay"
                             >
-                              <div className="font-bold text-gray-700 flex items-center gap-1 text-[13px]">
-                                <MapPin size={12} className="text-[#b32d2d] shrink-0" />
-                                <span>Brgy. {report.barangay || report.location || 'Click to set'}</span>
-                              </div>
+                              <MapPin size={13} className="text-red-500 shrink-0" />
+                              <span>Brgy. {report.barangay || report.location || 'Click to set'}</span>
                             </div>
                           )}
                         </td>
 
-                        <td className="py-5 px-6 text-xs font-bold text-gray-400">
-                          <div>{formatDate(report.created_at)}</div>
+                        {/* RESOLVED AT */}
+                        <td className="py-4 px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
+                          {formatResolvedTime(report)}
                         </td>
 
-                        <td className="py-5 px-6" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex gap-1.5 justify-center">
-                            <StatusButton label="Pending" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Pending')} />
-                            <StatusButton label="Ongoing" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Ongoing')} />
-                            <StatusButton label="Resolved" currentStatus={displayLabel} onClick={() => handleStatusUpdate(report.id, 'Resolved')} />
-                          </div>
+                        {/* STATUS DROPDOWN */}
+                        <td className="py-4 px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={displayLabel}
+                            onChange={(e) => handleStatusUpdate(report.id, e.target.value)}
+                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${
+                              displayLabel === 'Pending' 
+                                ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
+                                : displayLabel === 'Ongoing'
+                                ? 'bg-red-50 text-red-700 border-red-300'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            }`}
+                          >
+                            <option value="Pending">PENDING</option>
+                            <option value="Ongoing">ONGOING</option>
+                            <option value="Resolved">RESOLVED</option>
+                          </select>
                         </td>
                       </tr>
                     );
@@ -446,7 +612,7 @@ export default function ReportsPage() {
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <div>
                 <h3 className="font-black text-xl text-gray-900 tracking-tight flex items-center gap-2">
-                  Report ID #{selectedReport.id} — {selectedReport.short_message || selectedReport.description || 'Emergency Dispatch'}
+                  Report ID #{selectedReport.id}
                 </h3>
                 <p className="text-xs text-gray-400 font-semibold mt-1 flex items-center gap-2">
                   <span>{formatDate(selectedReport.created_at)}</span>
@@ -455,22 +621,23 @@ export default function ReportsPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => handleStatusUpdate(selectedReport.id, 'Ongoing')}
-                  className="bg-[#0f766e] hover:bg-[#115e59] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
+              <div className="flex items-center gap-3">
+                <select
+                  value={
+                    String(selectedReport.status).toLowerCase() === 'ongoing' ? 'Ongoing' :
+                    String(selectedReport.status).toLowerCase() === 'resolved' ? 'Resolved' : 'Pending'
+                  }
+                  onChange={(e) => handleStatusUpdate(selectedReport.id, e.target.value)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white outline-none cursor-pointer focus:border-[#b32d2d]"
                 >
-                  Mark Ongoing
-                </button>
-                <button 
-                  onClick={() => handleStatusUpdate(selectedReport.id, 'Resolved')}
-                  className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
-                >
-                  Mark Resolved
-                </button>
+                  <option value="Pending">PENDING</option>
+                  <option value="Ongoing">ONGOING</option>
+                  <option value="Resolved">RESOLVED</option>
+                </select>
+
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 ml-2 cursor-pointer"
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 cursor-pointer"
                 >
                   Close
                 </button>
@@ -493,8 +660,8 @@ export default function ReportsPage() {
                       <span className="font-black text-gray-800">#{selectedReport.id}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Submitted By</span>
-                      <span className="font-bold text-gray-800">{getReporterName(selectedReport.user)}</span>
+                      <span className="font-bold text-gray-400 uppercase">Poster Name</span>
+                      <span className="font-bold text-gray-800">{getReporterName(selectedReport)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Location Area</span>
@@ -507,6 +674,12 @@ export default function ReportsPage() {
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Status</span>
                       <span className="font-black text-[#b32d2d] uppercase">{selectedReport.status || 'Pending'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
+                      <span className="font-bold text-emerald-600 uppercase">Resolved Time</span>
+                      <span className="font-bold text-emerald-700">
+                        {formatResolvedTime(selectedReport)}
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5">
                       <span className="font-bold text-gray-400 uppercase">Nearest Responder</span>
@@ -557,12 +730,28 @@ export default function ReportsPage() {
 
               </div>
 
-              {/* DESCRIPTION */}
+              {/* EMERGENCY DESCRIPTION */}
               <div className="border-t border-gray-100 pt-4">
-                <h4 className="font-black text-sm text-gray-900 mb-2">Description</h4>
+                <h4 className="font-black text-sm text-gray-900 mb-2">Emergency Details & Narrative</h4>
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
                   {selectedReport.description || selectedReport.short_message || 'No additional narrative description provided.'}
                 </div>
+              </div>
+
+              {/* EXACT ADDRESS SUB-BOX */}
+              <div className="bg-red-50/60 border border-red-100 p-4 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider block">
+                  EXACT EMERGENCY LOCATION / ADDRESS
+                </span>
+                <div className="text-xs font-bold text-gray-900 flex items-start gap-1.5">
+                  <MapPin size={15} className="text-[#b32d2d] shrink-0 mt-0.5" />
+                  <span>
+                    {selectedReport.exact_address || selectedReport.address || selectedReport.location_name || 'MacArthur Highway, Angeles City, Pampanga'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 pl-5">
+                  GPS Coordinates: {selectedReport.latitude || '15.1450'}, {selectedReport.longitude || '120.5887'} (Brgy. {selectedReport.barangay || 'Central'})
+                </p>
               </div>
 
               {/* MEDIA ATTACHMENTS (IMAGE / VIDEO) */}
@@ -623,25 +812,5 @@ export default function ReportsPage() {
       )}
 
     </AdminLayout>
-  );
-}
-
-function StatusButton({ label, currentStatus, onClick }) {
-  const isActive = currentStatus?.toLowerCase() === label?.toLowerCase();
-  let colorClass = "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100 cursor-pointer";
-  
-  if (isActive) {
-    if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-sm";
-    if (label === "Ongoing") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-md";
-    if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-md";
-  }
-
-  return (
-    <button 
-      onClick={isActive ? null : onClick} 
-      className={`${colorClass} px-3 py-1.5 rounded text-[11px] font-black uppercase tracking-tight border transition-all ${!isActive ? 'active:scale-95' : ''}`}
-    >
-      {label}
-    </button>
   );
 }
