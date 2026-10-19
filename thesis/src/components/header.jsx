@@ -72,14 +72,14 @@ export default function AdminLayout({ children }) {
             ) : (
               /* REGULAR ADMIN NAVIGATION */
               <>
-                <div onClick={() => navigate('/dashboard')}>
-                  <SidebarLink icon={<LayoutGrid size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
+                <div onClick={() => navigate('/analytics')}>
+                  <SidebarLink icon={<LayoutGrid size={24} />} label="Analytics" active={location.pathname === '/analytics'} />
                 </div>
                 <div onClick={() => navigate('/reports')}>
                   <SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} />
                 </div>
-                <div onClick={() => navigate('/analytics')}>
-                  <SidebarLink icon={<BarChart3 size={24} />} label="Analytics" active={location.pathname === '/analytics'} />
+                <div onClick={() => navigate('/dashboard')}>
+                  <SidebarLink icon={<BarChart3 size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
                 </div>
                 <div onClick={() => navigate('/users')}>
                   <SidebarLink icon={<Users size={24} />} label="Users" active={location.pathname === '/users'} />
@@ -146,6 +146,16 @@ export default function AdminLayout({ children }) {
                   /* REGULAR ADMIN HEADER TABS */
                   <>
                     <span 
+                      onClick={() => navigate('/analytics')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/analytics' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Analytics
+                    </span>
+                    <span 
                       onClick={() => navigate('/dashboard')} 
                       className={`text-sm rounded-md cursor-pointer transition-all ${
                         location.pathname === '/dashboard' 
@@ -164,16 +174,6 @@ export default function AdminLayout({ children }) {
                       }`}
                     >
                       Reports
-                    </span>
-                    <span 
-                      onClick={() => navigate('/analytics')} 
-                      className={`text-sm rounded-md cursor-pointer transition-all ${
-                        location.pathname === '/analytics' 
-                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
-                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
-                      }`}
-                    >
-                      Analytics
                     </span>
                     <span 
                       onClick={() => navigate('/users')} 

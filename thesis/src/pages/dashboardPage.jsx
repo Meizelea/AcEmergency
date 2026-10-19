@@ -8,9 +8,9 @@ import L from 'leaflet';
 import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
-
-// const API_BASE_URL = 'https://api.aksyon.online';
 const API_BASE_URL = `http://${targetHostname}:8000`;
+
+const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
 
 const barangayCoords = {
   'Balibago': [15.1667, 120.5833],
@@ -29,8 +29,8 @@ const barangayCoords = {
 
 // Precise Angeles City geographic perimeter [South-West, North-East]
 const ANGELES_CITY_BOUNDS = [
-  [15.1050, 120.5050], // Southwest perimeter (Sapangbato / Cutcut boundary)
-  [15.1850, 120.6350]  // Northeast perimeter (Balibago / Pulung Maragul boundary)
+  [15.1050, 120.5050],
+  [15.1850, 120.6350]
 ];
 
 const ANGELES_CENTER = [15.1450, 120.5880];
@@ -55,12 +55,67 @@ const createStatusIcon = (status) => {
 export default function DashboardPage() {
   const navigate = useNavigate();
 
-  const [reports, setReports] = useState([]);
+  // Initialize reports state from sessionStorage if present
+  const [reports, setReports] = useState(() => {
+    const cached = sessionStorage.getItem(CACHE_KEY_DASHBOARD_REPORTS);
+    return cached ? JSON.parse(cached) : [];
+  });
+
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => reports.length === 0);
 
   const token = localStorage.getItem('ac_token');
+
+  // Process raw list into Bar and Pie chart representations
+  const processChartData = (rawList) => {
+    // 1. Bar Chart Processing
+    const barangayCounts = {};
+    Object.keys(barangayCoords).forEach(key => { barangayCounts[key] = 0; });
+
+    rawList.forEach(report => {
+      if (report) {
+        let bName = report.barangay || report.location || 'San Nicolas';
+        if (bName === 'Lourdes North West') bName = 'Lourdes NorthWest';
+        if (bName === 'San Trinidad') bName = 'Sta. Trinidad';
+        
+        if (barangayCounts[bName] !== undefined) {
+          barangayCounts[bName] += 1;
+        }
+      }
+    });
+
+    const formattedBars = Object.keys(barangayCounts).map(key => ({
+      d: key === 'Lourdes NorthWest' ? 'Lourdes NW' : key,
+      v: barangayCounts[key]
+    }));
+    setBarData(formattedBars);
+
+    // 2. Pie Chart Processing
+    let submittedCount = 0;
+    let pendingCount = 0;
+    let ongoingCount = 0;
+    let resolvedCount = 0;
+
+    rawList.forEach(report => {
+      if (report) {
+        const stat = String(report.status).toLowerCase();
+        if (stat === 'resolved') resolvedCount++;
+        else if (stat === 'ongoing' || stat === 'responding') ongoingCount++;
+        else if (stat === 'pending') pendingCount++;
+        else submittedCount++;
+      }
+    });
+
+    const formattedPie = [
+      { name: 'Submitted', value: submittedCount, color: '#3b82f6' },
+      { name: 'Pending', value: pendingCount, color: '#ffc20e' },
+      { name: 'Responding', value: ongoingCount, color: '#ef4444' },
+      { name: 'Resolved', value: resolvedCount, color: '#10b981' }
+    ].filter(item => item.value > 0); 
+    
+    setPieData(formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
+  };
 
   useEffect(() => {
     if (!token) {
@@ -68,16 +123,19 @@ export default function DashboardPage() {
       return;
     }
 
+    // Process cached data immediately on mount if present
+    if (reports.length > 0) {
+      processChartData(reports);
+    }
+
     const fetchDashboardData = async () => {
       try {
         const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-
         const headersConfiguration = {
           'Content-Type': 'application/json',
           'Authorization': authPrefix
         };
 
-        // const analyticsRes = await fetch(`https://api.aksyon.online/api/reports/admin/`, {
         const analyticsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
           headers: headersConfiguration 
         });
@@ -102,53 +160,9 @@ export default function DashboardPage() {
             : [];
           
         setReports(rawList);
-
-        // Bar Chart processing
-        const barangayCounts = {};
-        Object.keys(barangayCoords).forEach(key => { barangayCounts[key] = 0; });
-
-        rawList.forEach(report => {
-          if (report) {
-            let bName = report.barangay || report.location || 'San Nicolas';
-            if (bName === 'Lourdes North West') bName = 'Lourdes NorthWest';
-            if (bName === 'San Trinidad') bName = 'Sta. Trinidad';
-            
-            if (barangayCounts[bName] !== undefined) {
-              barangayCounts[bName] += 1;
-            }
-          }
-        });
-
-        const formattedBars = Object.keys(barangayCounts).map(key => ({
-          d: key === 'Lourdes NorthWest' ? 'Lourdes NW' : key,
-          v: barangayCounts[key]
-        }));
-        setBarData(formattedBars);
-
-        // Pie Chart processing
-        let submittedCount = 0;
-        let pendingCount = 0;
-        let ongoingCount = 0;
-        let resolvedCount = 0;
-
-        rawList.forEach(report => {
-          if (report) {
-            const stat = String(report.status).toLowerCase();
-            if (stat === 'resolved') resolvedCount++;
-            else if (stat === 'ongoing' || stat === 'responding') ongoingCount++;
-            else if (stat === 'pending') pendingCount++;
-            else submittedCount++;
-          }
-        });
-
-        const formattedPie = [
-          { name: 'Submitted', value: submittedCount, color: '#3b82f6' },
-          { name: 'Pending', value: pendingCount, color: '#ffc20e' },
-          { name: 'Responding', value: ongoingCount, color: '#ef4444' },
-          { name: 'Resolved', value: resolvedCount, color: '#10b981' }
-        ].filter(item => item.value > 0); 
+        sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(rawList));
         
-        setPieData(formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
+        processChartData(rawList);
         setIsLoading(false);
       } catch (error) {
         console.error("Failed to fetch dashboard metrics:", error);
@@ -170,7 +184,6 @@ export default function DashboardPage() {
       const finalPayloadValue = statusDatabaseMap[newStatus] || 'submitted';
       const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
 
-      // const response = await fetch(`https://api.aksyon.online/api/reports/admin/${reportId}/`, {
       const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: { 
@@ -181,9 +194,12 @@ export default function DashboardPage() {
       });
 
       if (response.ok) {
-        setReports(prevReports => prevReports.map(report => 
-            report.id === reportId ? { ...report, status: finalPayloadValue } : report
-        ));
+        const updatedList = reports.map(report => 
+          report.id === reportId ? { ...report, status: finalPayloadValue } : report
+        );
+        setReports(updatedList);
+        sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(updatedList));
+        processChartData(updatedList);
       }
     } catch (error) {
       console.error("Failed to execute status update network call:", error);

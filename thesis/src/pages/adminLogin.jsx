@@ -82,7 +82,7 @@ export default function AdminLogin() {
         if (isSuper) {
           navigate('/superadmin', { replace: true });
         } else {
-          navigate('/dashboard', { replace: true });
+          navigate('/analytics', { replace: true });
         }
       } else {
         setError(

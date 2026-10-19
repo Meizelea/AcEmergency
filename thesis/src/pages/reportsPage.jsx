@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw
+  Calendar, ArrowUpDown, ArrowUp, ArrowDown, User, Clock, CheckCircle2, RefreshCw
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -18,7 +18,6 @@ const getApiBaseUrl = () => {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
 
-  // const API_BASE_URL = `https://api.aksyon.online`;
   return `http://${targetHostname}:8000`;
 };
 
@@ -66,7 +65,6 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 const getReporterName = (report) => {
   if (!report) return 'Anonymous Citizen';
 
-  // 1. Check nested user_details object
   const ud = report.user_details || (typeof report.user === 'object' ? report.user : null);
   if (ud) {
     if (ud.first_name || ud.last_name) {
@@ -76,7 +74,6 @@ const getReporterName = (report) => {
     if (ud.full_name) return ud.full_name;
   }
 
-  // 2. Check flat properties on report object directly
   if (report.first_name || report.last_name) {
     return `${report.first_name || ''} ${report.last_name || ''}`.trim();
   }
@@ -84,7 +81,6 @@ const getReporterName = (report) => {
   if (report.username) return report.username;
   if (report.full_name) return report.full_name;
 
-  // 3. Foreign key integer fallback
   const rawUserId = report.user_id || (typeof report.user === 'number' || typeof report.user === 'string' ? report.user : null);
   if (rawUserId) {
     return `Citizen #${rawUserId}`;
@@ -114,11 +110,10 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
   const [filterDate, setFilterDate] = useState('');
-  const [sortBy, setSortBy] = useState('date_desc');
+  const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'date_asc' | 'resolved_desc' | 'resolved_asc' | 'barangay_asc'
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingReportId, setEditingReportId] = useState(null);
 
   // Video URL Cache
   const videoCache = useRef({});
@@ -300,27 +295,6 @@ export default function ReportsPage() {
     }
   };
 
-  const handleBarangayUpdate = async (reportId, selectedBarangay) => {
-    try {
-      const updatedReports = reports.map(r => r.id === reportId ? { ...r, barangay: selectedBarangay } : r);
-      setReports(updatedReports);
-      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(updatedReports));
-
-      if (selectedReport && selectedReport.id === reportId) {
-        setSelectedReport(prev => ({ ...prev, barangay: selectedBarangay }));
-      }
-      setEditingReportId(null);
-
-      await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ barangay: selectedBarangay })
-      });
-    } catch (error) {
-      console.error("Failed to patch Barangay:", error);
-    }
-  };
-
   if (!token) {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
@@ -347,7 +321,16 @@ export default function ReportsPage() {
       const d = new Date(report.resolved_at);
       return isNaN(d.getTime()) ? report.resolved_at : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
-    return 'Oct 19, 2026, 11:59:32 PM';
+    return '—';
+  };
+
+  // Header click sorting handlers
+  const handleSortTimestamp = () => {
+    setSortBy(prev => prev === 'date_desc' ? 'date_asc' : 'date_desc');
+  };
+
+  const handleSortResolvedAt = () => {
+    setSortBy(prev => prev === 'resolved_desc' ? 'resolved_asc' : 'resolved_desc');
   };
 
   const uniqueBarangays = Array.from(
@@ -387,6 +370,12 @@ export default function ReportsPage() {
     }
     if (sortBy === 'date_asc') {
       return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    }
+    if (sortBy === 'resolved_desc') {
+      return new Date(b.resolved_at || 0) - new Date(a.resolved_at || 0);
+    }
+    if (sortBy === 'resolved_asc') {
+      return new Date(a.resolved_at || 0) - new Date(b.resolved_at || 0);
     }
     if (sortBy === 'barangay_asc') {
       return (a.barangay || '').localeCompare(b.barangay || '');
@@ -465,6 +454,8 @@ export default function ReportsPage() {
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
                 <option value="date_desc">Newest First</option>
                 <option value="date_asc">Oldest First</option>
+                <option value="resolved_desc">Resolved (Newest First)</option>
+                <option value="resolved_asc">Resolved (Oldest First)</option>
                 <option value="barangay_asc">Barangay (A-Z)</option>
               </select>
             </div>
@@ -486,13 +477,47 @@ export default function ReportsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider">
+                <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
                   <th className="py-3.5 px-5 w-16">ID</th>
-                  <th className="py-3.5 px-5 w-52">TIMESTAMP</th>
+                  
+                  {/* SORTABLE TIMESTAMP HEADER */}
+                  <th 
+                    onClick={handleSortTimestamp}
+                    className="py-3.5 px-5 w-52 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>TIMESTAMP</span>
+                      {sortBy === 'date_desc' ? (
+                        <ArrowDown size={13} className="text-[#b32d2d]" />
+                      ) : sortBy === 'date_asc' ? (
+                        <ArrowUp size={13} className="text-[#b32d2d]" />
+                      ) : (
+                        <ArrowUpDown size={13} className="text-gray-400" />
+                      )}
+                    </div>
+                  </th>
+
                   <th className="py-3.5 px-5">EMERGENCY DETAILS</th>
                   <th className="py-3.5 px-5 whitespace-nowrap">POSTER NAME</th>
                   <th className="py-3.5 px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
-                  <th className="py-3.5 px-5 text-center whitespace-nowrap">RESOLVED AT</th>
+                  
+                  {/* SORTABLE RESOLVED AT HEADER */}
+                  <th 
+                    onClick={handleSortResolvedAt}
+                    className="py-3.5 px-5 text-center whitespace-nowrap cursor-pointer hover:bg-gray-200/60 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>RESOLVED AT</span>
+                      {sortBy === 'resolved_desc' ? (
+                        <ArrowDown size={13} className="text-[#b32d2d]" />
+                      ) : sortBy === 'resolved_asc' ? (
+                        <ArrowUp size={13} className="text-[#b32d2d]" />
+                      ) : (
+                        <ArrowUpDown size={13} className="text-gray-400" />
+                      )}
+                    </div>
+                  </th>
+
                   <th className="py-3.5 px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
                 </tr>
               </thead>
@@ -519,8 +544,8 @@ export default function ReportsPage() {
                         {/* ID */}
                         <td className="py-4 px-5 font-black text-gray-400 text-xs">#{report.id}</td>
 
-                        {/* TIMESTAMP WITH SECONDS */}
-                        <td className="py-4 px-5 text-xs font-bold text-[#1e3a8a] whitespace-nowrap">
+                        {/* TIMESTAMP FIXED COLOR (Neutral Dark Text) */}
+                        <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Clock size={13} className="text-red-500 shrink-0" />
                             <span>{formatDate(report.created_at)}</span>
@@ -545,30 +570,12 @@ export default function ReportsPage() {
                           </div>
                         </td>
                         
-                        {/* LOCATION (BARANGAY) */}
-                        <td className="py-4 px-5 text-xs font-bold text-[#1e3a8a] whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          {editingReportId === report.id ? (
-                            <select 
-                              defaultValue={report.barangay || ""} 
-                              onChange={(e) => handleBarangayUpdate(report.id, e.target.value)}
-                              onBlur={() => setEditingReportId(null)}
-                              autoFocus
-                              className="text-xs font-bold text-gray-700 border border-gray-400 rounded p-1 bg-white"
-                            >
-                              {ANGELES_BARANGAYS.map((brgy) => (
-                                <option key={brgy} value={brgy}>{brgy}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <div 
-                              onClick={() => setEditingReportId(report.id)} 
-                              className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 p-1 rounded transition-all"
-                              title="Click to edit Barangay"
-                            >
-                              <MapPin size={13} className="text-red-500 shrink-0" />
-                              <span>Brgy. {report.barangay || report.location || 'Click to set'}</span>
-                            </div>
-                          )}
+                        {/* READ-ONLY LOCATION (BARANGAY) */}
+                        <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
+                            <MapPin size={13} className="text-red-500 shrink-0" />
+                            <span>Brgy. {report.barangay || report.location || 'Santa Trinidad'}</span>
+                          </div>
                         </td>
 
                         {/* RESOLVED AT */}
