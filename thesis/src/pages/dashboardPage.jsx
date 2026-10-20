@@ -8,6 +8,7 @@ import L from 'leaflet';
 import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
+// const API_BASE_URL = 'https://api.aksyon.online';
 const API_BASE_URL = `http://${targetHostname}:8000`;
 
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';

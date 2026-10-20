@@ -57,7 +57,7 @@ export default function AdminLayout({ children }) {
                 <div onClick={() => navigate('/superadmin')}>
                   <SidebarLink 
                     icon={<ShieldCheck size={24} />} 
-                    label="AdminPage (TEMP)" 
+                    label="Admin Management" 
                     active={location.pathname === '/superadmin'} 
                   />
                 </div>
@@ -129,7 +129,7 @@ export default function AdminLayout({ children }) {
                           : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
                       }`}
                     >
-                      AdminTemp
+                      Admin Management
                     </span>
                     <span 
                       onClick={() => navigate('/privileged-emergency-units')} 

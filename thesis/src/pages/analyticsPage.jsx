@@ -69,6 +69,7 @@ export default function AnalyticsPage() {
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
   const API_BASE_URL = `http://${targetHostname}:8000`;
+  // const API_BASE_URL = 'https://api.aksyon.online';
 
   // Filter reports exclusively for the assigned Barangay
   const reports = useMemo(() => {
