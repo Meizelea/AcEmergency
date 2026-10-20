@@ -102,7 +102,7 @@ export default function AdminLayout({ children }) {
             <div onClick={handleLogout}>
               <div className="flex items-center gap-4 px-4 py-3 mx-3 mb-1 cursor-pointer transition-all duration-200 text-gray-400 hover:bg-red-900/40 hover:text-red-400 rounded-xl font-bold">
                 <LogOut size={24} className="shrink-0" />
-                <span className="text-[16px] tracking-tight">Logout System</span>
+                <span className="text-[16px] tracking-tight">Logout</span>
               </div>
             </div>
           </div>
