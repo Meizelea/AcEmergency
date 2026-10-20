@@ -2,18 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
-  Truck, 
   Navigation, 
   RefreshCw, 
   Eye, 
-  MapPin, 
-  Phone, 
-  Building2, 
-  Radio, 
-  CheckCircle2, 
-  Loader2, 
-  CheckCircle, 
-  XCircle 
+  Loader2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -30,6 +25,9 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+
+// CACHE KEYS
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v10';
 
 const barangayCoordsFallback = {
   'Balibago': [15.16727, 120.58543],
@@ -58,91 +56,65 @@ const barangayCoordsFallback = {
   'Sapangbato': [15.15000, 120.51600]
 };
 
-function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 export default function EmergencyUnitsPage() {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('matrix');
-  const [units, setUnits] = useState([]);
-  const [rawReports, setRawReports] = useState([]);
+  const [rawReports, setRawReports] = useState(() => {
+    const cached = sessionStorage.getItem(CACHE_KEY_REPORTS);
+    return cached ? JSON.parse(cached) : [];
+  });
+
   const [matrixData, setMatrixData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
+  
+  // Sorting State ('id_desc', 'id_asc', 'dist_asc', 'dist_desc')
+  const [sortBy, setSortBy] = useState('id_desc');
 
   const [selectedReportRow, setSelectedReportRow] = useState(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const token = localStorage.getItem('ac_token');
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = (useBearer = false) => {
     const rawToken = token || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    return cleanToken ? { 'Authorization': `Token ${cleanToken}`, 'Content-Type': 'application/json' } : {};
-  };
-
-  const getUnitTypeLabel = (type) => {
-    switch (String(type).toLowerCase()) {
-      case 'fire': return 'Fire Engine';
-      case 'hospital': return 'Ambulance / Medical';
-      case 'police': return 'Rescue Truck / Police';
-      default: return type || 'Rescue Truck';
-    }
-  };
-
-  const fetchEmergencyUnits = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/emergency-units/`, {
-        method: 'GET',
-        headers: getAuthHeaders()
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const rawList = Array.isArray(data) ? data : (data?.results || []);
-        setUnits(rawList);
-      } else {
-        setUnits([]);
-      }
-    } catch (error) {
-      console.warn("Unable to fetch emergency units:", error);
-      setUnits([]);
-    }
+    if (!cleanToken) return {};
+    const authPrefix = useBearer ? 'Bearer' : 'Token';
+    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   };
 
   const fetchReports = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/reports/admin/`, { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : (data?.results || []);
-        setRawReports(list.filter(r => r && String(r.status).toLowerCase() !== 'resolved'));
+    for (const useBearer of [false, true]) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
+          headers: getAuthHeaders(useBearer) 
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (data?.results || []);
+          const activeOnly = list.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
+          setRawReports(activeOnly);
+          sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(list));
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to load reports:", err);
       }
-    } catch (err) {
-      console.error("Failed to load reports:", err);
     }
   };
 
-  const synchronizeData = async () => {
+  const synchronizeData = async (silent = false) => {
     if (!token) {
       navigate('/login');
       return;
     }
-    setIsLoading(true);
-    await Promise.all([fetchEmergencyUnits(), fetchReports()]);
+    if (!silent) setIsLoading(true);
+    await fetchReports();
     setIsLoading(false);
   };
 
   useEffect(() => {
-    synchronizeData();
+    synchronizeData(rawReports.length > 0);
   }, []);
 
   useEffect(() => {
@@ -150,8 +122,6 @@ export default function EmergencyUnitsPage() {
       setMatrixData([]);
       return;
     }
-
-    const activeUnits = units.filter(u => u.is_active !== false);
 
     const calculated = rawReports.map((report) => {
       let brgy = report.barangay || report.location || 'San Nicolas';
@@ -166,30 +136,14 @@ export default function EmergencyUnitsPage() {
 
       const incidentText = report.short_message || report.description || 'Emergency Dispatch';
 
-      // Safely parse nearest_responder whether it is a String or Object
-      let matchedBaseName = 'Central Command';
+      let matchedBaseName = 'Rafael Lazatin Memorial Medical Center';
       if (report.nearest_responder) {
         matchedBaseName = typeof report.nearest_responder === 'object'
           ? (report.nearest_responder.name || 'Emergency Base')
           : report.nearest_responder;
       }
 
-      let shortestDistance = report.distance_km ? parseFloat(report.distance_km) : Infinity;
-
-      if ((!report.nearest_responder || matchedBaseName === 'Central Command') && activeUnits.length > 0) {
-        let matchedObj = activeUnits[0];
-        shortestDistance = calculateHaversineDistance(reportLat, reportLng, matchedObj.latitude, matchedObj.longitude);
-
-        activeUnits.forEach((base) => {
-          const dist = calculateHaversineDistance(reportLat, reportLng, base.latitude, base.longitude);
-          if (dist < shortestDistance) {
-            shortestDistance = dist;
-            matchedObj = base;
-          }
-        });
-
-        matchedBaseName = matchedObj.name;
-      }
+      let shortestDistance = report.distance_km ? parseFloat(report.distance_km) : 0.79;
 
       return {
         report_id: report.id,
@@ -199,13 +153,31 @@ export default function EmergencyUnitsPage() {
         barangay: brgy,
         lat: reportLat,
         lng: reportLng,
-        nearest_responder: String(matchedBaseName || 'Central Command'),
-        distance_km: shortestDistance === Infinity ? 0.10 : shortestDistance
+        nearest_responder: String(matchedBaseName),
+        distance_km: shortestDistance
       };
     });
 
-    setMatrixData(calculated.sort((a, b) => b.report_id - a.report_id));
-  }, [rawReports, units]);
+    setMatrixData(calculated);
+  }, [rawReports]);
+
+  // Click Handlers for Sort Toggles
+  const toggleSortId = () => {
+    setSortBy(prev => prev === 'id_desc' ? 'id_asc' : 'id_desc');
+  };
+
+  const toggleSortDistance = () => {
+    setSortBy(prev => prev === 'dist_asc' ? 'dist_desc' : 'dist_asc');
+  };
+
+  // Sorted Array Calculation
+  const sortedMatrixData = [...matrixData].sort((a, b) => {
+    if (sortBy === 'id_desc') return Number(b.report_id) - Number(a.report_id);
+    if (sortBy === 'id_asc') return Number(a.report_id) - Number(b.report_id);
+    if (sortBy === 'dist_asc') return Number(a.distance_km) - Number(b.distance_km);
+    if (sortBy === 'dist_desc') return Number(b.distance_km) - Number(a.distance_km);
+    return 0;
+  });
 
   return (
     <AdminLayout>
@@ -224,170 +196,111 @@ export default function EmergencyUnitsPage() {
           </div>
 
           <button 
-            onClick={synchronizeData}
+            onClick={() => synchronizeData(false)}
             className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
           >
-            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> Refresh Data
+            <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> Refresh Data
           </button>
         </div>
 
-        {/* TABS */}
-        <div className="flex gap-2 border-b border-gray-300 mb-6">
-          <button
-            onClick={() => setActiveTab('matrix')}
-            className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'matrix' ? 'border-[#b32d2d] text-[#b32d2d]' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Dispatch Matrix ({matrixData.length} Incidents)
-          </button>
-          <button
-            onClick={() => setActiveTab('units')}
-            className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'units' ? 'border-[#b32d2d] text-[#b32d2d]' : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Active Emergency Units ({units.length} Stations)
-          </button>
+        {/* DISPATCH MATRIX TABLE */}
+        <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
+            <h3 className="font-bold text-base text-gray-900">Proximity Dispatch Matrix</h3>
+            <span className="text-xs text-gray-400 font-bold">{sortedMatrixData.length} Incidents Pending Dispatch</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider select-none">
+                  
+                  {/* SORTABLE INCIDENT ID HEADER */}
+                  <th 
+                    onClick={toggleSortId}
+                    className="py-4 px-6 w-32 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Incident ID</span>
+                      {sortBy === 'id_desc' ? (
+                        <ArrowDown size={13} className="text-[#b32d2d]" />
+                      ) : sortBy === 'id_asc' ? (
+                        <ArrowUp size={13} className="text-[#b32d2d]" />
+                      ) : (
+                        <ArrowUpDown size={13} className="text-gray-400" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th className="py-4 px-6">Emergency Description</th>
+                  <th className="py-4 px-6">Barangay</th>
+                  <th className="py-4 px-6">Nearest Responder</th>
+
+                  {/* SORTABLE DISTANCE HEADER */}
+                  <th 
+                    onClick={toggleSortDistance}
+                    className="py-4 px-6 text-right cursor-pointer hover:bg-gray-200/60 transition-colors"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Distance (KM)</span>
+                      {sortBy === 'dist_asc' ? (
+                        <ArrowUp size={13} className="text-[#b32d2d]" />
+                      ) : sortBy === 'dist_desc' ? (
+                        <ArrowDown size={13} className="text-[#b32d2d]" />
+                      ) : (
+                        <ArrowUpDown size={13} className="text-gray-400" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th className="py-4 px-6 text-center w-28">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-xs">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan="6" className="py-12 text-center text-gray-400 font-bold">
+                      <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
+                      Calculating telemetry distances...
+                    </td>
+                  </tr>
+                ) : sortedMatrixData.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="py-12 text-center text-gray-400 font-medium">
+                      No active incidents require dispatch routing.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedMatrixData.map((row) => (
+                    <tr key={row.report_id} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="py-4 px-6 font-bold text-gray-500">#{row.report_id}</td>
+                      <td className="py-4 px-6 font-bold text-gray-800 max-w-xs truncate" title={row.incident_description}>
+                        {row.incident_description}
+                      </td>
+                      <td className="py-4 px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
+                      <td className="py-4 px-6 font-bold text-gray-800">
+                        {typeof row.nearest_responder === 'object' ? row.nearest_responder?.name : row.nearest_responder}
+                      </td>
+                      <td className="py-4 px-6 text-right font-black text-red-600">
+                        <span className="flex items-center justify-end gap-1">
+                          <Navigation size={12} className="rotate-45" /> ▻ {row.distance_km.toFixed(2)} km
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <button
+                          onClick={() => { setSelectedReportRow(row); setIsReportModalOpen(true); }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg font-bold text-[11px] shadow-2xs transition-all active:scale-95 cursor-pointer"
+                        >
+                          <Eye size={13} /> View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-
-        {/* TAB 1: DISPATCH MATRIX */}
-        {activeTab === 'matrix' && (
-          <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
-              <h3 className="font-bold text-base text-gray-900">Proximity Dispatch Matrix</h3>
-              <span className="text-xs text-gray-400 font-bold">{matrixData.length} Incidents Pending Dispatch</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                    <th className="py-4 px-6 w-24">Incident ID</th>
-                    <th className="py-4 px-6">Emergency Description</th>
-                    <th className="py-4 px-6">Barangay</th>
-                    <th className="py-4 px-6">Nearest Responder</th>
-                    <th className="py-4 px-6 text-right">Distance (KM)</th>
-                    <th className="py-4 px-6 text-center w-28">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-xs">
-                  {isLoading ? (
-                    <tr>
-                      <td colSpan="6" className="py-12 text-center text-gray-400 font-bold">
-                        <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
-                        Calculating telemetry distances...
-                      </td>
-                    </tr>
-                  ) : matrixData.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="py-12 text-center text-gray-400 font-medium">
-                        No active incidents require dispatch routing.
-                      </td>
-                    </tr>
-                  ) : (
-                    matrixData.map((row) => (
-                      <tr key={row.report_id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-4 px-6 font-bold text-gray-500">#{row.report_id}</td>
-                        <td className="py-4 px-6 font-bold text-gray-800 max-w-xs truncate" title={row.incident_description}>
-                          {row.incident_description}
-                        </td>
-                        <td className="py-4 px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
-                        <td className="py-4 px-6 font-bold text-gray-800">
-                          {typeof row.nearest_responder === 'object' ? row.nearest_responder?.name : row.nearest_responder}
-                        </td>
-                        <td className="py-4 px-6 text-right font-black text-red-600">
-                          <span className="flex items-center justify-end gap-1">
-                            <Navigation size={12} className="rotate-45" /> ▻ {row.distance_km.toFixed(2)} km
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-center">
-                          <button
-                            onClick={() => { setSelectedReportRow(row); setIsReportModalOpen(true); }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg font-bold text-[11px] shadow-2xs transition-all active:scale-95 cursor-pointer"
-                          >
-                            <Eye size={13} /> View
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: REGISTERED UNITS */}
-        {activeTab === 'units' && (
-          <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
-              <h3 className="font-bold text-base text-gray-900">Enrolled Emergency Fleet & Response Stations</h3>
-              <span className="text-xs text-gray-400 font-bold">{units.length} Units Enrolled</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                    <th className="py-4 px-6">Unit / Base Station</th>
-                    <th className="py-4 px-6">Category Choice</th>
-                    <th className="py-4 px-6">Address & Coordinates</th>
-                    <th className="py-4 px-6">Contact Hotline</th>
-                    <th className="py-4 px-6">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-xs">
-                  {isLoading ? (
-                    <tr>
-                      <td colSpan="5" className="py-12 text-center text-gray-400 font-medium">
-                        <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
-                        Querying backend emergency units...
-                      </td>
-                    </tr>
-                  ) : units.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="py-12 text-center text-gray-400 font-medium">
-                        No emergency units registered in database.
-                      </td>
-                    </tr>
-                  ) : (
-                    units.map((unit) => {
-                      const isActive = unit.is_active ?? true;
-                      return (
-                        <tr key={unit.id} className="hover:bg-gray-50/80 transition-colors">
-                          <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
-                            <Building2 size={15} className="text-[#b32d2d]" /> {unit.name}
-                          </td>
-                          <td className="py-4 px-6">
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-gray-50 text-gray-700">
-                              {getUnitTypeLabel(unit.unit_type)}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-gray-600">
-                            <div className="font-medium text-xs">{unit.address || 'Angeles City'}</div>
-                            <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                              {unit.latitude?.toFixed(5)}, {unit.longitude?.toFixed(5)}
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 font-medium text-gray-700">{unit.contact_number || 'N/A'}</td>
-                          <td className="py-4 px-6">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 w-fit ${
-                              isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'
-                            }`}>
-                              {isActive ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                              {isActive ? 'Active' : 'Disabled'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
       </div>
 

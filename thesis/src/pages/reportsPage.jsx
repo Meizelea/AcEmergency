@@ -24,9 +24,9 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v10';
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v11';
 const CACHE_KEY_UNITS = 'cache_admin_units_v1';
-const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v8';
+const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -98,6 +98,8 @@ export default function ReportsPage() {
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
 
+  const pendingUserFetches = useRef(new Set());
+
   const token = localStorage.getItem('ac_token');
 
   const getAuthHeaders = () => {
@@ -121,6 +123,33 @@ export default function ReportsPage() {
     return null;
   };
 
+  // Dynamic User Detail Resolver (Fetches individual report detail when missing nested user)
+  const resolveMissingUser = async (reportId, userId) => {
+    if (!reportId || pendingUserFetches.current.has(reportId)) return;
+    pendingUserFetches.current.add(reportId);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const detailData = await res.json();
+        const userObj = detailData?.user;
+        const displayName = resolveUserDisplayName(userObj);
+
+        if (displayName) {
+          setUsersMap(prev => {
+            const updated = { ...prev, [reportId]: displayName, [userId]: displayName };
+            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
+            return updated;
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to resolve user for report #${reportId}:`, err);
+    }
+  };
+
   // Reporter Name Resolver
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
@@ -136,14 +165,18 @@ export default function ReportsPage() {
     if (report.reporter_name) return report.reporter_name;
     if (report.username) return report.username;
 
-    // 3. Extract raw ID
+    // 3. Extract raw user ID
     const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
       ? report.user 
       : (report.user_id || report.user?.id);
 
-    // 4. Dynamic API usersMap lookup
-    if (rawUserId && usersMap[rawUserId]) {
-      return usersMap[rawUserId];
+    // 4. Mapped Name from State Lookup
+    if (usersMap[report.id]) return usersMap[report.id];
+    if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
+
+    // 5. Trigger background fetch for missing user detail
+    if (report.id && !usersMap[report.id] && !usersMap[rawUserId]) {
+      resolveMissingUser(report.id, rawUserId);
     }
 
     if (rawUserId) return `Citizen #${rawUserId}`;
@@ -176,11 +209,9 @@ export default function ReportsPage() {
     return 'Exact address not specified';
   };
 
-  // Dynamic user mapping without any hardcoded values
   const fetchUsersMap = async (currentReportsList = reports) => {
     const newMap = { ...usersMap };
 
-    // Step A: Initial bulk user endpoint query
     try {
       const res = await fetch(`${API_BASE_URL}/api/users/admin/`, { headers: getAuthHeaders() });
       if (res.ok) {
@@ -193,46 +224,6 @@ export default function ReportsPage() {
       }
     } catch (err) {
       console.error("Bulk user fetch error:", err);
-    }
-
-    // Step B: Identify missing raw user IDs from the report list and fetch individually
-    const missingUserIds = new Set();
-    currentReportsList.forEach(report => {
-      const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
-        ? report.user 
-        : (report.user_id || report.user?.id);
-
-      if (rawUserId && !newMap[rawUserId]) {
-        missingUserIds.add(rawUserId);
-      }
-    });
-
-    if (missingUserIds.size > 0) {
-      const singleUserFetches = Array.from(missingUserIds).map(async (userId) => {
-        const detailEndpoints = [
-          `${API_BASE_URL}/api/users/admin/${userId}/`,
-          `${API_BASE_URL}/api/users/${userId}/`,
-          `${API_BASE_URL}/api/citizens/${userId}/`
-        ];
-
-        for (const endpoint of detailEndpoints) {
-          try {
-            const res = await fetch(endpoint, { headers: getAuthHeaders() });
-            if (res.ok) {
-              const u = await res.json();
-              const displayName = resolveUserDisplayName(u);
-              if (displayName) {
-                newMap[userId] = displayName;
-                break;
-              }
-            }
-          } catch (e) {
-            // continue to next endpoint variant
-          }
-        }
-      });
-
-      await Promise.all(singleUserFetches);
     }
 
     setUsersMap(newMap);
@@ -278,7 +269,6 @@ export default function ReportsPage() {
       setReports(sorted);
       sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
 
-      // Trigger dynamic individual user resolution for missing reporter IDs
       fetchUsersMap(sorted);
     } catch (error) {
       console.error("Error fetching reports:", error);
@@ -382,7 +372,7 @@ export default function ReportsPage() {
 
       const payload = { 
         status: finalPayloadValue,
-        ...(resolvedAtVal ? { resolved_at: resolvedAtVal } : {})
+        resolved_at: resolvedAtVal
       };
 
       const updatedReports = reports.map(r => r.id === reportId ? { ...r, ...payload } : r);
@@ -750,7 +740,12 @@ export default function ReportsPage() {
                 <p className="text-xs text-gray-400 font-semibold mt-1 flex items-center gap-2">
                   <span>{formatDate(selectedReport.created_at)}</span>
                   <span>•</span>
-                  <span className="uppercase font-black text-[#b32d2d]">{selectedReport.status || 'Pending'}</span>
+                  <span className={`uppercase font-black ${
+                    String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
+                    String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
+                  }`}>
+                    {selectedReport.status || 'Pending'}
+                  </span>
                 </p>
               </div>
 
@@ -806,9 +801,9 @@ export default function ReportsPage() {
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Status</span>
                       <span className={`font-black uppercase ${
-                            String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
-                            String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
-                          }`}>
+                        String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
+                        String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
+                      }`}>
                         {selectedReport.status || 'Pending'}
                       </span>
                     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import AdminLayout from '../components/header';
 import {
   Megaphone, Plus, Search, Eye, Edit3, Trash2, X,
@@ -11,9 +11,15 @@ const targetHostname = window.location.hostname || '127.0.0.1';
 // const API_BASE = 'https://api.aksyon.online';
 const API_BASE = `http://${targetHostname}:8000`;
 
+// CACHE KEYS
+const CACHE_KEY_ANNOUNCEMENTS = 'cache_admin_announcements_v1';
+
 export default function AnnouncementPage() {
-  const [announcements, setAnnouncements] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [announcements, setAnnouncements] = useState(() => {
+    const cached = sessionStorage.getItem(CACHE_KEY_ANNOUNCEMENTS);
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [loading, setLoading] = useState(() => announcements.length === 0);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modals
@@ -23,6 +29,9 @@ export default function AnnouncementPage() {
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [fetchingVideo, setFetchingVideo] = useState(false);
+
+  // Video URL Cache Ref
+  const videoCache = useRef({});
 
   // Form State
   const [formData, setFormData] = useState({
@@ -47,9 +56,9 @@ export default function AnnouncementPage() {
     return headers;
   };
 
-  const fetchAnnouncements = async () => {
+  const fetchAnnouncements = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent && announcements.length === 0) setLoading(true);
       let res = await fetch(`${API_BASE}/api/announcements/admin/`, {
         headers: getAuthHeaders(),
       });
@@ -67,7 +76,10 @@ export default function AnnouncementPage() {
 
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       const data = await res.json();
-      setAnnouncements(Array.isArray(data) ? data : data.results || []);
+      const rawList = Array.isArray(data) ? data : data.results || [];
+      
+      setAnnouncements(rawList);
+      sessionStorage.setItem(CACHE_KEY_ANNOUNCEMENTS, JSON.stringify(rawList));
     } catch (err) {
       console.error('Fetch announcements failure:', err);
       setFeedback({ error: 'Failed to fetch announcements. Verify credentials and assigned barangay.', success: '' });
@@ -77,7 +89,7 @@ export default function AnnouncementPage() {
   };
 
   useEffect(() => {
-    fetchAnnouncements();
+    fetchAnnouncements(announcements.length > 0);
   }, []);
 
   const filteredAnnouncements = useMemo(() => {
@@ -117,6 +129,11 @@ export default function AnnouncementPage() {
     setIsDetailModalOpen(true);
 
     if (announcement.video_thumbnail_url) {
+      if (videoCache.current[announcement.id]) {
+        setActiveVideoUrl(videoCache.current[announcement.id]);
+        return;
+      }
+
       setFetchingVideo(true);
       try {
         const res = await fetch(`${API_BASE}/api/announcements/admin/${announcement.id}/video-url/`, {
@@ -125,6 +142,7 @@ export default function AnnouncementPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.video_url) {
+            videoCache.current[announcement.id] = data.video_url;
             setActiveVideoUrl(data.video_url);
           }
         }
@@ -236,7 +254,7 @@ export default function AnnouncementPage() {
       });
       setIsFormModalOpen(false);
       setSelectedAnnouncement(null);
-      await fetchAnnouncements();
+      await fetchAnnouncements(true);
     } catch (err) {
       console.error('Submit form error:', err);
       setFeedback({ error: err.message || 'Operation failed.', success: '' });
@@ -260,7 +278,7 @@ export default function AnnouncementPage() {
       setIsDeleteModalOpen(false);
       setIsDetailModalOpen(false);
       setSelectedAnnouncement(null);
-      fetchAnnouncements();
+      fetchAnnouncements(true);
     } catch (err) {
       setFeedback({ error: 'Failed to delete record.', success: '' });
     } finally {
