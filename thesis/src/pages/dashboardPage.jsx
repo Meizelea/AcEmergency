@@ -40,7 +40,7 @@ const createStatusIcon = (status) => {
   let bgColor = '#facc15';
   let pulseClass = 'pulse-yellow'; 
 
-  if (String(status).toLowerCase() === 'ongoing' || String(status).toLowerCase() === 'responding') {
+  if (String(status).toLowerCase() === 'ongoing' || String(status).toLowerCase() === 'ongoing') {
     bgColor = '#ef4444';
     pulseClass = 'pulse-red'; 
   }
@@ -102,7 +102,7 @@ export default function DashboardPage() {
       if (report) {
         const stat = String(report.status).toLowerCase();
         if (stat === 'resolved') resolvedCount++;
-        else if (stat === 'ongoing' || stat === 'responding') ongoingCount++;
+        else if (stat === 'ongoing' || stat === 'ongoing') ongoingCount++;
         else if (stat === 'pending') pendingCount++;
         else submittedCount++;
       }
@@ -111,7 +111,7 @@ export default function DashboardPage() {
     const formattedPie = [
       { name: 'Submitted', value: submittedCount, color: '#3b82f6' },
       { name: 'Pending', value: pendingCount, color: '#ffc20e' },
-      { name: 'Responding', value: ongoingCount, color: '#ef4444' },
+      { name: 'Ongoing', value: ongoingCount, color: '#ef4444' },
       { name: 'Resolved', value: resolvedCount, color: '#10b981' }
     ].filter(item => item.value > 0); 
     
@@ -178,7 +178,7 @@ export default function DashboardPage() {
     try {
       const statusDatabaseMap = {
         'Pending': 'pending',       
-        'Responding': 'ongoing',   
+        'Ongoing': 'ongoing',   
         'Resolved': 'resolved'      
       };
 
@@ -282,7 +282,7 @@ export default function DashboardPage() {
                       <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
                       {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
                       <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-red-600' : 'text-yellow-600'}`}>
-                        {String(report.status).toLowerCase() === 'ongoing' ? 'Responding' : report.status || 'submitted'}
+                        {String(report.status).toLowerCase() === 'ongoing' ? 'Ongoing' : report.status || 'submitted'}
                       </div>
                     </Popup>
                   </Marker>
@@ -354,7 +354,7 @@ export default function DashboardPage() {
             ) : (
               activeReports.map((report) => {
                 const currentStatusRaw = String(report.status).toLowerCase();
-                const displayLabel = currentStatusRaw === 'ongoing' ? 'Responding' : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') ? 'Pending' : report.status;
+                const displayLabel = currentStatusRaw === 'ongoing' ? 'Ongoing' : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') ? 'Pending' : report.status;
                 
                 return (
                   <ReportItem 
@@ -406,7 +406,7 @@ function ReportItem({ id, title, subtitle, status, onStatusChange }) {
       </div>
       <div className="flex gap-2">
         <StatusButton label="Pending" currentStatus={status} onClick={() => onStatusChange(id, 'Pending')} />
-        <StatusButton label="Responding" currentStatus={status} onClick={() => onStatusChange(id, 'Responding')} />
+        <StatusButton label="Ongoing" currentStatus={status} onClick={() => onStatusChange(id, 'Ongoing')} />
         <StatusButton label="Resolved" currentStatus={status} onClick={() => onStatusChange(id, 'Resolved')} />
       </div>
     </div>
@@ -419,7 +419,7 @@ function StatusButton({ label, currentStatus, onClick }) {
   
   if (isActive) {
     if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-xs";
-    if (label === "Responding") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-xs";
+    if (label === "Ongoing") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-xs";
     if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-xs";
   }
 
