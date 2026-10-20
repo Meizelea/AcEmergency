@@ -23,9 +23,9 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v6';
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v10';
 const CACHE_KEY_UNITS = 'cache_admin_units_v1';
-const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v5';
+const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v8';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -116,30 +116,36 @@ export default function ReportsPage() {
     if (firstLast) return firstLast;
     if (u.full_name && u.full_name.trim()) return u.full_name.trim();
     if (u.username && u.username.trim()) return u.username.trim();
-    if (u.email && u.email.trim()) {
-      return u.email.split('@')[0];
-    }
+    if (u.email && u.email.trim()) return u.email.split('@')[0];
     return null;
   };
 
+  // Reporter Name Resolver
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
 
-    const ud = report.user_details || report.profile || (typeof report.user === 'object' ? report.user : null);
-    const resolvedFromObj = resolveUserDisplayName(ud);
+    // 1. Check nested user object
+    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
+    const resolvedFromObj = resolveUserDisplayName(userObj);
     if (resolvedFromObj) return resolvedFromObj;
 
-    const flatName = resolveUserDisplayName(report);
-    if (flatName) return flatName;
+    // 2. Direct flat properties fallback
+    const flatFirstLast = `${report.first_name || ''} ${report.last_name || ''}`.trim();
+    if (flatFirstLast) return flatFirstLast;
+    if (report.reporter_name) return report.reporter_name;
+    if (report.username) return report.username;
 
-    const rawUserId = report.user_id || (typeof report.user === 'number' || typeof report.user === 'string' ? report.user : null);
+    // 3. Extract raw ID
+    const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
+      ? report.user 
+      : (report.user_id || report.user?.id);
+
+    // 4. Dynamic API usersMap lookup
     if (rawUserId && usersMap[rawUserId]) {
       return usersMap[rawUserId];
     }
 
-    if (rawUserId) {
-      return `Citizen #${rawUserId}`;
-    }
+    if (rawUserId) return `Citizen #${rawUserId}`;
 
     return 'Anonymous Citizen';
   };
@@ -169,26 +175,67 @@ export default function ReportsPage() {
     return 'Exact address not specified';
   };
 
-  const fetchUsersMap = async () => {
-    const endpoint = `${API_BASE_URL}/api/users/admin/`;
+  // Dynamic user mapping without any hardcoded values
+  const fetchUsersMap = async (currentReportsList = reports) => {
+    const newMap = { ...usersMap };
+
+    // Step A: Initial bulk user endpoint query
     try {
-      const res = await fetch(endpoint, { headers: getAuthHeaders() });
+      const res = await fetch(`${API_BASE_URL}/api/users/admin/`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const rawList = Array.isArray(data) ? data : (data?.results || []);
-        
-        const map = {};
         rawList.forEach(u => {
           const displayName = resolveUserDisplayName(u);
-          map[u.id] = displayName || `User #${u.id}`;
+          if (displayName) newMap[u.id] = displayName;
         });
-
-        setUsersMap(map);
-        sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(map));
       }
-    } catch (error) {
-      console.error(`Error fetching users map:`, error);
+    } catch (err) {
+      console.error("Bulk user fetch error:", err);
     }
+
+    // Step B: Identify missing raw user IDs from the report list and fetch individually
+    const missingUserIds = new Set();
+    currentReportsList.forEach(report => {
+      const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
+        ? report.user 
+        : (report.user_id || report.user?.id);
+
+      if (rawUserId && !newMap[rawUserId]) {
+        missingUserIds.add(rawUserId);
+      }
+    });
+
+    if (missingUserIds.size > 0) {
+      const singleUserFetches = Array.from(missingUserIds).map(async (userId) => {
+        const detailEndpoints = [
+          `${API_BASE_URL}/api/users/admin/${userId}/`,
+          `${API_BASE_URL}/api/users/${userId}/`,
+          `${API_BASE_URL}/api/citizens/${userId}/`
+        ];
+
+        for (const endpoint of detailEndpoints) {
+          try {
+            const res = await fetch(endpoint, { headers: getAuthHeaders() });
+            if (res.ok) {
+              const u = await res.json();
+              const displayName = resolveUserDisplayName(u);
+              if (displayName) {
+                newMap[userId] = displayName;
+                break;
+              }
+            }
+          } catch (e) {
+            // continue to next endpoint variant
+          }
+        }
+      });
+
+      await Promise.all(singleUserFetches);
+    }
+
+    setUsersMap(newMap);
+    sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
   };
 
   const fetchEmergencyUnits = async () => {
@@ -229,6 +276,9 @@ export default function ReportsPage() {
 
       setReports(sorted);
       sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
+
+      // Trigger dynamic individual user resolution for missing reporter IDs
+      fetchUsersMap(sorted);
     } catch (error) {
       console.error("Error fetching reports:", error);
     } finally {
@@ -245,7 +295,6 @@ export default function ReportsPage() {
 
     fetchReports(false);
     fetchEmergencyUnits();
-    fetchUsersMap();
   }, [token, navigate]);
 
   const getNearestResponderText = (report) => {
@@ -382,7 +431,6 @@ export default function ReportsPage() {
     return '—';
   };
 
-  // Header Sort Handlers
   const handleSortId = () => {
     setSortBy(prev => prev === 'id_desc' ? 'id_asc' : 'id_desc');
   };
@@ -535,7 +583,6 @@ export default function ReportsPage() {
                 sessionStorage.removeItem(CACHE_KEY_REPORTS);
                 sessionStorage.removeItem(CACHE_KEY_USERS_MAP);
                 fetchReports(false);
-                fetchUsersMap();
               }}
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
             >
@@ -551,7 +598,6 @@ export default function ReportsPage() {
               <thead>
                 <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
                   
-                  {/* CLICKABLE SORTABLE ID HEADER */}
                   <th 
                     onClick={handleSortId}
                     className="py-3.5 px-5 w-20 cursor-pointer hover:bg-gray-200/60 transition-colors"
@@ -568,7 +614,6 @@ export default function ReportsPage() {
                     </div>
                   </th>
                   
-                  {/* SORTABLE TIMESTAMP HEADER */}
                   <th 
                     onClick={handleSortTimestamp}
                     className="py-3.5 px-5 w-52 cursor-pointer hover:bg-gray-200/60 transition-colors"
@@ -589,7 +634,6 @@ export default function ReportsPage() {
                   <th className="py-3.5 px-5 whitespace-nowrap">POSTER NAME</th>
                   <th className="py-3.5 px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
                   
-                  {/* SORTABLE RESOLVED AT HEADER */}
                   <th 
                     onClick={handleSortResolvedAt}
                     className="py-3.5 px-5 text-center whitespace-nowrap cursor-pointer hover:bg-gray-200/60 transition-colors"
@@ -673,7 +717,7 @@ export default function ReportsPage() {
                               displayLabel === 'Pending' 
                                 ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
                                 : displayLabel === 'Ongoing'
-                                ? 'bg-red-50 text-red-700 border-red-300'
+                                ? 'bg-blue-50 text-blue-700 border-blue-300'
                                 : 'bg-emerald-50 text-emerald-700 border-emerald-300'
                             }`}
                           >
@@ -760,7 +804,12 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Status</span>
-                      <span className="font-black text-[#b32d2d] uppercase">{selectedReport.status || 'Pending'}</span>
+                      <span className={`font-black uppercase ${
+                            String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
+                            String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
+                          }`}>
+                        {selectedReport.status || 'Pending'}
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-emerald-600 uppercase">Resolved Time</span>
@@ -852,9 +901,9 @@ export default function ReportsPage() {
                 ) : hasVideo ? (
                   <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex flex-col items-center justify-center relative">
                     {isVideoLoading ? (
-                      <div className="p-12 flex flex-col items-center justify-center text-white gap-2">
+                      <div className="p-12 flex flex-col items-center justify-center text-[#b32d2d] font-semibold gap-2">
                         <Loader2 className="animate-spin text-[#b32d2d]" size={28} />
-                        <span className="text-xs font-semibold">Loading secure video stream...</span>
+                        <span className="text-xs">Loading secure video stream...</span>
                       </div>
                     ) : activeVideoUrl ? (
                       <video 

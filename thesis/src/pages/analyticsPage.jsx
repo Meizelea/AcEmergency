@@ -259,7 +259,7 @@ export default function AnalyticsPage() {
     const res = reports.filter(r => String(r.status).toLowerCase() === 'resolved').length;
     return [
       { name: 'Pending', value: p, color: '#dc2626' },
-      { name: 'In Progress', value: o, color: '#f59e0b' },
+      { name: 'Ongoing', value: o, color: '#90d5ff' },
       { name: 'Resolved', value: res, color: '#16a34a' }
     ].filter(d => d.value > 0);
   }, [reports]);
@@ -343,10 +343,10 @@ export default function AnalyticsPage() {
             <span className="text-xs text-red-200 mt-1 block">Reports requiring initial triage</span>
           </div>
 
-          <div className="bg-[#d97706] text-white p-5 rounded-xl shadow-xs">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-100">In Progress Today</span>
+          <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs">
+            <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
             <div className="text-4xl font-black mt-2">{inProgressToday}</div>
-            <span className="text-xs text-amber-200 mt-1 block">Active responding fleet units</span>
+            <span className="text-xs text-white mt-1 block">Active responding fleet units</span>
           </div>
 
           <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs">
@@ -420,9 +420,9 @@ export default function AnalyticsPage() {
               </div>
             </div>
             <div className="w-full flex justify-around text-[11px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pend</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Resp</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Res</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Ongoing </span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
             </div>
           </div>
 
