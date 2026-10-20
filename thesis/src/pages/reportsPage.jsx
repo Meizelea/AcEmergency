@@ -17,15 +17,15 @@ const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
-
   return `http://${targetHostname}:8000`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
 
 // CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v2';
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v6';
 const CACHE_KEY_UNITS = 'cache_admin_units_v1';
+const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v5';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -61,34 +61,6 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Robust Reporter Name Extractor
-const getReporterName = (report) => {
-  if (!report) return 'Anonymous Citizen';
-
-  const ud = report.user_details || (typeof report.user === 'object' ? report.user : null);
-  if (ud) {
-    if (ud.first_name || ud.last_name) {
-      return `${ud.first_name || ''} ${ud.last_name || ''}`.trim();
-    }
-    if (ud.username) return ud.username;
-    if (ud.full_name) return ud.full_name;
-  }
-
-  if (report.first_name || report.last_name) {
-    return `${report.first_name || ''} ${report.last_name || ''}`.trim();
-  }
-  if (report.reporter_name) return report.reporter_name;
-  if (report.username) return report.username;
-  if (report.full_name) return report.full_name;
-
-  const rawUserId = report.user_id || (typeof report.user === 'number' || typeof report.user === 'string' ? report.user : null);
-  if (rawUserId) {
-    return `Citizen #${rawUserId}`;
-  }
-
-  return 'Anonymous Citizen';
-};
-
 export default function ReportsPage() {
   const navigate = useNavigate();
 
@@ -102,15 +74,20 @@ export default function ReportsPage() {
     return cached ? JSON.parse(cached) : [];
   });
 
+  const [usersMap, setUsersMap] = useState(() => {
+    const cached = sessionStorage.getItem(CACHE_KEY_USERS_MAP);
+    return cached ? JSON.parse(cached) : {};
+  });
+
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Search, Filters & Sorting
+  // Search, Filters & Sorting (Status Filter defaults to 'Pending')
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('Pending'); 
   const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
   const [filterDate, setFilterDate] = useState('');
-  const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'date_asc' | 'resolved_desc' | 'resolved_asc' | 'barangay_asc'
+  const [sortBy, setSortBy] = useState('date_desc');
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -131,6 +108,87 @@ export default function ReportsPage() {
         ? rawToken 
         : `Token ${cleanToken}`
     };
+  };
+
+  const resolveUserDisplayName = (u) => {
+    if (!u) return null;
+    const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    if (firstLast) return firstLast;
+    if (u.full_name && u.full_name.trim()) return u.full_name.trim();
+    if (u.username && u.username.trim()) return u.username.trim();
+    if (u.email && u.email.trim()) {
+      return u.email.split('@')[0];
+    }
+    return null;
+  };
+
+  const getReporterName = (report) => {
+    if (!report) return 'Anonymous Citizen';
+
+    const ud = report.user_details || report.profile || (typeof report.user === 'object' ? report.user : null);
+    const resolvedFromObj = resolveUserDisplayName(ud);
+    if (resolvedFromObj) return resolvedFromObj;
+
+    const flatName = resolveUserDisplayName(report);
+    if (flatName) return flatName;
+
+    const rawUserId = report.user_id || (typeof report.user === 'number' || typeof report.user === 'string' ? report.user : null);
+    if (rawUserId && usersMap[rawUserId]) {
+      return usersMap[rawUserId];
+    }
+
+    if (rawUserId) {
+      return `Citizen #${rawUserId}`;
+    }
+
+    return 'Anonymous Citizen';
+  };
+
+  const getExactAddressSubtitle = (report) => {
+    if (!report) return 'Exact address not specified';
+    
+    if (report.exact_address && report.exact_address.trim() !== '') {
+      return report.exact_address;
+    }
+    if (report.address && report.address.trim() !== '') {
+      return report.address;
+    }
+    if (report.street && report.street.trim() !== '') {
+      return `St: ${report.street}`;
+    }
+    if (report.location_name && report.location_name.trim() !== '') {
+      return report.location_name;
+    }
+
+    const lat = parseFloat(report.latitude);
+    const lng = parseFloat(report.longitude);
+    if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+      return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
+
+    return 'Exact address not specified';
+  };
+
+  const fetchUsersMap = async () => {
+    const endpoint = `${API_BASE_URL}/api/users/admin/`;
+    try {
+      const res = await fetch(endpoint, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        const rawList = Array.isArray(data) ? data : (data?.results || []);
+        
+        const map = {};
+        rawList.forEach(u => {
+          const displayName = resolveUserDisplayName(u);
+          map[u.id] = displayName || `User #${u.id}`;
+        });
+
+        setUsersMap(map);
+        sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(map));
+      }
+    } catch (error) {
+      console.error(`Error fetching users map:`, error);
+    }
   };
 
   const fetchEmergencyUnits = async () => {
@@ -185,9 +243,9 @@ export default function ReportsPage() {
       return;
     }
 
-    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_REPORTS));
-    fetchReports(hasCache);
+    fetchReports(false);
     fetchEmergencyUnits();
+    fetchUsersMap();
   }, [token, navigate]);
 
   const getNearestResponderText = (report) => {
@@ -324,7 +382,11 @@ export default function ReportsPage() {
     return '—';
   };
 
-  // Header click sorting handlers
+  // Header Sort Handlers
+  const handleSortId = () => {
+    setSortBy(prev => prev === 'id_desc' ? 'id_asc' : 'id_desc');
+  };
+
   const handleSortTimestamp = () => {
     setSortBy(prev => prev === 'date_desc' ? 'date_asc' : 'date_desc');
   };
@@ -365,6 +427,12 @@ export default function ReportsPage() {
 
     return matchedSearch && matchedStatus && matchedBarangay && matchedDate;
   }).sort((a, b) => {
+    if (sortBy === 'id_desc') {
+      return Number(b.id) - Number(a.id);
+    }
+    if (sortBy === 'id_asc') {
+      return Number(a.id) - Number(b.id);
+    }
     if (sortBy === 'date_desc') {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     }
@@ -405,7 +473,7 @@ export default function ReportsPage() {
         {/* CONTROLS HEADER */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-sm w-72 overflow-hidden">
+            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-xs w-72 overflow-hidden">
               <Search size={18} className="text-gray-400 ml-3" />
               <input 
                 type="text" 
@@ -416,7 +484,7 @@ export default function ReportsPage() {
               />
             </div>
 
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <Filter size={14} className="text-gray-400 mr-2" />
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
                 <option value="All">All Statuses</option>
@@ -426,7 +494,7 @@ export default function ReportsPage() {
               </select>
             </div>
 
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <MapPin size={14} className="text-gray-400 mr-2" />
               <select value={selectedBarangayFilter} onChange={(e) => setSelectedBarangayFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
                 <option value="ALL">All Barangays</option>
@@ -436,7 +504,7 @@ export default function ReportsPage() {
               </select>
             </div>
 
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <Calendar size={14} className="text-gray-400 mr-2" />
               <input 
                 type="date" 
@@ -449,11 +517,13 @@ export default function ReportsPage() {
               )}
             </div>
 
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-sm text-xs text-gray-600 font-bold">
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <ArrowUpDown size={14} className="text-gray-400 mr-2" />
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
                 <option value="date_desc">Newest First</option>
                 <option value="date_asc">Oldest First</option>
+                <option value="id_desc">ID (Highest First)</option>
+                <option value="id_asc">ID (Lowest First)</option>
                 <option value="resolved_desc">Resolved (Newest First)</option>
                 <option value="resolved_asc">Resolved (Oldest First)</option>
                 <option value="barangay_asc">Barangay (A-Z)</option>
@@ -463,9 +533,11 @@ export default function ReportsPage() {
             <button
               onClick={() => {
                 sessionStorage.removeItem(CACHE_KEY_REPORTS);
+                sessionStorage.removeItem(CACHE_KEY_USERS_MAP);
                 fetchReports(false);
+                fetchUsersMap();
               }}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
             </button>
@@ -478,7 +550,23 @@ export default function ReportsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
-                  <th className="py-3.5 px-5 w-16">ID</th>
+                  
+                  {/* CLICKABLE SORTABLE ID HEADER */}
+                  <th 
+                    onClick={handleSortId}
+                    className="py-3.5 px-5 w-20 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>ID</span>
+                      {sortBy === 'id_desc' ? (
+                        <ArrowDown size={13} className="text-[#b32d2d]" />
+                      ) : sortBy === 'id_asc' ? (
+                        <ArrowUp size={13} className="text-[#b32d2d]" />
+                      ) : (
+                        <ArrowUpDown size={13} className="text-gray-400" />
+                      )}
+                    </div>
+                  </th>
                   
                   {/* SORTABLE TIMESTAMP HEADER */}
                   <th 
@@ -541,10 +629,8 @@ export default function ReportsPage() {
                         onClick={() => handleOpenReportModal(report)}
                         className="hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
-                        {/* ID */}
                         <td className="py-4 px-5 font-black text-gray-400 text-xs">#{report.id}</td>
 
-                        {/* TIMESTAMP FIXED COLOR (Neutral Dark Text) */}
                         <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Clock size={13} className="text-red-500 shrink-0" />
@@ -552,17 +638,15 @@ export default function ReportsPage() {
                           </div>
                         </td>
 
-                        {/* EMERGENCY DETAILS */}
                         <td className="py-4 px-5">
-                          <div className="font-extrabold text-gray-900 text-sm">
+                          <div className="font-semibold text-gray-800 text-xs">
                             {report.short_message || report.description || 'Emergency Incident'}
                           </div>
-                          <div className="text-[11px] text-gray-400 font-medium">
-                            {report.exact_address || report.address || 'Exact address not specified'}
+                          <div className="text-[11px] text-gray-400 font-medium mt-0.5">
+                            {getExactAddressSubtitle(report)}
                           </div>
                         </td>
 
-                        {/* POSTER NAME */}
                         <td className="py-4 px-5 font-bold text-gray-800 text-xs whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <User size={13} className="text-gray-400" />
@@ -570,7 +654,6 @@ export default function ReportsPage() {
                           </div>
                         </td>
                         
-                        {/* READ-ONLY LOCATION (BARANGAY) */}
                         <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="inline-flex items-center gap-1">
                             <MapPin size={13} className="text-red-500 shrink-0" />
@@ -578,12 +661,10 @@ export default function ReportsPage() {
                           </div>
                         </td>
 
-                        {/* RESOLVED AT */}
                         <td className="py-4 px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
                           {formatResolvedTime(report)}
                         </td>
 
-                        {/* STATUS DROPDOWN */}
                         <td className="py-4 px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={displayLabel}
@@ -654,7 +735,6 @@ export default function ReportsPage() {
             <div className="p-6 overflow-y-auto space-y-6">
               <div className="grid grid-cols-12 gap-6">
                 
-                {/* LEFT: REPORT DETAILS */}
                 <div className="col-span-6 space-y-4">
                   <div>
                     <h4 className="font-black text-sm text-gray-900">Report Details</h4>
@@ -695,7 +775,6 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                {/* RIGHT: MAP */}
                 <div className="col-span-6 flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
@@ -737,7 +816,6 @@ export default function ReportsPage() {
 
               </div>
 
-              {/* EMERGENCY DESCRIPTION */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Emergency Details & Narrative</h4>
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
@@ -745,7 +823,6 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* EXACT ADDRESS SUB-BOX */}
               <div className="bg-red-50/60 border border-red-100 p-4 rounded-xl space-y-1">
                 <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider block">
                   EXACT EMERGENCY LOCATION / ADDRESS
@@ -753,7 +830,7 @@ export default function ReportsPage() {
                 <div className="text-xs font-bold text-gray-900 flex items-start gap-1.5">
                   <MapPin size={15} className="text-[#b32d2d] shrink-0 mt-0.5" />
                   <span>
-                    {selectedReport.exact_address || selectedReport.address || selectedReport.location_name || 'MacArthur Highway, Angeles City, Pampanga'}
+                    {getExactAddressSubtitle(selectedReport)}
                   </span>
                 </div>
                 <p className="text-[10px] text-gray-400 pl-5">
@@ -761,7 +838,6 @@ export default function ReportsPage() {
                 </p>
               </div>
 
-              {/* MEDIA ATTACHMENTS (IMAGE / VIDEO) */}
               <div className="border-t border-gray-100 pt-4">
                 <h4 className="font-black text-sm text-gray-900 mb-2">Incident Media Attachments</h4>
                 
