@@ -621,7 +621,7 @@ export default function ReportsPage() {
                     </div>
                   </th>
 
-                  <th className="py-3.5 px-5">EMERGENCY DETAILS</th>
+                  <th className="py-3.5 px-5">EMERGENCY CATEGORY</th>
                   <th className="py-3.5 px-5 whitespace-nowrap">POSTER NAME</th>
                   <th className="py-3.5 px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
                   
@@ -784,6 +784,10 @@ export default function ReportsPage() {
                   <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3 text-xs">
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Report ID</span>
+                      <span className="font-black text-gray-800">#{selectedReport.id}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
+                      <span className="font-bold text-gray-400 uppercase">Category</span>
                       <span className="font-black text-gray-800">#{selectedReport.id}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
