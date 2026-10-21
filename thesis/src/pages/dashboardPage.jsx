@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis } from 'recharts';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
 import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
-// const API_BASE_URL = 'https://api.aksyon.online';
 const API_BASE_URL = `http://${targetHostname}:8000`;
 
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
@@ -34,22 +33,37 @@ const ANGELES_CITY_BOUNDS = [
   [15.1850, 120.6350]
 ];
 
-const ANGELES_CENTER = [15.1450, 120.5880];
+// Target focus centered on downtown Angeles City / Santa Trinidad
+const TARGET_MAP_CENTER = [15.1400, 120.5900];
+
+// Invalidates canvas on container size shifts while maintaining tight zoom
+function MapResizer() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    if (container) observer.observe(container);
+    return () => observer.disconnect();
+  }, [map]);
+  return null;
+}
 
 const createStatusIcon = (status) => {
-  let bgColor = '#facc15';
+  let bgColor = '#f59e0b';
   let pulseClass = 'pulse-yellow'; 
 
   if (String(status).toLowerCase() === 'ongoing') {
-    bgColor = '#ef4444';
-    pulseClass = 'pulse-red'; 
+    bgColor = '#2563eb';
+    pulseClass = 'pulse-blue'; 
   }
   
   return L.divIcon({
     className: 'custom-map-marker',
-    html: `<div class="${pulseClass}" style="background-color: ${bgColor}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white;"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
+    html: `<div class="${pulseClass}" style="background-color: ${bgColor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white;"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
   });
 };
 
@@ -66,11 +80,7 @@ export default function DashboardPage() {
     return cached ? JSON.parse(cached) : {};
   });
 
-  const [barData, setBarData] = useState([]);
-  const [pieData, setPieData] = useState([]);
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
-  
-  // Status Filter State ('all', 'pending', 'ongoing')
   const [statusFilter, setStatusFilter] = useState('all');
 
   const token = localStorage.getItem('ac_token');
@@ -123,58 +133,46 @@ export default function DashboardPage() {
     return report.sender || 'Resident Alert';
   };
 
-  const processChartData = (rawList) => {
-    const barangayCounts = {};
-    Object.keys(barangayCoords).forEach(key => { barangayCounts[key] = 0; });
-
-    rawList.forEach(report => {
-      if (report) {
-        let bName = report.barangay || report.location || 'San Nicolas';
-        if (bName === 'Lourdes North West') bName = 'Lourdes NorthWest';
-        if (bName === 'San Trinidad') bName = 'Sta. Trinidad';
-        
-        if (barangayCounts[bName] !== undefined) {
-          barangayCounts[bName] += 1;
-        }
-      }
-    });
-
-    const formattedBars = Object.keys(barangayCounts).map(key => ({
-      d: key === 'Lourdes NorthWest' ? 'Lourdes NW' : key,
-      v: barangayCounts[key]
-    }));
-    setBarData(formattedBars);
-
+  const pieData = useMemo(() => {
     let pendingCount = 0;
     let ongoingCount = 0;
     let resolvedCount = 0;
 
-    rawList.forEach(report => {
+    reports.forEach(report => {
       if (report) {
         const stat = String(report.status).toLowerCase();
         if (stat === 'resolved') resolvedCount++;
         else if (stat === 'ongoing') ongoingCount++;
-        else pendingCount++; // Counts 'pending', 'submitted', or empty as Pending
+        else pendingCount++;
       }
     });
 
     const formattedPie = [
-      { name: 'Pending', value: pendingCount, color: '#ffc20e' },
-      { name: 'Ongoing', value: ongoingCount, color: '#ef4444' },
+      { name: 'Pending', value: pendingCount, color: '#f59e0b' },
+      { name: 'Ongoing', value: ongoingCount, color: '#2563eb' },
       { name: 'Resolved', value: resolvedCount, color: '#10b981' }
     ].filter(item => item.value > 0); 
-    
-    setPieData(formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }]);
-  };
+
+    return formattedPie.length ? formattedPie : [{ name: 'No Data', value: 1, color: '#939598' }];
+  }, [reports]);
+
+  const volumeTrendData = useMemo(() => {
+    const hours = ['12 AM', '3 AM', '6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'];
+    return hours.map((hourLabel, idx) => {
+      const hour24Start = idx * 3;
+      const count = reports.filter(r => {
+        if (!r.created_at) return false;
+        const h = new Date(r.created_at).getHours();
+        return h >= hour24Start && h < hour24Start + 3;
+      }).length;
+      return { time: hourLabel, reports: count };
+    });
+  }, [reports]);
 
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
-    }
-
-    if (reports.length > 0) {
-      processChartData(reports);
     }
 
     const fetchDashboardData = async () => {
@@ -198,7 +196,6 @@ export default function DashboardPage() {
               
             setReports(rawList);
             sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(rawList));
-            processChartData(rawList);
             setIsLoading(false);
             return;
           }
@@ -213,7 +210,6 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [token, navigate]);
 
-  // Click handler to update report status
   const handleStatusUpdate = async (reportId, newStatus) => {
     const rawTargetStatus = newStatus.toLowerCase();
     
@@ -222,15 +218,12 @@ export default function DashboardPage() {
       payload.resolved_at = new Date().toISOString();
     }
 
-    // Optimistically update local UI and Cache first
     const updatedList = reports.map(report => 
       report.id === reportId ? { ...report, ...payload } : report
     );
     setReports(updatedList);
     sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(updatedList));
-    processChartData(updatedList);
 
-    // Send PATCH to API
     for (const useBearer of [false, true]) {
       try {
         const response = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
@@ -252,12 +245,11 @@ export default function DashboardPage() {
 
   const activeReports = reports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
   
-  // Filter active reports based on selected tab
   const filteredActiveReports = activeReports.filter(r => {
     const s = String(r.status).toLowerCase();
     if (statusFilter === 'pending') return s === 'pending' || s === 'submitted' || !s;
     if (statusFilter === 'ongoing') return s === 'ongoing';
-    return true; // 'all'
+    return true;
   });
 
   const historyReports = reports.filter(r => r && String(r.status).toLowerCase() === 'resolved').slice(0, 10);
@@ -272,129 +264,156 @@ export default function DashboardPage() {
     <AdminLayout>
       <style>{`
         .pulse-yellow { animation: pulseY 2s infinite; }
-        .pulse-red { animation: pulseR 1.5s infinite; }
+        .pulse-blue { animation: pulseB 1.5s infinite; }
         @keyframes pulseY {
-          0% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); }
-          70% { box-shadow: 0 0 0 15px rgba(250, 204, 21, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+          0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+          70% { box-shadow: 0 0 0 15px rgba(245, 158, 11, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
-        @keyframes pulseR {
-          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); }
-          70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        @keyframes pulseB {
+          0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.8); }
+          70% { box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
         }
       `}</style>
 
-      <main className="h-full grid grid-cols-12 overflow-hidden bg-gray-200 gap-[1px]">
+      {/* FIXED VIEWPORT GRID */}
+      <main className="w-full h-full min-h-0 grid grid-cols-12 grid-rows-2 overflow-hidden bg-gray-200 gap-[1px]">
         
-        {/* TELEMETRY LEAFLET MAP */}
-        <section className="col-span-8 bg-white relative overflow-hidden z-0">
-          <MapContainer 
-            center={ANGELES_CENTER} 
-            zoom={13} 
-            minZoom={13} 
-            maxZoom={18}
-            maxBounds={ANGELES_CITY_BOUNDS} 
-            maxBoundsViscosity={1.0} 
-            bounceAtZoomLimits={true}
-            style={{ height: '100%', width: '100%' }} 
-            zoomControl={false} 
-          >
-            <TileLayer 
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
-              bounds={ANGELES_CITY_BOUNDS}
-            />
-            
-            {activeReports.map((report) => {
-              let targetBarangay = report.barangay || report.location || 'San Nicolas';
-              if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
-              if (targetBarangay === 'San Trinidad') targetBarangay = 'Sta. Trinidad';
+        {/* TELEMETRY LEAFLET MAP (LOCKED TIGHT ZOOM) */}
+        <section className="col-span-8 row-span-1 bg-white relative overflow-hidden h-full w-full flex items-center justify-center">
+          <div className="w-full h-full flex items-center justify-center">
+            <MapContainer 
+              center={TARGET_MAP_CENTER} 
+              zoom={14} 
+              minZoom={12} 
+              maxZoom={18}
+              maxBounds={ANGELES_CITY_BOUNDS} 
+              maxBoundsViscosity={1.0} 
+              bounceAtZoomLimits={true}
+              style={{ height: '100%', width: '100%' }} 
+              zoomControl={false} 
+            >
+              <MapResizer />
+              <TileLayer 
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                bounds={ANGELES_CITY_BOUNDS}
+              />
               
-              let latPosition = parseFloat(report.latitude);
-              let lngPosition = parseFloat(report.longitude);
+              {activeReports.map((report) => {
+                let targetBarangay = report.barangay || report.location || 'San Nicolas';
+                if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
+                if (targetBarangay === 'San Trinidad') targetBarangay = 'Sta. Trinidad';
+                
+                let latPosition = parseFloat(report.latitude);
+                let lngPosition = parseFloat(report.longitude);
 
-              if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
-                const coords = barangayCoords[targetBarangay];
-                if (coords) {
-                  latPosition = coords[0];
-                  lngPosition = coords[1];
+                if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
+                  const coords = barangayCoords[targetBarangay];
+                  if (coords) {
+                    latPosition = coords[0];
+                    lngPosition = coords[1];
+                  }
                 }
-              }
 
-              if (latPosition && lngPosition) {
-                return (
-                  <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
-                    <Popup className="font-sans">
-                      <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
-                      <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
-                      {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
-                      <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-red-600' : 'text-yellow-600'}`}>
-                        {String(report.status).toLowerCase() === 'ongoing' ? 'Ongoing' : 'Pending'}
-                      </div>
-                    </Popup>
-                  </Marker>
-                );
-              }
-              return null; 
-            })}
-          </MapContainer>
+                if (latPosition && lngPosition) {
+                  return (
+                    <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
+                      <Popup className="font-sans">
+                        <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
+                        <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
+                        {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
+                        <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-blue-600' : 'text-amber-600'}`}>
+                          {String(report.status).toLowerCase() === 'ongoing' ? 'Ongoing' : 'Pending'}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
+                }
+                return null; 
+              })}
+            </MapContainer>
+          </div>
         </section>
 
         {/* CHARTS OVERVIEW */}
-        <section className="col-span-4 bg-white p-6 flex flex-col overflow-y-auto">
-          <h3 className="font-bold text-gray-800 text-lg mb-4">Reports Overview</h3>
+        <section className="col-span-4 row-span-1 bg-white p-4 lg:p-5 flex flex-col h-full min-h-0 overflow-y-auto">
+          <h3 className="font-bold text-gray-800 text-base mb-2 shrink-0">Reports Overview</h3>
           {isLoading ? (
-            <div className="flex-1 flex items-center justify-center text-gray-400 font-bold">Loading charts...</div>
+            <div className="flex-1 flex items-center justify-center text-gray-400 font-bold text-xs">Loading charts...</div>
           ) : (
-            <>
-              <div className="w-full h-[180px] min-w-0 border-b border-gray-50 pb-6">
-                {barData.length === 0 ? (
-                  <div className="text-center text-xs text-gray-300 pt-16">No regional records</div>
-                ) : (
+            <div className="flex-1 flex flex-col justify-between min-h-0">
+              
+              {/* 1. VOLUME TREND AREA CHART */}
+              <div className="flex-1 min-h-0 border-b border-gray-100 pb-2 flex flex-col">
+                <span className="text-xs font-bold text-gray-500 block mb-1 shrink-0">Volume Trend</span>
+                <div className="flex-1 w-full min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} margin={{ left: -25 }}>
-                      <XAxis dataKey="d" tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#999' }} axisLine={false} tickLine={false} precision={0} />
-                      <Bar dataKey="v" fill="#bae6fd" radius={[2, 2, 0, 0]} />
-                    </BarChart>
+                    <AreaChart data={volumeTrendData} margin={{ top: 2, right: 5, left: -25, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="dashboardTrend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0d9488" stopOpacity={0.4}/>
+                          <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                      <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
+                      <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#dashboardTrend)" />
+                    </AreaChart>
                   </ResponsiveContainer>
-                )}
+                </div>
               </div>
-              <div className="w-full h-[160px] min-w-0 flex items-center justify-center py-6">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pieData} innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="value">
-                      {pieData.map((e, i) => (
-                        <Cell key={i} fill={e.color} stroke="none" />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="text-[10px] font-bold space-y-1.5 ml-4 shrink-0">
+
+              {/* 2. FULL PIE CHART */}
+              <div className="flex-1 min-h-0 flex items-center justify-between pt-2">
+                <div className="w-[120px] h-full shrink-0 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie 
+                        data={pieData} 
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={0} 
+                        outerRadius="82%" 
+                        paddingAngle={2} 
+                        dataKey="value"
+                      >
+                        {pieData.map((e, i) => (
+                          <Cell key={i} fill={e.color} stroke="#ffffff" strokeWidth={1.5} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                <div className="text-xs font-bold space-y-2 ml-3 shrink-0 flex-1">
                   {pieData.map((item) => (
                     <div key={item.name} className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></div>
-                      <span className="text-gray-500 truncate w-24">{item.name}</span>
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }}></div>
+                      <span className="text-gray-600 truncate">{item.name} ({item.value})</span>
                     </div>
                   ))}
                 </div>
               </div>
-            </>
+
+            </div>
           )}
         </section>
 
-        {/* LIVE ACTIVE EMERGENCY LOG & STATUS FILTER */}
-        <section className="col-span-8 bg-[#fafafa] p-8 overflow-y-auto">
-          <div className="border-b border-gray-200 pb-4 mb-6 flex flex-wrap items-center justify-between gap-4">
-            <h2 className="font-black text-2xl text-gray-800 tracking-tight uppercase">
+        {/* LIVE ACTIVE EMERGENCY LOG */}
+        <section className="col-span-8 row-span-1 bg-[#fafafa] p-5 lg:p-6 overflow-y-auto h-full">
+          <div className="border-b border-gray-200 pb-3.5 mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-black text-xl lg:text-2xl text-gray-800 tracking-tight uppercase">
               Active Reports
             </h2>
             
-            {/* STATUS FILTERS */}
             <div className="flex items-center bg-gray-200/70 p-1 rounded-xl text-xs font-bold gap-1">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'all' 
                     ? 'bg-white text-gray-900 shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
@@ -404,9 +423,9 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setStatusFilter('pending')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'pending' 
-                    ? 'bg-[#fef08a] text-yellow-900 shadow-xs' 
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300 shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -414,9 +433,9 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setStatusFilter('ongoing')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'ongoing' 
-                    ? 'bg-[#ef4444] text-white shadow-xs' 
+                    ? 'bg-blue-600 text-white shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -425,13 +444,13 @@ export default function DashboardPage() {
             </div>
           </div>
           
-          <div className="space-y-1">
+          <div className="space-y-2">
             {isLoading ? (
-              <p className="text-gray-400 font-bold py-4">Loading active reports...</p>
+              <p className="text-gray-400 font-bold py-4 text-sm">Loading active reports...</p>
             ) : filteredActiveReports.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-green-500 font-bold text-lg">All Clear!</div>
-                <p className="text-gray-400 text-sm">No reports match the selected status filter.</p>
+              <div className="text-center py-8">
+                <div className="text-emerald-500 font-bold text-base">All Clear!</div>
+                <p className="text-gray-400 text-xs mt-1">No reports match the selected status filter.</p>
               </div>
             ) : (
               filteredActiveReports.map((report) => {
@@ -456,14 +475,14 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* RESOLVED HISTORY ROW */}
-        <section className="col-span-4 bg-white p-8 overflow-y-auto border-l border-gray-200">
-          <h3 className="font-bold text-lg text-gray-800 mb-8 border-b border-gray-100 pb-4">Recent History</h3>
-          <div className="space-y-0">
+        {/* RESOLVED HISTORY FEED */}
+        <section className="col-span-4 row-span-1 bg-white p-5 lg:p-6 overflow-y-auto border-l border-gray-200 h-full">
+          <h3 className="font-bold text-sm lg:text-base text-gray-800 mb-4 border-b border-gray-100 pb-3">Recent History</h3>
+          <div className="space-y-0.5">
             {isLoading ? (
-              <p className="text-gray-400 font-bold py-4">Loading history...</p>
+              <p className="text-gray-400 font-bold py-4 text-sm">Loading history...</p>
             ) : historyReports.length === 0 ? (
-              <p className="text-gray-400 py-4 text-sm text-center">No resolved reports yet.</p>
+              <p className="text-gray-400 py-4 text-xs text-center">No resolved reports yet.</p>
             ) : (
               historyReports.map((report) => (
                 <HistoryRow 
@@ -484,12 +503,12 @@ export default function DashboardPage() {
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
   return (
-    <div className="border border-gray-200 bg-white rounded-lg p-4 mb-3 flex items-center justify-between shadow-xs">
-      <div className="max-w-[60%]">
-        <div className="font-bold text-gray-900 text-lg tracking-tight truncate">{title}</div>
-        <div className="text-sm text-gray-400 font-medium mt-1">{subtitle}</div>
+    <div className="border border-gray-200 bg-white rounded-xl p-4 lg:p-4.5 flex items-center justify-between gap-3 shadow-xs">
+      <div className="max-w-[58%]">
+        <div className="font-bold text-gray-900 text-base lg:text-lg tracking-tight truncate">{title}</div>
+        <div className="text-xs lg:text-sm text-gray-400 font-medium mt-1 truncate">{subtitle}</div>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 shrink-0">
         <StatusButton label="Pending" currentStatus={status} onClick={() => onStatusChange(id, 'Pending')} />
         <StatusButton label="Ongoing" currentStatus={status} onClick={() => onStatusChange(id, 'Ongoing')} />
         <StatusButton label="Resolved" currentStatus={status} onClick={() => onStatusChange(id, 'Resolved')} />
@@ -500,19 +519,24 @@ function ReportItem({ id, title, subtitle, status, onStatusChange }) {
 
 function StatusButton({ label, currentStatus, onClick }) {
   const isActive = currentStatus?.toLowerCase() === label?.toLowerCase();
+  
   let colorClass = "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100 cursor-pointer";
   
   if (isActive) {
-    if (label === "Pending") colorClass = "bg-[#fef08a] border-yellow-400 text-yellow-800 cursor-default shadow-xs";
-    if (label === "Ongoing") colorClass = "bg-[#ef4444] border-red-700 text-white cursor-default shadow-xs";
-    if (label === "Resolved") colorClass = "bg-[#22c55e] border-green-700 text-white cursor-default shadow-xs";
+    if (label === "Pending") {
+      colorClass = "bg-amber-100 border-amber-400 text-amber-800 font-black cursor-default shadow-xs";
+    } else if (label === "Ongoing") {
+      colorClass = "bg-blue-600 border-blue-700 text-white font-black cursor-default shadow-xs";
+    } else if (label === "Resolved") {
+      colorClass = "bg-emerald-600 border-emerald-700 text-white font-black cursor-default shadow-xs";
+    }
   }
 
   return (
     <button 
       type="button"
       onClick={onClick} 
-      className={`${colorClass} px-5 py-2 rounded-md text-[11px] font-black uppercase tracking-tight border transition-all active:scale-95`}
+      className={`${colorClass} px-4 lg:px-5 py-2 rounded-lg text-[11px] lg:text-xs font-black uppercase tracking-tight border transition-all active:scale-95`}
     >
       {label}
     </button>
@@ -521,12 +545,12 @@ function StatusButton({ label, currentStatus, onClick }) {
 
 function HistoryRow({ label, location, time }) {
   return (
-    <div className="border-b border-gray-50 py-4 flex justify-between items-center group px-2 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
+    <div className="border-b border-gray-50 py-3 lg:py-3.5 flex justify-between items-center group px-1.5 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
       <div className="max-w-[70%]">
-        <div className="font-bold text-gray-700 group-hover:text-[#b32d2d] transition-colors truncate">{label}</div>
-        <div className="text-[10px] text-gray-400 font-medium">{location}</div>
+        <div className="font-bold text-sm lg:text-base text-gray-700 group-hover:text-[#b32d2d] transition-colors truncate">{label}</div>
+        <div className="text-xs text-gray-400 font-medium mt-0.5">{location}</div>
       </div>
-      <span className="text-[10px] font-bold text-gray-300 group-hover:text-gray-400 shrink-0">{time}</span>
+      <span className="text-xs font-bold text-gray-300 group-hover:text-gray-400 shrink-0">{time}</span>
     </div>
   );
 }

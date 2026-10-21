@@ -113,6 +113,17 @@ export default function ReportsPage() {
     };
   };
 
+  // Helper to extract category label regardless of data type
+  const getCategoryName = (report) => {
+    if (!report) return 'General Emergency';
+    if (typeof report.category === 'object' && report.category !== null) {
+      return report.category.name || report.category.title || report.category.label || 'General Emergency';
+    }
+    if (report.category_name) return report.category_name;
+    if (report.category) return String(report.category);
+    return report.short_message || report.emergency_type || 'General Emergency';
+  };
+
   const resolveUserDisplayName = (u) => {
     if (!u) return null;
     const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
@@ -123,7 +134,7 @@ export default function ReportsPage() {
     return null;
   };
 
-  // Dynamic User Detail Resolver (Fetches individual report detail when missing nested user)
+  // Dynamic User Detail Resolver
   const resolveMissingUser = async (reportId, userId) => {
     if (!reportId || pendingUserFetches.current.has(reportId)) return;
     pendingUserFetches.current.add(reportId);
@@ -154,27 +165,22 @@ export default function ReportsPage() {
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
 
-    // 1. Check nested user object
     const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
     const resolvedFromObj = resolveUserDisplayName(userObj);
     if (resolvedFromObj) return resolvedFromObj;
 
-    // 2. Direct flat properties fallback
     const flatFirstLast = `${report.first_name || ''} ${report.last_name || ''}`.trim();
     if (flatFirstLast) return flatFirstLast;
     if (report.reporter_name) return report.reporter_name;
     if (report.username) return report.username;
 
-    // 3. Extract raw user ID
     const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
       ? report.user 
       : (report.user_id || report.user?.id);
 
-    // 4. Mapped Name from State Lookup
     if (usersMap[report.id]) return usersMap[report.id];
     if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
 
-    // 5. Trigger background fetch for missing user detail
     if (report.id && !usersMap[report.id] && !usersMap[rawUserId]) {
       resolveMissingUser(report.id, rawUserId);
     }
@@ -441,11 +447,12 @@ export default function ReportsPage() {
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
+    const categoryText = getCategoryName(report).toLowerCase();
     const barangayText = (report.barangay || report.location || '').toLowerCase();
     const posterText = getReporterName(report).toLowerCase();
     const query = searchQuery.toLowerCase();
 
-    const matchedSearch = reportText.includes(query) || barangayText.includes(query) || posterText.includes(query) || String(report.id).includes(query);
+    const matchedSearch = reportText.includes(query) || categoryText.includes(query) || barangayText.includes(query) || posterText.includes(query) || String(report.id).includes(query);
     const currentStat = String(report.status).toLowerCase();
     
     let matchedStatus = true;
@@ -466,27 +473,13 @@ export default function ReportsPage() {
 
     return matchedSearch && matchedStatus && matchedBarangay && matchedDate;
   }).sort((a, b) => {
-    if (sortBy === 'id_desc') {
-      return Number(b.id) - Number(a.id);
-    }
-    if (sortBy === 'id_asc') {
-      return Number(a.id) - Number(b.id);
-    }
-    if (sortBy === 'date_desc') {
-      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    }
-    if (sortBy === 'date_asc') {
-      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
-    }
-    if (sortBy === 'resolved_desc') {
-      return new Date(b.resolved_at || 0) - new Date(a.resolved_at || 0);
-    }
-    if (sortBy === 'resolved_asc') {
-      return new Date(a.resolved_at || 0) - new Date(b.resolved_at || 0);
-    }
-    if (sortBy === 'barangay_asc') {
-      return (a.barangay || '').localeCompare(b.barangay || '');
-    }
+    if (sortBy === 'id_desc') return Number(b.id) - Number(a.id);
+    if (sortBy === 'id_asc') return Number(a.id) - Number(b.id);
+    if (sortBy === 'date_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    if (sortBy === 'date_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    if (sortBy === 'resolved_desc') return new Date(b.resolved_at || 0) - new Date(a.resolved_at || 0);
+    if (sortBy === 'resolved_asc') return new Date(a.resolved_at || 0) - new Date(b.resolved_at || 0);
+    if (sortBy === 'barangay_asc') return (a.barangay || '').localeCompare(b.barangay || '');
     return 0;
   });
 
@@ -516,7 +509,7 @@ export default function ReportsPage() {
               <Search size={18} className="text-gray-400 ml-3" />
               <input 
                 type="text" 
-                placeholder="Search description, poster..." 
+                placeholder="Search category, description, poster..." 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 className="w-full py-2 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
@@ -674,8 +667,8 @@ export default function ReportsPage() {
                         </td>
 
                         <td className="py-4 px-5">
-                          <div className="font-semibold text-gray-800 text-xs">
-                            {report.short_message || report.description || 'Emergency Incident'}
+                          <div className="font-bold text-gray-900 text-xs">
+                            {getCategoryName(report)}
                           </div>
                           <div className="text-[11px] text-gray-400 font-medium mt-0.5">
                             {getExactAddressSubtitle(report)}
@@ -788,7 +781,7 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Category</span>
-                      <span className="font-black text-gray-800">#{selectedReport.id}</span>
+                      <span className="font-black text-gray-800">{getCategoryName(selectedReport)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Poster Name</span>
@@ -855,7 +848,7 @@ export default function ReportsPage() {
 
                       <Marker position={[modalLat, modalLng]} icon={redMarkerIcon}>
                         <Popup>
-                          <div className="font-bold text-xs">{selectedReport.short_message || 'Emergency Location'}</div>
+                          <div className="font-bold text-xs">{getCategoryName(selectedReport)}</div>
                           <div className="text-[10px] text-gray-500">Brgy. {selectedBrgy}</div>
                         </Popup>
                       </Marker>

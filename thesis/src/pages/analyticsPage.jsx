@@ -19,7 +19,7 @@ export const ANGELES_BARANGAYS = [
   "Claro M. Recto"
 ];
 
-const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6'];
+const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899', '#6366f1'];
 
 // Cache Keys
 const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v1';
@@ -62,24 +62,44 @@ export default function AnalyticsPage() {
 
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [filterBarangayOnly, setFilterBarangayOnly] = useState(false);
   
   // Expanded Time Range Options: 'today' | '7days' | 'month' | 'year' | 'all'
-  const [timeRange, setTimeRange] = useState('today');
+  const [timeRange, setTimeRange] = useState('all');
 
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
   const API_BASE_URL = `http://${targetHostname}:8000`;
   // const API_BASE_URL = 'https://api.aksyon.online';
 
-  // Filter reports exclusively for the assigned Barangay
+  const getAuthHeaders = (useBearer = false) => {
+    const rawToken = token || '';
+    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    if (!cleanToken) return {};
+    const authPrefix = useBearer ? 'Bearer' : 'Token';
+    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
+  };
+
+  // Extract category helper
+  const getCategoryName = (report) => {
+    if (!report) return 'Uncategorized';
+    if (typeof report.category === 'object' && report.category !== null) {
+      return report.category.name || report.category.title || report.category.label || 'Uncategorized';
+    }
+    if (report.category_name) return report.category_name;
+    if (report.category) return String(report.category);
+    return 'Uncategorized';
+  };
+
+  // Optional Barangay filter (allows viewing total vs assigned)
   const reports = useMemo(() => {
-    if (!assignedBarangay) return rawReports;
+    if (!filterBarangayOnly || !assignedBarangay) return rawReports;
     const targetNorm = assignedBarangay.toLowerCase().replace(/^sta\.\s*/, 'santa ');
     return rawReports.filter(r => {
       const b = (r.barangay || r.location || '').toLowerCase().replace(/^sta\.\s*/, 'santa ');
       return b.includes(targetNorm) || targetNorm.includes(b);
     });
-  }, [rawReports, assignedBarangay]);
+  }, [rawReports, assignedBarangay, filterBarangayOnly]);
 
   const fetchData = async (silent = false) => {
     if (!token) return;
@@ -87,25 +107,35 @@ export default function AnalyticsPage() {
     setIsSyncing(true);
 
     try {
-      const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
-      const headers = { 'Content-Type': 'application/json', 'Authorization': authPrefix };
+      let fetchedReports = [];
+      for (const useBearer of [false, true]) {
+        const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
+          method: 'GET', 
+          headers: getAuthHeaders(useBearer) 
+        });
 
-      // 1. Fetch Reports
-      const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { method: 'GET', headers });
-      if (reportsRes.ok) {
-        const data = await reportsRes.json();
-        const list = Array.isArray(data) ? data : (data?.results || []);
-        setRawReports(list);
-        sessionStorage.setItem(CACHE_KEY_ANALYTICS_REPORTS, JSON.stringify(list));
+        if (reportsRes.ok) {
+          const data = await reportsRes.json();
+          fetchedReports = Array.isArray(data) ? data : (data?.results || []);
+          setRawReports(fetchedReports);
+          sessionStorage.setItem(CACHE_KEY_ANALYTICS_REPORTS, JSON.stringify(fetchedReports));
+          break;
+        }
       }
 
-      // 2. Fetch Users Count
-      const usersRes = await fetch(`${API_BASE_URL}/api/users/admin/`, { method: 'GET', headers });
-      if (usersRes.ok) {
-        const uData = await usersRes.json();
-        const uList = Array.isArray(uData) ? uData : (uData?.results || []);
-        setUsersCount(uList.length);
-        sessionStorage.setItem(CACHE_KEY_ANALYTICS_USERS, JSON.stringify(uList.length));
+      for (const useBearer of [false, true]) {
+        const usersRes = await fetch(`${API_BASE_URL}/api/users/admin/`, { 
+          method: 'GET', 
+          headers: getAuthHeaders(useBearer) 
+        });
+
+        if (usersRes.ok) {
+          const uData = await usersRes.json();
+          const uList = Array.isArray(uData) ? uData : (uData?.results || []);
+          setUsersCount(uList.length);
+          sessionStorage.setItem(CACHE_KEY_ANALYTICS_USERS, JSON.stringify(uList.length));
+          break;
+        }
       }
 
     } catch (error) {
@@ -121,9 +151,8 @@ export default function AnalyticsPage() {
       navigate('/login');
       return;
     }
-    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_ANALYTICS_REPORTS));
-    fetchData(hasCache);
-  }, [token, navigate, targetHostname]);
+    fetchData(rawReports.length > 0);
+  }, [token, navigate]);
 
   // Calculations for Today's Metrics
   const today = new Date().toDateString();
@@ -146,9 +175,8 @@ export default function AnalyticsPage() {
     return s === 'resolved';
   }).length;
 
-  // Report Trend Time Series (Expanded Range Aggregation)
+  // Report Trend Time Series
   const trendData = useMemo(() => {
-    // 1. TODAY
     if (timeRange === 'today') {
       const hours = ['12 AM', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM'];
       return hours.map((hourLabel, idx) => {
@@ -162,7 +190,6 @@ export default function AnalyticsPage() {
       });
     }
 
-    // 2. THIS WEEK (7 DAYS)
     if (timeRange === '7days') {
       const days = [];
       for (let i = 6; i >= 0; i--) {
@@ -175,7 +202,6 @@ export default function AnalyticsPage() {
       return days;
     }
 
-    // 3. PAST MONTH (30 DAYS)
     if (timeRange === 'month') {
       const days = [];
       for (let i = 29; i >= 0; i--) {
@@ -188,7 +214,6 @@ export default function AnalyticsPage() {
       return days;
     }
 
-    // 4. PAST YEAR (12 MONTHS)
     if (timeRange === 'year') {
       const months = [];
       const now = new Date();
@@ -209,7 +234,6 @@ export default function AnalyticsPage() {
       return months;
     }
 
-    // 5. ALL TIME (YEARLY AGGREGATION)
     if (timeRange === 'all') {
       const yearMap = {};
       reports.forEach(r => {
@@ -232,7 +256,7 @@ export default function AnalyticsPage() {
     return [];
   }, [timeRange, todaysReports, reports]);
 
-  // Hourly Call Volume Distribution for assigned barangay
+  // Hourly Call Volume Distribution
   const hourlyData = useMemo(() => {
     const slots = [
       { slot: 'Morning (6A-12P)', count: 0 },
@@ -260,29 +284,24 @@ export default function AnalyticsPage() {
     const res = reports.filter(r => String(r.status).toLowerCase() === 'resolved').length;
     return [
       { name: 'Pending', value: p, color: '#dc2626' },
-      { name: 'Ongoing', value: o, color: '#90d5ff' },
+      { name: 'Ongoing', value: o, color: '#0284c7' },
       { name: 'Resolved', value: res, color: '#16a34a' }
     ].filter(d => d.value > 0);
   }, [reports]);
 
-  // Incident Type Classifier
+  // CATEGORY DYNAMIC PARSER (Replaced keyword description matching with real Category fields)
   const incidentTypeData = useMemo(() => {
-    let medical = 0;
-    let fire = 0;
-    let rescue = 0;
+    const catMap = {};
 
     reports.forEach(r => {
-      const text = (r.short_message || r.description || '').toLowerCase();
-      if (text.includes('fire') || text.includes('sunog') || text.includes('smoke')) fire++;
-      else if (text.includes('medical') || text.includes('injury') || text.includes('accident')) medical++;
-      else rescue++;
+      const catName = getCategoryName(r);
+      catMap[catName] = (catMap[catName] || 0) + 1;
     });
 
-    return [
-      { name: 'Medical', value: medical },
-      { name: 'Fire', value: fire },
-      { name: 'Rescue / Other', value: rescue }
-    ].filter(d => d.value > 0);
+    return Object.keys(catMap).map(catName => ({
+      name: catName,
+      value: catMap[catName]
+    })).filter(d => d.value > 0);
   }, [reports]);
 
   return (
@@ -294,23 +313,36 @@ export default function AnalyticsPage() {
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d]" />
             <h1 className="text-xl font-black text-gray-900 tracking-tight">
-              System Analytics & Insights (Brgy. {assignedBarangay})
+              System Analytics & Insights
             </h1>
           </div>
 
-          <button 
-            onClick={() => {
-              sessionStorage.removeItem(CACHE_KEY_ANALYTICS_REPORTS);
-              sessionStorage.removeItem(CACHE_KEY_ANALYTICS_USERS);
-              fetchData(false);
-            }} 
-            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
-          >
-            <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setFilterBarangayOnly(prev => !prev)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                filterBarangayOnly 
+                  ? 'bg-blue-50 text-blue-700 border-blue-300' 
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {filterBarangayOnly ? `Filtering: Brgy. ${assignedBarangay}` : 'Showing All Jurisdiction'}
+            </button>
+
+            <button 
+              onClick={() => {
+                sessionStorage.removeItem(CACHE_KEY_ANALYTICS_REPORTS);
+                sessionStorage.removeItem(CACHE_KEY_ANALYTICS_USERS);
+                fetchData(false);
+              }} 
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+            </button>
+          </div>
         </div>
 
-        {/* TIER 1: OVERALL SYSTEM COUNTS */}
+        {/* OVERALL COUNTS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
             <span className="text-xs font-bold text-gray-500 block">Total System Users</span>
@@ -319,12 +351,13 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <span className="text-xs font-bold text-gray-500 block">Barangay Reports</span>
+            <span className="text-xs font-bold text-gray-500 block">System Reports</span>
             <div className="text-2xl font-black text-gray-900 mt-1">{reports.length}</div>
-            <span className="text-[11px] text-gray-400 font-medium">Total submissions in Brgy. {assignedBarangay}</span>
+            <span className="text-[11px] text-gray-400 font-medium">
+              {filterBarangayOnly ? `Submissions in Brgy. ${assignedBarangay}` : 'Total submissions across all areas'}
+            </span>
           </div>
 
-          {/* DYNAMIC ASSIGNED JURISDICTION CARD */}
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
             <span className="text-xs font-bold text-gray-500 block">Covered Jurisdiction</span>
             <div className="text-2xl font-black text-gray-900 mt-1">
@@ -336,7 +369,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* TIER 2: TODAY CARDS */}
+        {/* TODAY CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs">
             <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
@@ -362,10 +395,9 @@ export default function AnalyticsPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="font-bold text-base text-gray-900">Sector Report Volume Trend</h3>
-              <p className="text-xs text-gray-400">Call volume for Brgy. {assignedBarangay}</p>
+              <p className="text-xs text-gray-400">Call volume analysis</p>
             </div>
 
-            {/* EXPANDED TIME RANGE DROPDOWN */}
             <select 
               value={timeRange} 
               onChange={(e) => setTimeRange(e.target.value)}
@@ -379,7 +411,7 @@ export default function AnalyticsPage() {
             </select>
           </div>
 
-          <div className="h-64 w-full">
+          <div className="h-64 w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
@@ -398,13 +430,13 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* BOTTOM ROW: BREAKDOWN GRID */}
+        {/* BREAKDOWN GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           
           {/* Card 1: Status Distribution Donut */}
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
             <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Report Status</h4>
-            <div className="h-44 w-full flex items-center justify-center relative">
+            <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
@@ -422,31 +454,35 @@ export default function AnalyticsPage() {
             </div>
             <div className="w-full flex justify-around text-[11px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Ongoing </span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
             </div>
           </div>
 
-          {/* Card 2: Incident Type Donut */}
-          <div className="bg-[#ffffff] p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
-            <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Incident Types</h4>
-            <div className="h-44 w-full flex items-center justify-center relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
-                    {incidentTypeData.map((entry, idx) => (
-                      <Cell key={`cell-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                </PieChart>
-              </ResponsiveContainer>
+          {/* Card 2: Dynamic Category Donut */}
+          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
+            <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Emergency Categories</h4>
+            <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
+              {incidentTypeData.length === 0 ? (
+                <span className="text-xs font-bold text-gray-400">No category records</span>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
+                      {incidentTypeData.map((entry, idx) => (
+                        <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-xl font-black text-gray-900">{incidentTypeData.length}</span>
-                <span className="text-[10px] uppercase font-bold text-gray-400">Types</span>
+                <span className="text-[10px] uppercase font-bold text-gray-400">Categories</span>
               </div>
             </div>
-            <div className="w-full flex justify-around text-[11px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
+            <div className="w-full flex flex-wrap justify-center gap-2 text-[10px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
               {incidentTypeData.map((item, idx) => (
                 <span key={item.name} className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
@@ -458,8 +494,8 @@ export default function AnalyticsPage() {
 
           {/* Card 3: Sector Peak Incident Hours */}
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col col-span-1 md:col-span-2">
-            <h4 className="font-bold text-sm text-gray-900 mb-4">Peak Incident Hours (Brgy. {assignedBarangay})</h4>
-            <div className="h-44 w-full">
+            <h4 className="font-bold text-sm text-gray-900 mb-4">Peak Incident Hours</h4>
+            <div className="h-44 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
@@ -471,7 +507,7 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             </div>
             <div className="text-[11px] text-gray-400 font-medium mt-2 border-t border-gray-100 pt-2 text-right">
-              Dispatch call density in Brgy. {assignedBarangay} grouped by time of day
+              Dispatch call density grouped by time of day
             </div>
           </div>
 

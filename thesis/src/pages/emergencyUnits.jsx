@@ -83,6 +83,16 @@ export default function EmergencyUnitsPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   };
 
+  const getCategoryName = (report) => {
+    if (!report) return 'General Emergency';
+    if (typeof report.category === 'object' && report.category !== null) {
+      return report.category.name || report.category.title || report.category.label || 'General Emergency';
+    }
+    if (report.category_name) return report.category_name;
+    if (report.category) return String(report.category);
+    return report.short_message || report.emergency_type || 'General Emergency';
+  };
+
   const fetchReports = async () => {
     for (const useBearer of [false, true]) {
       try {
@@ -134,7 +144,8 @@ export default function EmergencyUnitsPage() {
         reportLng = fallback[1];
       }
 
-      const incidentText = report.short_message || report.description || 'Emergency Dispatch';
+      const categoryName = getCategoryName(report);
+      const fullDetailsText = report.description || report.details || report.short_message || categoryName;
 
       let matchedBaseName = 'Rafael Lazatin Memorial Medical Center';
       if (report.nearest_responder) {
@@ -147,8 +158,8 @@ export default function EmergencyUnitsPage() {
 
       return {
         report_id: report.id,
-        incident_description: incidentText,
-        full_details: report.details || report.description || incidentText,
+        category: categoryName,
+        full_details: fullDetailsText,
         reported_by: report.user_name || report.sender || 'Resident Alert',
         barangay: brgy,
         lat: reportLat,
@@ -232,7 +243,7 @@ export default function EmergencyUnitsPage() {
                     </div>
                   </th>
 
-                  <th className="py-4 px-6">Emergency Description</th>
+                  <th className="py-4 px-6">EMERGENCY CATEGORY</th>
                   <th className="py-4 px-6">Barangay</th>
                   <th className="py-4 px-6">Nearest Responder</th>
 
@@ -274,8 +285,8 @@ export default function EmergencyUnitsPage() {
                   sortedMatrixData.map((row) => (
                     <tr key={row.report_id} className="hover:bg-gray-50/80 transition-colors">
                       <td className="py-4 px-6 font-bold text-gray-500">#{row.report_id}</td>
-                      <td className="py-4 px-6 font-bold text-gray-800 max-w-xs truncate" title={row.incident_description}>
-                        {row.incident_description}
+                      <td className="py-4 px-6 font-bold text-gray-800 max-w-xs truncate" title={row.category}>
+                        {row.category}
                       </td>
                       <td className="py-4 px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
                       <td className="py-4 px-6 font-bold text-gray-800">
@@ -320,8 +331,11 @@ export default function EmergencyUnitsPage() {
 
             <div className="p-6 space-y-4 text-xs overflow-y-auto">
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
-                <h4 className="text-sm font-black text-gray-900">{selectedReportRow.incident_description}</h4>
-                <p className="text-gray-600 text-xs">{selectedReportRow.full_details}</p>
+                <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+                  <span className="font-bold text-gray-400 text-[10px] uppercase">Emergency Category</span>
+                  <span className="font-black text-gray-900 text-xs">{selectedReportRow.category}</span>
+                </div>
+                <p className="text-gray-600 text-xs pt-1">{selectedReportRow.full_details}</p>
                 <div className="pt-2 border-t border-gray-200 grid grid-cols-2 gap-2 text-[11px]">
                   <div><span className="font-bold text-gray-400 block text-[9px]">BARANGAY</span><span className="font-semibold text-gray-800">Brgy. {selectedReportRow.barangay}</span></div>
                   <div>
