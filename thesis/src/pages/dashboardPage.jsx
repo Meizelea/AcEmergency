@@ -13,19 +13,23 @@ const API_BASE_URL = `http://${targetHostname}:8000`;
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 
+// PRECISE BARANGAY COORDINATES FOR ANGELES CITY
 const barangayCoords = {
-  'Balibago': [15.1667, 120.5833],
-  'Cutcut': [15.1333, 120.5667],
-  'Pampang': [15.1450, 120.5600],
-  'Malabanias': [15.1600, 120.5750],
-  'Amsic': [15.1550, 120.5650],
-  'Cutud': [15.1500, 120.6100],
+  'San Nicolas': [15.1325, 120.5880],
+  'Sta. Trinidad': [15.1360, 120.5925],
+  'Cutud': [15.1500, 120.6120],
+  'Balibago': [15.1680, 120.5890],
+  'Cutcut': [15.1330, 120.5690],
+  'Pampang': [15.1480, 120.5580],
+  'Malabanias': [15.1620, 120.5780],
+  'Amsic': [15.1560, 120.5620],
   'Margot': [15.1660, 120.5330],
-  'Sapangbato': [15.1500, 120.5160],
-  'San Nicolas': [15.1340, 120.5910],
-  'Sta. Trinidad': [15.1320, 120.5950],
+  'Sapangbato': [15.1520, 120.5120],
   'Lourdes NorthWest': [15.1410, 120.5810],
-  'Claro M. Recto': [15.1420, 120.5990]
+  'Lourdes Sur': [15.1375, 120.5865],
+  'Claro M. Recto': [15.1420, 120.5990],
+  'Agapito del Rosario': [15.1390, 120.5885],
+  'Santo Rosario': [15.1338, 120.5910]
 };
 
 const ANGELES_CITY_BOUNDS = [
@@ -33,10 +37,19 @@ const ANGELES_CITY_BOUNDS = [
   [15.1850, 120.6350]
 ];
 
-// Target focus centered on downtown Angeles City / Santa Trinidad
-const TARGET_MAP_CENTER = [15.1400, 120.5900];
+const DEFAULT_CITY_CENTER = [15.1360, 120.5900];
 
-// Invalidates canvas on container size shifts while maintaining tight zoom
+// CONTROLLER TO FORCE LEAFLET TO RE-CENTER WHEN BARANGAY IS LOADED/CHANGED
+function MapViewController({ center, zoom }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center && Array.isArray(center) && center.length === 2) {
+      map.setView(center, zoom, { animate: true });
+    }
+  }, [center, zoom, map]);
+  return null;
+}
+
 function MapResizer() {
   const map = useMap();
   useEffect(() => {
@@ -82,8 +95,68 @@ export default function DashboardPage() {
 
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [currentAdminBarangay, setCurrentAdminBarangay] = useState('');
 
   const token = localStorage.getItem('ac_token');
+
+  // FETCH CURRENT ADMIN USER DATA TO DETERMINE ASSIGNED BARANGAY
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      const storedUser = localStorage.getItem('ac_user_data');
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          const brgy = parsed.barangay || parsed.assigned_barangay;
+          if (brgy) {
+            setCurrentAdminBarangay(brgy);
+            return;
+          }
+        } catch (e) {
+          console.warn('Error reading local user data:', e);
+        }
+      }
+
+      // Fallback: Fetch user details directly from server if local storage is missing it
+      try {
+        const rawToken = token || '';
+        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+        const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
+          headers: { 'Authorization': `Token ${cleanToken}` }
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          const brgy = userData.barangay || userData.assigned_barangay;
+          if (brgy) {
+            setCurrentAdminBarangay(brgy);
+            localStorage.setItem('ac_user_data', JSON.stringify(userData));
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch admin profile:', err);
+      }
+    };
+
+    if (token) {
+      loadAdminProfile();
+    }
+  }, [token]);
+
+  // DERIVE DYNAMIC CENTER AND ZOOM BASED ON ADMIN'S BARANGAY
+  const activeMapCenter = useMemo(() => {
+    if (currentAdminBarangay) {
+      // Clean up common string variations (e.g., "Santa Trinidad" vs "Sta. Trinidad")
+      let cleanBrgy = currentAdminBarangay.trim();
+      if (cleanBrgy.toLowerCase() === 'santa trinidad') cleanBrgy = 'Sta. Trinidad';
+      if (cleanBrgy.toLowerCase() === 'lourdes northwest') cleanBrgy = 'Lourdes NorthWest';
+
+      if (barangayCoords[cleanBrgy]) {
+        return barangayCoords[cleanBrgy];
+      }
+    }
+    return DEFAULT_CITY_CENTER;
+  }, [currentAdminBarangay]);
+
+  const activeZoomLevel = currentAdminBarangay && barangayCoords[currentAdminBarangay] ? 16 : 14;
 
   const getAuthHeaders = (useBearer = false) => {
     const rawToken = token || '';
@@ -280,12 +353,12 @@ export default function DashboardPage() {
       {/* FIXED VIEWPORT GRID */}
       <main className="w-full h-full min-h-0 grid grid-cols-12 grid-rows-2 overflow-hidden bg-gray-200 gap-[1px]">
         
-        {/* TELEMETRY LEAFLET MAP (LOCKED TIGHT ZOOM) */}
+        {/* TELEMETRY LEAFLET MAP */}
         <section className="col-span-8 row-span-1 bg-white relative overflow-hidden h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
             <MapContainer 
-              center={TARGET_MAP_CENTER} 
-              zoom={14} 
+              center={activeMapCenter} 
+              zoom={activeZoomLevel} 
               minZoom={12} 
               maxZoom={18}
               maxBounds={ANGELES_CITY_BOUNDS} 
@@ -295,6 +368,8 @@ export default function DashboardPage() {
               zoomControl={false} 
             >
               <MapResizer />
+              <MapViewController center={activeMapCenter} zoom={activeZoomLevel} />
+              
               <TileLayer 
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
                 bounds={ANGELES_CITY_BOUNDS}
@@ -303,7 +378,7 @@ export default function DashboardPage() {
               {activeReports.map((report) => {
                 let targetBarangay = report.barangay || report.location || 'San Nicolas';
                 if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
-                if (targetBarangay === 'San Trinidad') targetBarangay = 'Sta. Trinidad';
+                if (targetBarangay === 'San Trinidad' || targetBarangay === 'Santa Trinidad') targetBarangay = 'Sta. Trinidad';
                 
                 let latPosition = parseFloat(report.latitude);
                 let lngPosition = parseFloat(report.longitude);
