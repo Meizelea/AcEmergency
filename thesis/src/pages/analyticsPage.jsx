@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, AlertCircle, 
@@ -69,16 +69,16 @@ export default function AnalyticsPage() {
 
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
-  const API_BASE_URL = `http://${targetHostname}:8000`;
-  // const API_BASE_URL = 'https://api.aksyon.online';
+  const API_BASE_URL = 'https://api.aksyon.online';
+  //const API_BASE_URL = `http://${targetHostname}:8000`;
 
-  const getAuthHeaders = (useBearer = false) => {
+  const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = token || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     if (!cleanToken) return {};
     const authPrefix = useBearer ? 'Bearer' : 'Token';
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
-  };
+  }, [token]);
 
   // Extract category helper
   const getCategoryName = (report) => {
@@ -101,7 +101,7 @@ export default function AnalyticsPage() {
     });
   }, [rawReports, assignedBarangay, filterBarangayOnly]);
 
-  const fetchData = async (silent = false) => {
+  const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
     setIsSyncing(true);
@@ -144,15 +144,16 @@ export default function AnalyticsPage() {
       setIsLoading(false);
       setIsSyncing(false);
     }
-  };
+  }, [token, API_BASE_URL, getAuthHeaders, rawReports.length]);
 
+  // AUTOMATICALLY REFRESH DATA ON EVERY PAGE VISIT/REVISIT
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
-    fetchData(rawReports.length > 0);
-  }, [token, navigate]);
+    fetchData(true);
+  }, [token, navigate, fetchData]);
 
   // Calculations for Today's Metrics
   const today = new Date().toDateString();
@@ -289,7 +290,7 @@ export default function AnalyticsPage() {
     ].filter(d => d.value > 0);
   }, [reports]);
 
-  // CATEGORY DYNAMIC PARSER (Replaced keyword description matching with real Category fields)
+  // CATEGORY DYNAMIC PARSER
   const incidentTypeData = useMemo(() => {
     const catMap = {};
 
@@ -306,18 +307,18 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-8 h-full overflow-y-auto bg-[#f4f6f8]">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f4f6f8]">
         
         {/* HEADER */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
-            <TrendingUp size={22} className="text-[#b32d2d]" />
-            <h1 className="text-xl font-black text-gray-900 tracking-tight">
+            <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
+            <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
               System Analytics & Insights
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <button
               onClick={() => setFilterBarangayOnly(prev => !prev)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
@@ -335,9 +336,11 @@ export default function AnalyticsPage() {
                 sessionStorage.removeItem(CACHE_KEY_ANALYTICS_USERS);
                 fetchData(false);
               }} 
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+              disabled={isSyncing}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
+              {isSyncing ? "Syncing..." : "Sync Data"}
             </button>
           </div>
         </div>
@@ -392,7 +395,7 @@ export default function AnalyticsPage() {
 
         {/* MAIN CENTER: REPORT TREND LINE CHART */}
         <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs mb-8">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
             <div>
               <h3 className="font-bold text-base text-gray-900">Sector Report Volume Trend</h3>
               <p className="text-xs text-gray-400">Call volume analysis</p>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
@@ -17,8 +17,8 @@ const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
-  //return `https://api.aksyon.online`;
-  return `http://${targetHostname}:8000`;
+  return `https://api.aksyon.online`;
+  //return `http://${targetHostname}:8000`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -65,6 +65,17 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 export default function ReportsPage() {
   const navigate = useNavigate();
 
+  const resolveUserDisplayName = (u) => {
+    if (!u) return null;
+    if (typeof u === 'string') return u.trim() || null;
+    const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    if (firstLast) return firstLast;
+    if (u.full_name && u.full_name.trim()) return u.full_name.trim();
+    if (u.username && u.username.trim()) return u.username.trim();
+    if (u.email && u.email.trim()) return u.email.split('@')[0];
+    return null;
+  };
+
   const [reports, setReports] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_REPORTS);
     return cached ? JSON.parse(cached) : [];
@@ -77,13 +88,33 @@ export default function ReportsPage() {
 
   const [usersMap, setUsersMap] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_USERS_MAP);
-    return cached ? JSON.parse(cached) : {};
+    const existingMap = cached ? JSON.parse(cached) : {};
+
+    // Eagerly pre-populate users map from initial cached reports
+    const cachedReports = sessionStorage.getItem(CACHE_KEY_REPORTS);
+    if (cachedReports) {
+      try {
+        const parsedReports = JSON.parse(cachedReports);
+        parsedReports.forEach(r => {
+          const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
+          const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
+          const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
+          if (name) {
+            if (r.id) existingMap[r.id] = name;
+            if (uid) existingMap[uid] = name;
+          }
+        });
+      } catch (e) {
+        console.error("Failed to parse cached reports for user map initialization:", e);
+      }
+    }
+    return existingMap;
   });
 
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Search, Filters & Sorting (Status Filter defaults to 'Pending')
+  // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('Pending'); 
   const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
@@ -102,7 +133,7 @@ export default function ReportsPage() {
 
   const token = localStorage.getItem('ac_token');
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = useCallback(() => {
     const rawToken = token || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     return {
@@ -111,9 +142,8 @@ export default function ReportsPage() {
         ? rawToken 
         : `Token ${cleanToken}`
     };
-  };
+  }, [token]);
 
-  // Helper to extract category label regardless of data type
   const getCategoryName = (report) => {
     if (!report) return 'General Emergency';
     if (typeof report.category === 'object' && report.category !== null) {
@@ -124,17 +154,6 @@ export default function ReportsPage() {
     return report.short_message || report.emergency_type || 'General Emergency';
   };
 
-  const resolveUserDisplayName = (u) => {
-    if (!u) return null;
-    const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-    if (firstLast) return firstLast;
-    if (u.full_name && u.full_name.trim()) return u.full_name.trim();
-    if (u.username && u.username.trim()) return u.username.trim();
-    if (u.email && u.email.trim()) return u.email.split('@')[0];
-    return null;
-  };
-
-  // Dynamic User Detail Resolver
   const resolveMissingUser = async (reportId, userId) => {
     if (!reportId || pendingUserFetches.current.has(reportId)) return;
     pendingUserFetches.current.add(reportId);
@@ -145,12 +164,13 @@ export default function ReportsPage() {
       });
       if (res.ok) {
         const detailData = await res.json();
-        const userObj = detailData?.user;
-        const displayName = resolveUserDisplayName(userObj);
+        const userObj = detailData?.user || detailData?.user_details || detailData?.profile;
+        const displayName = resolveUserDisplayName(userObj) || detailData?.reporter_name;
 
         if (displayName) {
           setUsersMap(prev => {
-            const updated = { ...prev, [reportId]: displayName, [userId]: displayName };
+            const updated = { ...prev, [reportId]: displayName };
+            if (userId) updated[userId] = displayName;
             sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
             return updated;
           });
@@ -161,19 +181,21 @@ export default function ReportsPage() {
     }
   };
 
-  // Reporter Name Resolver
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
 
+    // 1. Direct embedded object/string check
     const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
     const resolvedFromObj = resolveUserDisplayName(userObj);
     if (resolvedFromObj) return resolvedFromObj;
 
+    // 2. Direct properties on report object
     const flatFirstLast = `${report.first_name || ''} ${report.last_name || ''}`.trim();
     if (flatFirstLast) return flatFirstLast;
     if (report.reporter_name) return report.reporter_name;
     if (report.username) return report.username;
 
+    // 3. Check memory/session usersMap cache
     const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
       ? report.user 
       : (report.user_id || report.user?.id);
@@ -181,7 +203,8 @@ export default function ReportsPage() {
     if (usersMap[report.id]) return usersMap[report.id];
     if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
 
-    if (report.id && !usersMap[report.id] && !usersMap[rawUserId]) {
+    // 4. Trigger async missing user resolution if unmapped
+    if (report.id && !usersMap[report.id] && (!rawUserId || !usersMap[rawUserId])) {
       resolveMissingUser(report.id, rawUserId);
     }
 
@@ -192,19 +215,10 @@ export default function ReportsPage() {
 
   const getExactAddressSubtitle = (report) => {
     if (!report) return 'Exact address not specified';
-    
-    if (report.exact_address && report.exact_address.trim() !== '') {
-      return report.exact_address;
-    }
-    if (report.address && report.address.trim() !== '') {
-      return report.address;
-    }
-    if (report.street && report.street.trim() !== '') {
-      return `St: ${report.street}`;
-    }
-    if (report.location_name && report.location_name.trim() !== '') {
-      return report.location_name;
-    }
+    if (report.exact_address && report.exact_address.trim() !== '') return report.exact_address;
+    if (report.address && report.address.trim() !== '') return report.address;
+    if (report.street && report.street.trim() !== '') return `St: ${report.street}`;
+    if (report.location_name && report.location_name.trim() !== '') return report.location_name;
 
     const lat = parseFloat(report.latitude);
     const lng = parseFloat(report.longitude);
@@ -215,28 +229,28 @@ export default function ReportsPage() {
     return 'Exact address not specified';
   };
 
-  const fetchUsersMap = async (currentReportsList = reports) => {
-    const newMap = { ...usersMap };
-
+  const fetchUsersMap = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/users/admin/`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const rawList = Array.isArray(data) ? data : (data?.results || []);
-        rawList.forEach(u => {
-          const displayName = resolveUserDisplayName(u);
-          if (displayName) newMap[u.id] = displayName;
+        setUsersMap(prev => {
+          const newMap = { ...prev };
+          rawList.forEach(u => {
+            const displayName = resolveUserDisplayName(u);
+            if (displayName) newMap[u.id] = displayName;
+          });
+          sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
+          return newMap;
         });
       }
     } catch (err) {
       console.error("Bulk user fetch error:", err);
     }
+  }, [getAuthHeaders]);
 
-    setUsersMap(newMap);
-    sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
-  };
-
-  const fetchEmergencyUnits = async () => {
+  const fetchEmergencyUnits = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/emergency-units/`, {
         method: 'GET',
@@ -251,9 +265,9 @@ export default function ReportsPage() {
     } catch (error) {
       console.error("Error fetching emergency units:", error);
     }
-  };
+  }, [getAuthHeaders]);
 
-  const fetchReports = async (silent = false) => {
+  const fetchReports = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && reports.length === 0) setIsLoading(true);
     setIsSyncing(true);
@@ -264,25 +278,38 @@ export default function ReportsPage() {
         headers: getAuthHeaders()
       });
       
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      if (response.ok) {
+        const data = await response.json();
+        const rawList = Array.isArray(data) ? data : (data?.results || []);
+        const sorted = rawList.sort((a, b) => b.id - a.id);
+
+        // Populate usersMap from fresh report objects immediately
+        setUsersMap(prev => {
+          const updated = { ...prev };
+          sorted.forEach(r => {
+            const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
+            const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
+            const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
+            if (name) {
+              if (r.id) updated[r.id] = name;
+              if (uid) updated[uid] = name;
+            }
+          });
+          sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
+          return updated;
+        });
+
+        setReports(sorted);
+        sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
+        fetchUsersMap();
       }
-
-      const data = await response.json();
-      const rawList = Array.isArray(data) ? data : (data?.results || []);
-      const sorted = rawList.sort((a, b) => b.id - a.id);
-
-      setReports(sorted);
-      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
-
-      fetchUsersMap(sorted);
     } catch (error) {
       console.error("Error fetching reports:", error);
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
     }
-  };
+  }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
   useEffect(() => {
     if (!token) {
@@ -290,9 +317,9 @@ export default function ReportsPage() {
       return;
     }
 
-    fetchReports(false);
+    fetchReports(true);
     fetchEmergencyUnits();
-  }, [token, navigate]);
+  }, [token, navigate, fetchReports, fetchEmergencyUnits]);
 
   const getNearestResponderText = (report) => {
     if (report?.nearest_responder) {
@@ -500,13 +527,14 @@ export default function ReportsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-8 h-full overflow-y-auto bg-[#f0f0f0]">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] flex flex-col">
         
         {/* CONTROLS HEADER */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-xs w-72 overflow-hidden">
-              <Search size={18} className="text-gray-400 ml-3" />
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 w-full">
+            
+            <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-xs w-full sm:w-64 lg:w-72 overflow-hidden">
+              <Search size={18} className="text-gray-400 ml-3 shrink-0" />
               <input 
                 type="text" 
                 placeholder="Search category, description, poster..." 
@@ -517,8 +545,8 @@ export default function ReportsPage() {
             </div>
 
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <Filter size={14} className="text-gray-400 mr-2" />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
+              <Filter size={14} className="text-gray-400 mr-2 shrink-0" />
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
                 <option value="All">All Statuses</option>
                 <option value="Pending">Pending</option>
                 <option value="Ongoing">Ongoing</option>
@@ -527,8 +555,8 @@ export default function ReportsPage() {
             </div>
 
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <MapPin size={14} className="text-gray-400 mr-2" />
-              <select value={selectedBarangayFilter} onChange={(e) => setSelectedBarangayFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
+              <MapPin size={14} className="text-gray-400 mr-2 shrink-0" />
+              <select value={selectedBarangayFilter} onChange={(e) => setSelectedBarangayFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
                 <option value="ALL">All Barangays</option>
                 {uniqueBarangays.map(brgy => (
                   <option key={brgy} value={brgy}>{brgy}</option>
@@ -537,21 +565,21 @@ export default function ReportsPage() {
             </div>
 
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <Calendar size={14} className="text-gray-400 mr-2" />
+              <Calendar size={14} className="text-gray-400 mr-2 shrink-0" />
               <input 
                 type="date" 
                 value={filterDate} 
                 onChange={(e) => setFilterDate(e.target.value)} 
-                className="py-1.5 bg-transparent focus:outline-none cursor-pointer" 
+                className="py-1.5 bg-transparent focus:outline-none cursor-pointer w-full" 
               />
               {filterDate && (
-                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1" onClick={() => setFilterDate('')} />
+                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" onClick={() => setFilterDate('')} />
               )}
             </div>
 
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <ArrowUpDown size={14} className="text-gray-400 mr-2" />
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2">
+              <ArrowUpDown size={14} className="text-gray-400 mr-2 shrink-0" />
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
                 <option value="date_desc">Newest First</option>
                 <option value="date_asc">Oldest First</option>
                 <option value="id_desc">ID (Highest First)</option>
@@ -563,28 +591,26 @@ export default function ReportsPage() {
             </div>
 
             <button
-              onClick={() => {
-                sessionStorage.removeItem(CACHE_KEY_REPORTS);
-                sessionStorage.removeItem(CACHE_KEY_USERS_MAP);
-                fetchReports(false);
-              }}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+              onClick={() => fetchReports(false)}
+              disabled={isSyncing}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
+              {isSyncing ? "Syncing..." : "Sync Data"}
             </button>
           </div>
         </div>
 
-        {/* MASTER TABLE */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+        {/* MASTER TABLE CONTAINER */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
                   
                   <th 
                     onClick={handleSortId}
-                    className="py-3.5 px-5 w-20 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                    className="py-3.5 px-4 sm:px-5 w-20 cursor-pointer hover:bg-gray-200/60 transition-colors"
                   >
                     <div className="flex items-center gap-1">
                       <span>ID</span>
@@ -600,7 +626,7 @@ export default function ReportsPage() {
                   
                   <th 
                     onClick={handleSortTimestamp}
-                    className="py-3.5 px-5 w-52 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                    className="py-3.5 px-4 sm:px-5 w-48 sm:w-52 cursor-pointer hover:bg-gray-200/60 transition-colors"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>TIMESTAMP</span>
@@ -614,13 +640,13 @@ export default function ReportsPage() {
                     </div>
                   </th>
 
-                  <th className="py-3.5 px-5">EMERGENCY CATEGORY</th>
-                  <th className="py-3.5 px-5 whitespace-nowrap">POSTER NAME</th>
-                  <th className="py-3.5 px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
+                  <th className="py-3.5 px-4 sm:px-5">EMERGENCY CATEGORY</th>
+                  <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">POSTER NAME</th>
+                  <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
                   
                   <th 
                     onClick={handleSortResolvedAt}
-                    className="py-3.5 px-5 text-center whitespace-nowrap cursor-pointer hover:bg-gray-200/60 transition-colors"
+                    className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap cursor-pointer hover:bg-gray-200/60 transition-colors"
                   >
                     <div className="flex items-center justify-center gap-1.5">
                       <span>RESOLVED AT</span>
@@ -634,7 +660,7 @@ export default function ReportsPage() {
                     </div>
                   </th>
 
-                  <th className="py-3.5 px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
+                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -657,47 +683,47 @@ export default function ReportsPage() {
                         onClick={() => handleOpenReportModal(report)}
                         className="hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
-                        <td className="py-4 px-5 font-black text-gray-400 text-xs">#{report.id}</td>
+                        <td className="py-3.5 px-4 sm:px-5 font-black text-gray-400 text-xs">#{report.id}</td>
 
-                        <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
+                        <td className="py-3.5 px-4 sm:px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Clock size={13} className="text-red-500 shrink-0" />
                             <span>{formatDate(report.created_at)}</span>
                           </div>
                         </td>
 
-                        <td className="py-4 px-5">
+                        <td className="py-3.5 px-4 sm:px-5">
                           <div className="font-bold text-gray-900 text-xs">
                             {getCategoryName(report)}
                           </div>
-                          <div className="text-[11px] text-gray-400 font-medium mt-0.5">
+                          <div className="text-[11px] text-gray-400 font-medium mt-0.5 truncate max-w-[220px]">
                             {getExactAddressSubtitle(report)}
                           </div>
                         </td>
 
-                        <td className="py-4 px-5 font-bold text-gray-800 text-xs whitespace-nowrap">
+                        <td className="py-3.5 px-4 sm:px-5 font-bold text-gray-800 text-xs whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <User size={13} className="text-gray-400" />
+                            <User size={13} className="text-gray-400 shrink-0" />
                             <span>{getReporterName(report)}</span>
                           </div>
                         </td>
                         
-                        <td className="py-4 px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
+                        <td className="py-3.5 px-4 sm:px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="inline-flex items-center gap-1">
                             <MapPin size={13} className="text-red-500 shrink-0" />
                             <span>Brgy. {report.barangay || report.location || 'Santa Trinidad'}</span>
                           </div>
                         </td>
 
-                        <td className="py-4 px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
+                        <td className="py-3.5 px-4 sm:px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
                           {formatResolvedTime(report)}
                         </td>
 
-                        <td className="py-4 px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={displayLabel}
                             onChange={(e) => handleStatusUpdate(report.id, e.target.value)}
-                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${
+                            className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${
                               displayLabel === 'Pending' 
                                 ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
                                 : displayLabel === 'Ongoing'
@@ -722,15 +748,15 @@ export default function ReportsPage() {
 
       {/* INSPECTION MODAL */}
       {isModalOpen && selectedReport && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh] my-auto">
             
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gray-50/50 shrink-0">
               <div>
-                <h3 className="font-black text-xl text-gray-900 tracking-tight flex items-center gap-2">
+                <h3 className="font-black text-lg sm:text-xl text-gray-900 tracking-tight flex items-center gap-2">
                   Report ID #{selectedReport.id}
                 </h3>
-                <p className="text-xs text-gray-400 font-semibold mt-1 flex items-center gap-2">
+                <p className="text-xs text-gray-400 font-semibold mt-0.5 flex flex-wrap items-center gap-2">
                   <span>{formatDate(selectedReport.created_at)}</span>
                   <span>•</span>
                   <span className={`uppercase font-black ${
@@ -742,7 +768,7 @@ export default function ReportsPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
                 <select
                   value={
                     String(selectedReport.status).toLowerCase() === 'ongoing' ? 'Ongoing' :
@@ -765,10 +791,10 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="grid grid-cols-12 gap-6">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                 
-                <div className="col-span-6 space-y-4">
+                <div className="col-span-1 md:col-span-6 space-y-4">
                   <div>
                     <h4 className="font-black text-sm text-gray-900">Report Details</h4>
                     <p className="text-xs text-gray-400">Core information submitted with this report.</p>
@@ -817,7 +843,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="col-span-6 flex flex-col">
+                <div className="col-span-1 md:col-span-6 flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <MapPin size={16} className="text-[#b32d2d]" />
@@ -833,7 +859,7 @@ export default function ReportsPage() {
                     </a>
                   </div>
                   
-                  <div className="flex-1 min-h-[240px] rounded-xl overflow-hidden border border-gray-200 relative shadow-inner">
+                  <div className="flex-1 min-h-[220px] rounded-xl overflow-hidden border border-gray-200 relative shadow-inner">
                     <MapContainer 
                       center={[modalLat, modalLng]} 
                       zoom={17} 

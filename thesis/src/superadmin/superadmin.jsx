@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, UserPlus, Search, Edit3, Trash2, 
-  Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock
+  Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock, RefreshCw
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -16,14 +16,20 @@ export const ANGELES_BARANGAYS = [
   "Claro M. Recto"
 ];
 
-//const API_BASE = 'https://api.aksyon.online';
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://api.aksyon.online';
+//const API_BASE = 'http://localhost:8000';
+
+// CACHE KEY
+const CACHE_KEY_ADMINS = 'cache_super_admins_v1';
 
 export default function SuperAdminPage() {
   const navigate = useNavigate();
 
-  const [admins, setAdmins] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [admins, setAdmins] = useState(() => {
+    const cached = localStorage.getItem(CACHE_KEY_ADMINS);
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [isLoading, setIsLoading] = useState(() => admins.length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [permissionDenied, setPermissionDenied] = useState(false);
 
@@ -61,7 +67,7 @@ export default function SuperAdminPage() {
   };
 
   // Token & Header extraction
-  const getAuthHeaders = (isJson = true) => {
+  const getAuthHeaders = useCallback((isJson = true) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     const headers = {};
@@ -72,10 +78,10 @@ export default function SuperAdminPage() {
       headers['Content-Type'] = 'application/json';
     }
     return headers;
-  };
+  }, []);
 
   // 1. Fetch Administrators List
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     if (!cleanToken) {
@@ -83,7 +89,7 @@ export default function SuperAdminPage() {
       return;
     }
 
-    setIsLoading(true);
+    if (admins.length === 0) setIsLoading(true);
     setPermissionDenied(false);
 
     try {
@@ -132,16 +138,18 @@ export default function SuperAdminPage() {
       });
 
       setAdmins(barangayAdmins);
+      localStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(barangayAdmins));
     } catch (error) {
       console.error("Failed to load admin roster:", error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [navigate, getAuthHeaders, admins.length]);
 
+  // AUTOMATICALLY REFRESH ADMIN DIRECTORY EVERY TIME PAGE IS MOUNTED / REVISITED
   useEffect(() => {
     fetchAdmins();
-  }, []);
+  }, [fetchAdmins]);
 
   // Modal Openers
   const openCreateModal = () => {
@@ -267,7 +275,9 @@ export default function SuperAdminPage() {
       }
 
       if (response.ok) {
-        setAdmins(prev => prev.map(a => a.id === admin.id ? { ...a, is_active: !currentActiveState } : a));
+        const updatedAdmins = admins.map(a => a.id === admin.id ? { ...a, is_active: !currentActiveState } : a);
+        setAdmins(updatedAdmins);
+        localStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(updatedAdmins));
       }
     } catch (error) {
       console.error("Status update error:", error);
@@ -285,12 +295,12 @@ export default function SuperAdminPage() {
 
   return (
     <AdminLayout>
-      <div className="p-8 h-full overflow-y-auto bg-[#f3f4f6]">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f3f4f6] font-sans flex flex-col">
         
         {/* Permission 403 Warning Banner */}
         {permissionDenied && (
-          <div className="mb-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-4">
-            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+          <div className="mb-6 p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-4 shrink-0">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0">
               <Lock size={20} />
             </div>
             <div>
@@ -303,49 +313,58 @@ export default function SuperAdminPage() {
         )}
 
         {/* HEADER TOOLBAR */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="relative bg-white border border-gray-200 rounded-xl flex items-center shadow-xs w-80 overflow-hidden">
-              <Search size={18} className="text-gray-400 ml-3.5" />
-              <input 
-                type="text" 
-                placeholder="Search admin name, username, or brgy..." 
-                value={searchQuery} 
-                disabled={permissionDenied}
-                onChange={(e) => setSearchQuery(e.target.value)} 
-                className="w-full py-2.5 px-3 text-xs font-medium text-gray-700 focus:outline-none disabled:bg-gray-50" 
-              />
-            </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
+          <div className="relative w-full sm:w-80">
+            <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Search admin name, username, or brgy..." 
+              value={searchQuery} 
+              disabled={permissionDenied}
+              onChange={(e) => setSearchQuery(e.target.value)} 
+              className="w-full py-2.5 pl-10 pr-3 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-700 focus:outline-none disabled:bg-gray-50 shadow-xs" 
+            />
           </div>
 
-          <button 
-            onClick={openCreateModal}
-            disabled={permissionDenied}
-            className="bg-[#b32d2d] hover:bg-[#8b2323] disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
-          >
-            <UserPlus size={16} /> Register New Admin
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button 
+              onClick={fetchAdmins}
+              disabled={isLoading || permissionDenied}
+              className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
+              {isLoading ? "Refreshing..." : "Refresh Roster"}
+            </button>
+
+            <button 
+              onClick={openCreateModal}
+              disabled={permissionDenied}
+              className="flex-1 sm:flex-none bg-[#b32d2d] hover:bg-[#8b2323] disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <UserPlus size={16} /> Register New Admin
+            </button>
+          </div>
         </div>
 
-        {/* MASTER TABLE */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        {/* MASTER TABLE CONTAINER */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-3">
               <ShieldCheck className="text-[#b32d2d]" size={22} />
-              <h2 className="font-bold text-base text-gray-900 tracking-tight">System Administrators Directory</h2>
+              <h2 className="font-bold text-sm sm:text-base text-gray-900 tracking-tight">System Administrators Directory</h2>
             </div>
             <span className="text-xs text-gray-400 font-medium">{filteredAdmins.length} Barangay Admins</span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
-                <tr className="bg-gray-50/50 border-b border-gray-100 text-gray-400 text-[11px] font-bold uppercase tracking-wider">
-                  <th className="py-3.5 px-6">Admin Name</th>
-                  <th className="py-3.5 px-6">Assigned Barangay</th>
-                  <th className="py-3.5 px-6">Contact Number</th>
-                  <th className="py-3.5 px-6">Status</th>
-                  <th className="py-3.5 px-6 text-right w-44">Actions</th>
+                <tr className="bg-gray-50/50 border-b border-gray-100 text-gray-400 text-[11px] font-bold uppercase tracking-wider select-none">
+                  <th className="py-3.5 px-4 sm:px-6 min-w-[180px]">Admin Name</th>
+                  <th className="py-3.5 px-4 sm:px-6 min-w-[160px] whitespace-nowrap">Assigned Barangay</th>
+                  <th className="py-3.5 px-4 sm:px-6 whitespace-nowrap">Contact Number</th>
+                  <th className="py-3.5 px-4 sm:px-6 whitespace-nowrap">Status</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap w-36">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs text-gray-600">
@@ -376,33 +395,33 @@ export default function SuperAdminPage() {
 
                     return (
                       <tr key={admin.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-4 px-6">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6">
                           <div className="font-bold text-gray-800 text-sm">
                             {admin.first_name || admin.last_name ? `${admin.first_name || ''} ${admin.last_name || ''}`.trim() : admin.username}
                           </div>
                           <div className="text-[11px] text-gray-400 font-medium mt-0.5">@{admin.username}</div>
                         </td>
-                        <td className="py-4 px-6 text-xs font-semibold text-gray-700">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-xs font-semibold text-gray-700 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <MapPin size={14} className="text-[#b32d2d] shrink-0" />
                             <span>{brgy ? `Brgy. ${brgy}` : 'Central Command'}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-6 text-xs text-gray-600 font-medium">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-xs text-gray-600 font-medium whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Phone size={14} className="text-gray-400 shrink-0" />
                             <span>{contact || 'No phone set'}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-6">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border flex items-center gap-1 w-fit ${
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 shrink-0 ${
                             isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'
                           }`}>
                             {isActive ? <CheckCircle size={12} /> : <XCircle size={12} />}
                             {isActive ? 'Active' : 'Disabled'}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-right">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
                             <button 
                               onClick={() => openViewModal(admin)} 
@@ -441,15 +460,15 @@ export default function SuperAdminPage() {
 
       {/* CRUD MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
+            <div className="p-4 sm:p-6 flex flex-col h-full overflow-y-auto">
               
               {/* Modal Header */}
-              <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5 shrink-0">
                 <div className="flex items-center gap-2.5">
                   <ShieldCheck size={22} className="text-[#b32d2d]" />
-                  <h3 className="font-bold text-base text-gray-900">
+                  <h3 className="font-bold text-sm sm:text-base text-gray-900">
                     {modalMode === 'create' ? 'Register New Admin' : modalMode === 'edit' ? 'Update Admin Record' : 'Administrator Details'}
                   </h3>
                 </div>
@@ -457,21 +476,21 @@ export default function SuperAdminPage() {
               </div>
 
               {formError && (
-                <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2 shrink-0">
                   <AlertCircle size={16} /> {formError}
                 </div>
               )}
 
               {/* View Only Mode */}
               {modalMode === 'view' && selectedAdmin && (
-                <div className="space-y-3.5 text-xs text-gray-600">
+                <div className="space-y-3.5 text-xs text-gray-600 flex-1">
                   <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
                     <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Full Name</label>
                     <p className="text-sm font-bold text-gray-900">
                       {selectedAdmin.first_name || selectedAdmin.last_name ? `${selectedAdmin.first_name || ''} ${selectedAdmin.last_name || ''}`.trim() : selectedAdmin.username}
                     </p>
                   </div>
-                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Username</label>
                       <p className="text-xs font-semibold text-[#b32d2d]">@{selectedAdmin.username}</p>
@@ -483,7 +502,7 @@ export default function SuperAdminPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Contact Number</label>
                       <p className="text-xs font-medium text-gray-700">{getAdminContact(selectedAdmin) || 'N/A'}</p>
@@ -501,8 +520,8 @@ export default function SuperAdminPage() {
 
               {/* Create / Edit Form Mode */}
               {(modalMode === 'create' || modalMode === 'edit') && (
-                <form onSubmit={handleSaveAdmin} className="space-y-4 text-xs">
-                  <div className="grid grid-cols-2 gap-3">
+                <form onSubmit={handleSaveAdmin} className="space-y-4 text-xs flex-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-gray-600 block mb-1">First Name</label>
                       <input 
@@ -525,7 +544,7 @@ export default function SuperAdminPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-gray-600 block mb-1">Username</label>
                       <input 
@@ -550,7 +569,7 @@ export default function SuperAdminPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-gray-600 block mb-1">Assigned Barangay</label>
                       <select 

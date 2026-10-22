@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
@@ -19,9 +19,8 @@ const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
-
-  // const API_BASE_URL = `https://api.aksyon.online`;
-  return `http://${targetHostname}:8000`;
+  return `https://api.aksyon.online`;
+  //return `http://${targetHostname}:8000`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -75,13 +74,13 @@ export default function EmergencyUnitsPage() {
 
   const token = localStorage.getItem('ac_token');
 
-  const getAuthHeaders = (useBearer = false) => {
+  const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = token || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     if (!cleanToken) return {};
     const authPrefix = useBearer ? 'Bearer' : 'Token';
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
-  };
+  }, [token]);
 
   const getCategoryName = (report) => {
     if (!report) return 'General Emergency';
@@ -93,7 +92,7 @@ export default function EmergencyUnitsPage() {
     return report.short_message || report.emergency_type || 'General Emergency';
   };
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     for (const useBearer of [false, true]) {
       try {
         const res = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
@@ -111,21 +110,26 @@ export default function EmergencyUnitsPage() {
         console.error("Failed to load reports:", err);
       }
     }
-  };
+  }, [getAuthHeaders]);
 
-  const synchronizeData = async (silent = false) => {
+  const synchronizeData = useCallback(async (silent = false) => {
     if (!token) {
       navigate('/login');
       return;
     }
-    if (!silent) setIsLoading(true);
+    if (!silent && rawReports.length === 0) setIsLoading(true);
     await fetchReports();
     setIsLoading(false);
-  };
+  }, [token, navigate, fetchReports, rawReports.length]);
 
+  // AUTOMATICALLY REFRESH TELEMETRY DATA EVERY TIME PAGE IS VISITED / REVISITED
   useEffect(() => {
-    synchronizeData(rawReports.length > 0);
-  }, []);
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    synchronizeData(true);
+  }, [token, navigate, synchronizeData]);
 
   useEffect(() => {
     if (rawReports.length === 0) {
@@ -192,44 +196,46 @@ export default function EmergencyUnitsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-8 h-full overflow-y-auto bg-[#f0f0f0] font-sans">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] font-sans flex flex-col">
         
         {/* TOP TOOLBAR */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="bg-red-600 text-white rounded-full p-2.5">
+            <div className="bg-red-600 text-white rounded-full p-2.5 shrink-0">
               <ShieldAlert size={22} />
             </div>
             <div>
-              <h2 className="font-bold text-2xl text-gray-900">Tactical Responder Telemetry</h2>
+              <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Tactical Responder Telemetry</h2>
               <p className="text-xs text-gray-500 font-medium">Read-only view of active emergency dispatch routing and unit telemetry</p>
             </div>
           </div>
 
           <button 
             onClick={() => synchronizeData(false)}
-            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+            disabled={isLoading}
+            className="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> Refresh Data
+            <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
+            {isLoading ? "Refreshing..." : "Refresh Data"}
           </button>
         </div>
 
-        {/* DISPATCH MATRIX TABLE */}
-        <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
-            <h3 className="font-bold text-base text-gray-900">Proximity Dispatch Matrix</h3>
+        {/* DISPATCH MATRIX TABLE CONTAINER */}
+        <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gray-50/50 flex flex-wrap justify-between items-center gap-2 shrink-0">
+            <h3 className="font-bold text-sm sm:text-base text-gray-900">Proximity Dispatch Matrix</h3>
             <span className="text-xs text-gray-400 font-bold">{sortedMatrixData.length} Incidents Pending Dispatch</span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse min-w-[650px]">
               <thead>
                 <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider select-none">
                   
                   {/* SORTABLE INCIDENT ID HEADER */}
                   <th 
                     onClick={toggleSortId}
-                    className="py-4 px-6 w-32 cursor-pointer hover:bg-gray-200/60 transition-colors"
+                    className="py-3.5 sm:py-4 px-4 sm:px-6 w-32 cursor-pointer hover:bg-gray-200/60 transition-colors"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>Incident ID</span>
@@ -243,14 +249,14 @@ export default function EmergencyUnitsPage() {
                     </div>
                   </th>
 
-                  <th className="py-4 px-6">EMERGENCY CATEGORY</th>
-                  <th className="py-4 px-6">Barangay</th>
-                  <th className="py-4 px-6">Nearest Responder</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6">EMERGENCY CATEGORY</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6">Barangay</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6">Nearest Responder</th>
 
                   {/* SORTABLE DISTANCE HEADER */}
                   <th 
                     onClick={toggleSortDistance}
-                    className="py-4 px-6 text-right cursor-pointer hover:bg-gray-200/60 transition-colors"
+                    className="py-3.5 sm:py-4 px-4 sm:px-6 text-right cursor-pointer hover:bg-gray-200/60 transition-colors"
                   >
                     <div className="flex items-center justify-end gap-1.5">
                       <span>Distance (KM)</span>
@@ -264,7 +270,7 @@ export default function EmergencyUnitsPage() {
                     </div>
                   </th>
 
-                  <th className="py-4 px-6 text-center w-28">Actions</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 text-center w-28">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs">
@@ -284,20 +290,20 @@ export default function EmergencyUnitsPage() {
                 ) : (
                   sortedMatrixData.map((row) => (
                     <tr key={row.report_id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-4 px-6 font-bold text-gray-500">#{row.report_id}</td>
-                      <td className="py-4 px-6 font-bold text-gray-800 max-w-xs truncate" title={row.category}>
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-500">#{row.report_id}</td>
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800 max-w-xs truncate" title={row.category}>
                         {row.category}
                       </td>
-                      <td className="py-4 px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
-                      <td className="py-4 px-6 font-bold text-gray-800">
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800">
                         {typeof row.nearest_responder === 'object' ? row.nearest_responder?.name : row.nearest_responder}
                       </td>
-                      <td className="py-4 px-6 text-right font-black text-red-600">
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right font-black text-red-600">
                         <span className="flex items-center justify-end gap-1">
                           <Navigation size={12} className="rotate-45" /> ▻ {row.distance_km.toFixed(2)} km
                         </span>
                       </td>
-                      <td className="py-4 px-6 text-center">
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-center">
                         <button
                           onClick={() => { setSelectedReportRow(row); setIsReportModalOpen(true); }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg font-bold text-[11px] shadow-2xs transition-all active:scale-95 cursor-pointer"
@@ -317,26 +323,26 @@ export default function EmergencyUnitsPage() {
 
       {/* INSPECTION MODAL */}
       {isReportModalOpen && selectedReportRow && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="bg-[#b32d2d] px-6 py-4 flex items-center justify-between text-white shrink-0">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col my-auto">
+            <div className="bg-[#b32d2d] px-5 sm:px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-2.5">
-                <ShieldAlert size={22} />
+                <ShieldAlert size={22} className="shrink-0" />
                 <div>
-                  <h3 className="font-bold text-base tracking-tight">Incident #{selectedReportRow.report_id} Telemetry</h3>
+                  <h3 className="font-bold text-sm sm:text-base tracking-tight">Incident #{selectedReportRow.report_id} Telemetry</h3>
                   <p className="text-red-100 text-[11px]">Proximity Matrix</p>
                 </div>
               </div>
             </div>
 
-            <div className="p-6 space-y-4 text-xs overflow-y-auto">
+            <div className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-200">
                   <span className="font-bold text-gray-400 text-[10px] uppercase">Emergency Category</span>
                   <span className="font-black text-gray-900 text-xs">{selectedReportRow.category}</span>
                 </div>
                 <p className="text-gray-600 text-xs pt-1">{selectedReportRow.full_details}</p>
-                <div className="pt-2 border-t border-gray-200 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="pt-2 border-t border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                   <div><span className="font-bold text-gray-400 block text-[9px]">BARANGAY</span><span className="font-semibold text-gray-800">Brgy. {selectedReportRow.barangay}</span></div>
                   <div>
                     <span className="font-bold text-gray-400 block text-[9px]">NEAREST RESPONDER</span>

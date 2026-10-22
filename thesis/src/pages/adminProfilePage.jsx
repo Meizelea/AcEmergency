@@ -20,8 +20,8 @@ import {
 } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
-// const API_BASE = 'https://api.aksyon.online';
-const API_BASE = `http://${targetHostname}:8000`;
+const API_BASE = 'https://api.aksyon.online';
+//const API_BASE = `http://${targetHostname}:8000`;
 const CACHE_KEY_PROFILE = 'cache_admin_profile_v2';
 
 export default function AdminProfilePage() {

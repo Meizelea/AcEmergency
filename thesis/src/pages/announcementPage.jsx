@@ -1,25 +1,29 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
 import {
   Megaphone, Plus, Search, Eye, Edit3, Trash2, X,
   Image as ImageIcon, Video, AlertCircle, CheckCircle, Loader2,
-  MapPin, FileText
+  MapPin, FileText, RefreshCw
 } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
 
-// const API_BASE = 'https://api.aksyon.online';
-const API_BASE = `http://${targetHostname}:8000`;
+const API_BASE = 'https://api.aksyon.online';
+//const API_BASE = `http://${targetHostname}:8000`;
 
 // CACHE KEYS
 const CACHE_KEY_ANNOUNCEMENTS = 'cache_admin_announcements_v1';
 
 export default function AnnouncementPage() {
+  const navigate = useNavigate();
+
   const [announcements, setAnnouncements] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_ANNOUNCEMENTS);
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(() => announcements.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modals
@@ -42,7 +46,7 @@ export default function AnnouncementPage() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
-  const getAuthHeaders = (isJson = true) => {
+  const getAuthHeaders = useCallback((isJson = true) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     const headers = {};
@@ -54,11 +58,13 @@ export default function AnnouncementPage() {
       headers['Content-Type'] = 'application/json';
     }
     return headers;
-  };
+  }, []);
 
-  const fetchAnnouncements = async (silent = false) => {
+  const fetchAnnouncements = useCallback(async (silent = false) => {
     try {
       if (!silent && announcements.length === 0) setLoading(true);
+      setIsSyncing(true);
+
       let res = await fetch(`${API_BASE}/api/announcements/admin/`, {
         headers: getAuthHeaders(),
       });
@@ -85,12 +91,19 @@ export default function AnnouncementPage() {
       setFeedback({ error: 'Failed to fetch announcements. Verify credentials and assigned barangay.', success: '' });
     } finally {
       setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, [getAuthHeaders, announcements.length]);
 
+  // AUTOMATICALLY REFRESH ANNOUNCEMENTS EVERY TIME PAGE IS MOUNTED / REVISITED
   useEffect(() => {
-    fetchAnnouncements(announcements.length > 0);
-  }, []);
+    const token = localStorage.getItem('ac_token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    fetchAnnouncements(true);
+  }, [navigate, fetchAnnouncements]);
 
   const filteredAnnouncements = useMemo(() => {
     return announcements.filter((item) => {
@@ -288,20 +301,21 @@ export default function AnnouncementPage() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-[#f3f4f6] p-6 lg:p-10 font-sans text-gray-800">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f3f4f6] font-sans text-gray-800 flex flex-col">
         
         {feedback.error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold">
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shrink-0">
             <AlertCircle size={16} /> {feedback.error}
           </div>
         )}
         {feedback.success && (
-          <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold">
+          <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shrink-0">
             <CheckCircle size={16} /> {feedback.success}
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+        {/* CONTROLS HEADER */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
@@ -309,23 +323,35 @@ export default function AnnouncementPage() {
               placeholder="Search announcement, keyword, or brgy..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border border-gray-200 text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#b32d2d] shadow-sm"
+              className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border border-gray-200 text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#b32d2d] shadow-xs"
             />
           </div>
 
-          <button
-            onClick={() => handleOpenForm()}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-          >
-            <Plus size={16} /> Post Announcement
-          </button>
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <button
+              onClick={() => fetchAnnouncements(false)}
+              disabled={isSyncing}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
+              {isSyncing ? "Syncing..." : "Sync Data"}
+            </button>
+
+            <button
+              onClick={() => handleOpenForm()}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+            >
+              <Plus size={16} /> Post Announcement
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        {/* DIRECTORY TABLE CONTAINER */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-3">
               <Megaphone className="text-[#b32d2d]" size={20} />
-              <h2 className="text-base font-bold text-gray-800 tracking-tight">
+              <h2 className="text-sm sm:text-base font-bold text-gray-800 tracking-tight">
                 Public Announcements Directory
               </h2>
             </div>
@@ -334,16 +360,16 @@ export default function AnnouncementPage() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                  <th className="py-3.5 px-6">ID</th>
-                  <th className="py-3.5 px-6">ANNOUNCEMENT DETAILS</th>
-                  <th className="py-3.5 px-6">ASSIGNED BARANGAY</th>
+                <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider select-none">
+                  <th className="py-3.5 px-4 sm:px-6 w-16">ID</th>
+                  <th className="py-3.5 px-4 sm:px-6">ANNOUNCEMENT DETAILS</th>
+                  <th className="py-3.5 px-4 sm:px-6">ASSIGNED BARANGAY</th>
                   <th className="py-3.5 px-6">ATTACHMENT</th>
-                  <th className="py-3.5 px-6">DATE PUBLISHED</th>
-                  <th className="py-3.5 px-6 text-right">ACTIONS</th>
+                  <th className="py-3.5 px-4 sm:px-6">DATE PUBLISHED</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-right">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs text-gray-600">
@@ -363,16 +389,16 @@ export default function AnnouncementPage() {
                 ) : (
                   filteredAnnouncements.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50/75 transition-colors">
-                      <td className="py-4 px-6 font-semibold text-gray-400">
+                      <td className="py-4 px-4 sm:px-6 font-semibold text-gray-400">
                         #{item.id}
                       </td>
-                      <td className="py-4 px-6 max-w-sm">
+                      <td className="py-4 px-4 sm:px-6 max-w-sm">
                         <div className="font-bold text-gray-800 text-sm">{item.title}</div>
                         <div className="text-gray-400 text-xs line-clamp-1 mt-0.5">
                           {item.content}
                         </div>
                       </td>
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-4 sm:px-6">
                         <span className="flex items-center gap-1.5 text-gray-600 font-medium">
                           <MapPin size={14} className="text-red-500 shrink-0" />
                           {item.barangay ? `Brgy. ${item.barangay}` : 'Brgy. Not Specified'}
@@ -391,10 +417,10 @@ export default function AnnouncementPage() {
                           <span className="text-gray-300 text-[11px] font-medium">—</span>
                         )}
                       </td>
-                      <td className="py-4 px-6 text-gray-500">
+                      <td className="py-4 px-4 sm:px-6 text-gray-500">
                         {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="py-4 px-6 text-right">
+                      <td className="py-4 px-4 sm:px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenDetail(item)}
@@ -422,11 +448,11 @@ export default function AnnouncementPage() {
 
         {/* Modal: View Details */}
         {isDetailModalOpen && selectedAnnouncement && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4">
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
+              <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0">
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
+                  <h3 className="text-sm sm:text-base font-bold text-gray-900">
                     Announcement #{selectedAnnouncement.id} — {selectedAnnouncement.title}
                   </h3>
                   <p className="text-xs text-gray-400 mt-0.5">
@@ -437,7 +463,7 @@ export default function AnnouncementPage() {
                     </span>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
                     onClick={() => {
                       setIsDetailModalOpen(false);
@@ -465,8 +491,8 @@ export default function AnnouncementPage() {
                 </div>
               </div>
 
-              <div className="p-6 space-y-5 text-xs text-gray-600 max-h-[75vh] overflow-y-auto">
-                <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
+              <div className="p-4 sm:p-6 space-y-5 text-xs text-gray-600 overflow-y-auto flex-1">
+                <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
                       ASSIGNED BARANGAY JURISDICTION
@@ -533,11 +559,11 @@ export default function AnnouncementPage() {
 
         {/* Modal: Create or Edit Announcement */}
         {isFormModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-            <div className="bg-white w-full max-w-xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4">
+            <div className="bg-white w-full max-w-xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
               
-              <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+              <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <h3 className="text-sm sm:text-base font-bold text-gray-800 flex items-center gap-2">
                   <Megaphone size={18} className="text-[#b32d2d]" />
                   {selectedAnnouncement ? 'Edit Announcement' : 'Post New Announcement'}
                 </h3>
@@ -549,7 +575,7 @@ export default function AnnouncementPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmitForm} className="p-6 space-y-4 text-xs">
+              <form onSubmit={handleSubmitForm} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
                     Announcement Title
@@ -617,8 +643,8 @@ export default function AnnouncementPage() {
 
         {/* Modal: Delete Confirmation */}
         {isDeleteModalOpen && selectedAnnouncement && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-            <div className="bg-white max-w-sm w-full p-6 rounded-2xl shadow-xl text-center">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4">
+            <div className="bg-white max-w-sm w-full p-6 rounded-2xl shadow-xl text-center my-auto">
               <div className="w-12 h-12 rounded-full bg-red-100 text-[#b32d2d] flex items-center justify-center mx-auto mb-3">
                 <Trash2 size={22} />
               </div>

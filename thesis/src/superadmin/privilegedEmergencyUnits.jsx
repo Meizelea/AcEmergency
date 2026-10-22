@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, Truck, Navigation, RefreshCw, Plus, Eye, Edit3, 
@@ -10,16 +10,21 @@ import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
 
-// const API_BASE = 'https://api.aksyon.online';
-const API_BASE = `http://${targetHostname}:8000`;
+const API_BASE = 'https://api.aksyon.online';
+//const API_BASE = `http://${targetHostname}:8000`;
 const EMERGENCY_UNITS_URL = `${API_BASE}/api/emergency-units/`;
+
+// CACHE KEY
+const CACHE_KEY_UNITS = 'cache_admin_units_v1';
 
 export default function PrivilegedEmergencyUnitsPage() {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('units');
-  const [units, setUnits] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [units, setUnits] = useState(() => {
+    const cached = localStorage.getItem(CACHE_KEY_UNITS);
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [isLoading, setIsLoading] = useState(() => units.length === 0);
 
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create');
@@ -36,7 +41,7 @@ export default function PrivilegedEmergencyUnitsPage() {
   });
   const [formError, setFormError] = useState('');
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('ac_token') || '';
     if (!token) return { 'Content-Type': 'application/json' };
     const authPrefix = token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Token ${token}`;
@@ -44,7 +49,7 @@ export default function PrivilegedEmergencyUnitsPage() {
       'Content-Type': 'application/json',
       'Authorization': authPrefix
     };
-  };
+  }, []);
 
   const getUnitTypeLabel = (type) => {
     switch (String(type).toLowerCase()) {
@@ -55,13 +60,15 @@ export default function PrivilegedEmergencyUnitsPage() {
     }
   };
 
-  const fetchEmergencyUnits = async () => {
-    setIsLoading(true);
+  const fetchEmergencyUnits = useCallback(async () => {
+    if (units.length === 0) setIsLoading(true);
     try {
       const res = await fetch(EMERGENCY_UNITS_URL, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setUnits(Array.isArray(data) ? data : (data?.results || []));
+        const rawList = Array.isArray(data) ? data : (data?.results || []);
+        setUnits(rawList);
+        localStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(rawList));
       } else if (res.status === 403) {
         setFormError("Privileged Admin verification failed. You do not have access to manage emergency units.");
       }
@@ -70,11 +77,16 @@ export default function PrivilegedEmergencyUnitsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [getAuthHeaders, units.length]);
 
   useEffect(() => {
+    const token = localStorage.getItem('ac_token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
     fetchEmergencyUnits();
-  }, []);
+  }, [navigate, fetchEmergencyUnits]);
 
   const openCreateModal = () => {
     setModalMode('create');
@@ -152,7 +164,9 @@ export default function PrivilegedEmergencyUnitsPage() {
       });
 
       if (res.ok) {
-        setUnits(prev => prev.filter(u => u.id !== unit.id));
+        const updated = units.filter(u => u.id !== unit.id);
+        setUnits(updated);
+        localStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(updated));
       }
     } catch (err) {
       console.error("Delete unit failed:", err);
@@ -161,53 +175,55 @@ export default function PrivilegedEmergencyUnitsPage() {
 
   return (
     <AdminLayout>
-      <div className="p-8 h-full overflow-y-auto bg-[#f0f0f0] font-sans">
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] font-sans flex flex-col">
         
         {/* TOP TOOLBAR */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="bg-[#b32d2d] text-white rounded-full p-2.5">
+            <div className="bg-[#b32d2d] text-white rounded-full p-2.5 shrink-0">
               <ShieldAlert size={22} />
             </div>
             <div>
-              <h2 className="font-bold text-2xl text-gray-900">Privileged Fleet Management Console</h2>
+              <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Privileged Fleet Management Console</h2>
               <p className="text-xs text-gray-500 font-medium">Create, modify, and manage emergency response bases</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <button 
               onClick={fetchEmergencyUnits}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+              disabled={isLoading}
+              className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> Refresh Data
+              <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> 
+              {isLoading ? "Refreshing..." : "Refresh Data"}
             </button>
             <button 
               onClick={openCreateModal}
-              className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+              className="flex-1 sm:flex-none bg-[#b32d2d] hover:bg-[#8b2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
             >
               <Plus size={16} /> Register New Unit
             </button>
           </div>
         </div>
 
-        {/* EMERGENCY UNITS INVENTORY TABLE */}
-        <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
-          <div className="px-6 py-5 flex items-center justify-between border-b border-gray-200 bg-gray-50/50">
-            <h3 className="font-bold text-base text-gray-900">Privileged Emergency Units Console</h3>
+        {/* EMERGENCY UNITS INVENTORY TABLE CONTAINER */}
+        <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-gray-200 bg-gray-50/50 shrink-0">
+            <h3 className="font-bold text-sm sm:text-base text-gray-900">Privileged Emergency Units Console</h3>
             <span className="text-xs text-gray-400 font-bold">{units.length} Enrolled Stations</span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
-                <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                  <th className="py-4 px-6">Unit / Base Station</th>
-                  <th className="py-4 px-6">Category Choice</th>
-                  <th className="py-4 px-6">Address & Coordinates</th>
-                  <th className="py-4 px-6">Contact Hotline</th>
-                  <th className="py-4 px-6">Status</th>
-                  <th className="py-4 px-6 text-right w-36">Actions</th>
+                <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider select-none">
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 min-w-[200px]">Unit / Base Station</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap min-w-[170px]">Category Choice</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 min-w-[200px]">Address & Coordinates</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">Contact Hotline</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">Status</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap w-28">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs">
@@ -228,35 +244,38 @@ export default function PrivilegedEmergencyUnitsPage() {
                     const isActive = unit.is_active ?? true;
                     return (
                       <tr key={unit.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-4 px-6">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6">
                           <div className="font-bold text-gray-900 text-xs flex items-center gap-2">
-                            <Building2 size={15} className="text-[#b32d2d] shrink-0" /> {unit.name}
+                            <Building2 size={15} className="text-[#b32d2d] shrink-0" /> 
+                            <span>{unit.name}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-6">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-gray-50 text-gray-700">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">
+                          <span className="px-3 py-1 rounded-full text-[11px] font-bold border bg-gray-50 text-gray-800 inline-block whitespace-nowrap shrink-0 shadow-2xs">
                             {getUnitTypeLabel(unit.unit_type)}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-gray-600">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-gray-600">
                           <div className="font-medium text-xs">{unit.address || 'Angeles City'}</div>
                           <div className="text-[10px] text-gray-400 font-mono mt-0.5">{unit.latitude}, {unit.longitude}</div>
                         </td>
-                        <td className="py-4 px-6 font-medium text-gray-700">{unit.contact_number || 'N/A'}</td>
-                        <td className="py-4 px-6">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 w-fit ${
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-medium text-gray-700 whitespace-nowrap">
+                          {unit.contact_number || 'N/A'}
+                        </td>
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 shrink-0 ${
                             isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'
                           }`}>
                             {isActive ? <CheckCircle size={12} /> : <XCircle size={12} />}
                             {isActive ? 'Active' : 'Disabled'}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-right">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
-                            <button onClick={() => openEditModal(unit)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all cursor-pointer">
+                            <button onClick={() => openEditModal(unit)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all cursor-pointer" title="Edit Unit">
                               <Edit3 size={14} />
                             </button>
-                            <button onClick={() => handleDeleteUnit(unit)} className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-all cursor-pointer">
+                            <button onClick={() => handleDeleteUnit(unit)} className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-all cursor-pointer" title="Delete Unit">
                               <Trash2 size={14} />
                             </button>
                           </div>
@@ -274,23 +293,23 @@ export default function PrivilegedEmergencyUnitsPage() {
 
       {/* CREATE / EDIT MODAL */}
       {isUnitModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
-                <h3 className="font-bold text-base text-gray-900">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
+            <div className="p-4 sm:p-6 flex flex-col h-full overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4 shrink-0">
+                <h3 className="font-bold text-sm sm:text-base text-gray-900">
                   {modalMode === 'create' ? 'Register Emergency Unit' : 'Modify Emergency Unit'}
                 </h3>
                 <X size={18} className="text-gray-400 hover:text-gray-600 cursor-pointer" onClick={() => setIsUnitModalOpen(false)} />
               </div>
 
               {formError && (
-                <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2 shrink-0">
                   <AlertCircle size={16} /> {formError}
                 </div>
               )}
 
-              <form onSubmit={handleSaveUnit} className="space-y-3.5 text-xs">
+              <form onSubmit={handleSaveUnit} className="space-y-3.5 text-xs flex-1">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-600 mb-1">Unit / Base Station Name</label>
                   <input 
@@ -300,7 +319,7 @@ export default function PrivilegedEmergencyUnitsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-gray-600 mb-1">Unit Type</label>
                     <select 
@@ -322,7 +341,7 @@ export default function PrivilegedEmergencyUnitsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-gray-600 mb-1">Latitude</label>
                     <input 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -8,7 +8,9 @@ import L from 'leaflet';
 import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
-const API_BASE_URL = `http://${targetHostname}:8000`;
+// api_base_url: api.aksyon.online
+const API_BASE_URL = `https://api.aksyon.online`;
+//const API_BASE_URL = `http://${targetHostname}:8000`;
 
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
@@ -39,7 +41,6 @@ const ANGELES_CITY_BOUNDS = [
 
 const DEFAULT_CITY_CENTER = [15.1360, 120.5900];
 
-// CONTROLLER TO FORCE LEAFLET TO RE-CENTER WHEN BARANGAY IS LOADED/CHANGED
 function MapViewController({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
@@ -99,7 +100,14 @@ export default function DashboardPage() {
 
   const token = localStorage.getItem('ac_token');
 
-  // FETCH CURRENT ADMIN USER DATA TO DETERMINE ASSIGNED BARANGAY
+  const getAuthHeaders = useCallback((useBearer = false) => {
+    const rawToken = token || '';
+    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    if (!cleanToken) return {};
+    const authPrefix = useBearer ? 'Bearer' : 'Token';
+    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
+  }, [token]);
+
   useEffect(() => {
     const loadAdminProfile = async () => {
       const storedUser = localStorage.getItem('ac_user_data');
@@ -116,7 +124,6 @@ export default function DashboardPage() {
         }
       }
 
-      // Fallback: Fetch user details directly from server if local storage is missing it
       try {
         const rawToken = token || '';
         const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
@@ -141,10 +148,8 @@ export default function DashboardPage() {
     }
   }, [token]);
 
-  // DERIVE DYNAMIC CENTER AND ZOOM BASED ON ADMIN'S BARANGAY
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
-      // Clean up common string variations (e.g., "Santa Trinidad" vs "Sta. Trinidad")
       let cleanBrgy = currentAdminBarangay.trim();
       if (cleanBrgy.toLowerCase() === 'santa trinidad') cleanBrgy = 'Sta. Trinidad';
       if (cleanBrgy.toLowerCase() === 'lourdes northwest') cleanBrgy = 'Lourdes NorthWest';
@@ -158,15 +163,7 @@ export default function DashboardPage() {
 
   const activeZoomLevel = currentAdminBarangay && barangayCoords[currentAdminBarangay] ? 16 : 14;
 
-  const getAuthHeaders = (useBearer = false) => {
-    const rawToken = token || '';
-    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    if (!cleanToken) return {};
-    const authPrefix = useBearer ? 'Bearer' : 'Token';
-    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
-  };
-
-  const fetchUsersMap = async () => {
+  const fetchUsersMap = useCallback(async () => {
     for (const useBearer of [false, true]) {
       try {
         const res = await fetch(`${API_BASE_URL}/api/users/`, {
@@ -191,7 +188,7 @@ export default function DashboardPage() {
       }
     }
     return usersMap;
-  };
+  }, [getAuthHeaders, usersMap]);
 
   const resolveUserName = (report) => {
     if (!report) return 'Resident Alert';
@@ -242,46 +239,48 @@ export default function DashboardPage() {
     });
   }, [reports]);
 
+  const fetchDashboardData = useCallback(async () => {
+    if (!token) return;
+    if (reports.length === 0) setIsLoading(true);
+
+    try {
+      await fetchUsersMap();
+
+      for (const useBearer of [false, true]) {
+        const analyticsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
+          headers: getAuthHeaders(useBearer) 
+        });
+
+        if (analyticsRes.status === 401) continue;
+
+        if (analyticsRes.ok) {
+          const reportsData = await analyticsRes.json();
+          let rawList = Array.isArray(reportsData) 
+            ? reportsData 
+            : (reportsData && Array.isArray(reportsData.results)) 
+              ? reportsData.results 
+              : [];
+            
+          setReports(rawList);
+          sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(rawList));
+          setIsLoading(false);
+          return;
+        }
+      }
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Failed to fetch dashboard metrics:", error);
+      setIsLoading(false);
+    }
+  }, [token, fetchUsersMap, getAuthHeaders, reports.length]);
+
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
-
-    const fetchDashboardData = async () => {
-      try {
-        await fetchUsersMap();
-
-        for (const useBearer of [false, true]) {
-          const analyticsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
-            headers: getAuthHeaders(useBearer) 
-          });
-
-          if (analyticsRes.status === 401) continue;
-
-          if (analyticsRes.ok) {
-            const reportsData = await analyticsRes.json();
-            let rawList = Array.isArray(reportsData) 
-              ? reportsData 
-              : (reportsData && Array.isArray(reportsData.results)) 
-                ? reportsData.results 
-                : [];
-              
-            setReports(rawList);
-            sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(rawList));
-            setIsLoading(false);
-            return;
-          }
-        }
-        setIsLoading(false);
-      } catch (error) {
-        console.error("Failed to fetch dashboard metrics:", error);
-        setIsLoading(false);
-      }
-    };
-
     fetchDashboardData();
-  }, [token, navigate]);
+  }, [token, navigate, fetchDashboardData]);
 
   const handleStatusUpdate = async (reportId, newStatus) => {
     const rawTargetStatus = newStatus.toLowerCase();
@@ -350,11 +349,11 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* FIXED VIEWPORT GRID */}
-      <main className="w-full h-full min-h-0 grid grid-cols-12 grid-rows-2 overflow-hidden bg-gray-200 gap-[1px]">
+      {/* FLUID RESPONSIVE VIEWPORT GRID */}
+      <main className="w-full h-full min-h-0 overflow-y-auto md:overflow-hidden grid grid-cols-1 md:grid-cols-12 md:grid-rows-2 bg-gray-200 gap-[1px]">
         
         {/* TELEMETRY LEAFLET MAP */}
-        <section className="col-span-8 row-span-1 bg-white relative overflow-hidden h-full w-full flex items-center justify-center">
+        <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
             <MapContainer 
               center={activeMapCenter} 
@@ -412,7 +411,7 @@ export default function DashboardPage() {
         </section>
 
         {/* CHARTS OVERVIEW */}
-        <section className="col-span-4 row-span-1 bg-white p-4 lg:p-5 flex flex-col h-full min-h-0 overflow-y-auto">
+        <section className="col-span-1 md:col-span-4 md:row-span-1 bg-white p-4 lg:p-5 flex flex-col min-h-[280px] md:min-h-0 h-full overflow-y-auto">
           <h3 className="font-bold text-gray-800 text-base mb-2 shrink-0">Reports Overview</h3>
           {isLoading ? (
             <div className="flex-1 flex items-center justify-center text-gray-400 font-bold text-xs">Loading charts...</div>
@@ -420,7 +419,7 @@ export default function DashboardPage() {
             <div className="flex-1 flex flex-col justify-between min-h-0">
               
               {/* 1. VOLUME TREND AREA CHART */}
-              <div className="flex-1 min-h-0 border-b border-gray-100 pb-2 flex flex-col">
+              <div className="flex-1 min-h-[110px] border-b border-gray-100 pb-2 flex flex-col">
                 <span className="text-xs font-bold text-gray-500 block mb-1 shrink-0">Volume Trend</span>
                 <div className="flex-1 w-full min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
@@ -442,7 +441,7 @@ export default function DashboardPage() {
               </div>
 
               {/* 2. FULL PIE CHART */}
-              <div className="flex-1 min-h-0 flex items-center justify-between pt-2">
+              <div className="flex-1 min-h-[110px] flex items-center justify-between pt-2">
                 <div className="w-[120px] h-full shrink-0 flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -479,16 +478,16 @@ export default function DashboardPage() {
         </section>
 
         {/* LIVE ACTIVE EMERGENCY LOG */}
-        <section className="col-span-8 row-span-1 bg-[#fafafa] p-5 lg:p-6 overflow-y-auto h-full">
-          <div className="border-b border-gray-200 pb-3.5 mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-black text-xl lg:text-2xl text-gray-800 tracking-tight uppercase">
+        <section className="col-span-1 md:col-span-8 md:row-span-1 bg-[#fafafa] p-4 sm:p-5 lg:p-6 overflow-y-auto h-full min-h-[300px] md:min-h-0">
+          <div className="border-b border-gray-200 pb-3.5 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h2 className="font-black text-lg sm:text-xl lg:text-2xl text-gray-800 tracking-tight uppercase">
               Active Reports
             </h2>
             
-            <div className="flex items-center bg-gray-200/70 p-1 rounded-xl text-xs font-bold gap-1">
+            <div className="flex flex-wrap items-center bg-gray-200/70 p-1 rounded-xl text-xs font-bold gap-1 w-full sm:w-auto">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'all' 
                     ? 'bg-white text-gray-900 shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
@@ -498,7 +497,7 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setStatusFilter('pending')}
-                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'pending' 
                     ? 'bg-amber-100 text-amber-800 border border-amber-300 shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
@@ -508,7 +507,7 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setStatusFilter('ongoing')}
-                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                   statusFilter === 'ongoing' 
                     ? 'bg-blue-600 text-white shadow-xs' 
                     : 'text-gray-500 hover:text-gray-800'
@@ -551,7 +550,7 @@ export default function DashboardPage() {
         </section>
 
         {/* RESOLVED HISTORY FEED */}
-        <section className="col-span-4 row-span-1 bg-white p-5 lg:p-6 overflow-y-auto border-l border-gray-200 h-full">
+        <section className="col-span-1 md:col-span-4 md:row-span-1 bg-white p-4 sm:p-5 lg:p-6 overflow-y-auto border-t md:border-t-0 md:border-l border-gray-200 h-full min-h-[250px] md:min-h-0">
           <h3 className="font-bold text-sm lg:text-base text-gray-800 mb-4 border-b border-gray-100 pb-3">Recent History</h3>
           <div className="space-y-0.5">
             {isLoading ? (
@@ -578,12 +577,12 @@ export default function DashboardPage() {
 
 function ReportItem({ id, title, subtitle, status, onStatusChange }) {
   return (
-    <div className="border border-gray-200 bg-white rounded-xl p-4 lg:p-4.5 flex items-center justify-between gap-3 shadow-xs">
-      <div className="max-w-[58%]">
-        <div className="font-bold text-gray-900 text-base lg:text-lg tracking-tight truncate">{title}</div>
-        <div className="text-xs lg:text-sm text-gray-400 font-medium mt-1 truncate">{subtitle}</div>
+    <div className="border border-gray-200 bg-white rounded-xl p-3.5 sm:p-4 lg:p-4.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+      <div className="w-full sm:max-w-[55%]">
+        <div className="font-bold text-gray-900 text-sm sm:text-base lg:text-lg tracking-tight truncate">{title}</div>
+        <div className="text-xs text-gray-400 font-medium mt-0.5 sm:mt-1 truncate">{subtitle}</div>
       </div>
-      <div className="flex gap-2 shrink-0">
+      <div className="flex gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end">
         <StatusButton label="Pending" currentStatus={status} onClick={() => onStatusChange(id, 'Pending')} />
         <StatusButton label="Ongoing" currentStatus={status} onClick={() => onStatusChange(id, 'Ongoing')} />
         <StatusButton label="Resolved" currentStatus={status} onClick={() => onStatusChange(id, 'Resolved')} />
@@ -611,7 +610,7 @@ function StatusButton({ label, currentStatus, onClick }) {
     <button 
       type="button"
       onClick={onClick} 
-      className={`${colorClass} px-4 lg:px-5 py-2 rounded-lg text-[11px] lg:text-xs font-black uppercase tracking-tight border transition-all active:scale-95`}
+      className={`${colorClass} px-2.5 sm:px-4 lg:px-5 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-[11px] lg:text-xs font-black uppercase tracking-tight border transition-all active:scale-95`}
     >
       {label}
     </button>
@@ -620,12 +619,12 @@ function StatusButton({ label, currentStatus, onClick }) {
 
 function HistoryRow({ label, location, time }) {
   return (
-    <div className="border-b border-gray-50 py-3 lg:py-3.5 flex justify-between items-center group px-1.5 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
+    <div className="border-b border-gray-50 py-2.5 lg:py-3.5 flex justify-between items-center group px-1.5 rounded-md transition-all hover:bg-gray-50 cursor-pointer">
       <div className="max-w-[70%]">
-        <div className="font-bold text-sm lg:text-base text-gray-700 group-hover:text-[#b32d2d] transition-colors truncate">{label}</div>
-        <div className="text-xs text-gray-400 font-medium mt-0.5">{location}</div>
+        <div className="font-bold text-xs sm:text-sm lg:text-base text-gray-700 group-hover:text-[#b32d2d] transition-colors truncate">{label}</div>
+        <div className="text-[11px] sm:text-xs text-gray-400 font-medium mt-0.5">{location}</div>
       </div>
-      <span className="text-xs font-bold text-gray-300 group-hover:text-gray-400 shrink-0">{time}</span>
+      <span className="text-[11px] sm:text-xs font-bold text-gray-300 group-hover:text-gray-400 shrink-0">{time}</span>
     </div>
   );
 }
