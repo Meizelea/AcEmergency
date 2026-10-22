@@ -13,6 +13,7 @@ import AnnouncementPage from './pages/announcementPage';
 import SuperAdminPage from './superadmin/superadmin';
 import PrivilegedEmergencyUnitsPage from './superadmin/privilegedEmergencyUnits';
 import AdminProfilePage from './pages/adminProfilePage.jsx';
+import DuplicatesPage from './pages/duplicatesPage.jsx';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/superadmin" element={<SuperAdminPage />} />
           <Route path="/privileged-emergency-units" element={<PrivilegedEmergencyUnitsPage />} />
           <Route path="/announcements" element={<AnnouncementPage />} />
+          <Route path="/duplicates" element={<DuplicatesPage />} />
           <Route path="/profile" element={<AdminProfilePage />} />
         </Route>
       </Routes>

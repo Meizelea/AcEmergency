@@ -11,7 +11,8 @@ import {
   LogOut, 
   ShieldCheck,
   Megaphone,
-  UserCheck
+  UserCheck,
+  Copy
 } from 'lucide-react';
 
 export default function AdminLayout({ children }) {
@@ -77,6 +78,9 @@ export default function AdminLayout({ children }) {
                 </div>
                 <div onClick={() => navigate('/reports')}>
                   <SidebarLink icon={<FileText size={24} />} label="Reports" active={location.pathname === '/reports'} />
+                </div>
+                <div onClick={() => navigate('/duplicates')}>
+                  <SidebarLink icon={<Copy size={24} />} label="Duplicates" active={location.pathname === '/duplicates'} />
                 </div>
                 <div onClick={() => navigate('/dashboard')}>
                   <SidebarLink icon={<BarChart3 size={24} />} label="Dashboard" active={location.pathname === '/dashboard'} />
@@ -174,6 +178,16 @@ export default function AdminLayout({ children }) {
                       }`}
                     >
                       Reports
+                    </span>
+                    <span 
+                      onClick={() => navigate('/duplicates')} 
+                      className={`text-sm rounded-md cursor-pointer transition-all ${
+                        location.pathname === '/duplicates' 
+                          ? 'bg-[#8b2323] px-5 py-1.5 font-bold shadow-inner' 
+                          : 'px-4 py-1 font-medium opacity-90 hover:opacity-100'
+                      }`}
+                    >
+                      Duplicates
                     </span>
                     <span 
                       onClick={() => navigate('/users')} 
