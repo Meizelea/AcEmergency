@@ -5,7 +5,7 @@ import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2 } from 'l
 const targetHostname = window.location.hostname || '127.0.0.1';
 
 const API_BASE = 'https://api.aksyon.online';
-const API_BASE = `http://${targetHostname}:8000`;
+//const API_BASE = `http://${targetHostname}:8000`;
 
 export default function AdminLogin() {
   const navigate = useNavigate();
