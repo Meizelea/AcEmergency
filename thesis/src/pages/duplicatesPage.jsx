@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, AlertTriangle, ShieldCheck, MapPin, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import AdminLayout from '../components/header';
 
-// api_base_url: api.aksyon.online
+
 const targetHostname = window.location.hostname || '127.0.0.1';
+//const API_BASE_URL = 'https://api.aksyon.online';
 const API_BASE_URL = `http://${targetHostname}:8000`;
 const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v1';
 
