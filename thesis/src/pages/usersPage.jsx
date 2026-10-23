@@ -39,7 +39,7 @@ export default function UsersPage() {
 
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
-  const API_BASE_URL = `https:api.aksyon.online`;
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
   //const API_BASE_URL = `http://${targetHostname}:8000`;
 
   // 1. FETCH USERS WITH AUTOMATIC REFRESH ON VISIT/REVISIT
