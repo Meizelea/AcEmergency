@@ -8,9 +8,7 @@ import L from 'leaflet';
 import AdminLayout from '../components/header';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
-// api_base_url: api.aksyon.online
-const API_BASE_URL = `https://api.aksyon.online`;
-//const API_BASE_URL = `http://${targetHostname}:8000`;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
@@ -211,6 +209,7 @@ export default function DashboardPage() {
     reports.forEach(report => {
       if (report) {
         const stat = String(report.status).toLowerCase();
+        if (stat === 'dismissed') return; // Ignore dismissed reports
         if (stat === 'resolved') resolvedCount++;
         else if (stat === 'ongoing') ongoingCount++;
         else pendingCount++;
@@ -231,7 +230,7 @@ export default function DashboardPage() {
     return hours.map((hourLabel, idx) => {
       const hour24Start = idx * 3;
       const count = reports.filter(r => {
-        if (!r.created_at) return false;
+        if (!r.created_at || String(r.status).toLowerCase() === 'dismissed') return false;
         const h = new Date(r.created_at).getHours();
         return h >= hour24Start && h < hour24Start + 3;
       }).length;
@@ -315,7 +314,12 @@ export default function DashboardPage() {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  const activeReports = reports.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
+  // Filter out resolved AND dismissed reports for active view
+  const activeReports = reports.filter(r => {
+    if (!r) return false;
+    const stat = String(r.status).toLowerCase();
+    return stat !== 'resolved' && stat !== 'dismissed';
+  });
   
   const filteredActiveReports = activeReports.filter(r => {
     const s = String(r.status).toLowerCase();
@@ -324,6 +328,7 @@ export default function DashboardPage() {
     return true;
   });
 
+  // History includes resolved reports (ignoring dismissed)
   const historyReports = reports.filter(r => r && String(r.status).toLowerCase() === 'resolved').slice(0, 10);
 
   const formatDate = (dateString) => {
@@ -539,7 +544,7 @@ export default function DashboardPage() {
                     key={report.id} 
                     id={report.id} 
                     title={report.short_message || report.description || 'Emergency Dispatch'} 
-                    subtitle={`Reporter: ${senderName} • Brgy. ${brgyName} • ${createdDate}`} 
+                    subtitle={`Reporter: ${senderName} | Brgy. ${brgyName} | ${createdDate}`} 
                     status={displayLabel} 
                     onStatusChange={handleStatusUpdate} 
                   />
