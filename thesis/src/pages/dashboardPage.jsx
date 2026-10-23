@@ -10,7 +10,8 @@ import AdminLayout from '../components/header';
 const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 
-const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v1';
+// Updated cache key to bust old cached session data containing dismissed items
+const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v2';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 
 // PRECISE BARANGAY COORDINATES FOR ANGELES CITY
@@ -66,7 +67,7 @@ const createStatusIcon = (status) => {
   let bgColor = '#f59e0b';
   let pulseClass = 'pulse-yellow'; 
 
-  if (String(status).toLowerCase() === 'ongoing') {
+  if (String(status).toLowerCase().trim() === 'ongoing') {
     bgColor = '#2563eb';
     pulseClass = 'pulse-blue'; 
   }
@@ -207,9 +208,9 @@ export default function DashboardPage() {
     let resolvedCount = 0;
 
     reports.forEach(report => {
-      if (report) {
-        const stat = String(report.status).toLowerCase();
-        if (stat === 'dismissed') return; // Ignore dismissed reports
+      if (report && report.status) {
+        const stat = String(report.status).toLowerCase().trim();
+        if (stat === 'dismissed' || stat.includes('dismiss')) return; // Completely skip dismissed
         if (stat === 'resolved') resolvedCount++;
         else if (stat === 'ongoing') ongoingCount++;
         else pendingCount++;
@@ -230,7 +231,9 @@ export default function DashboardPage() {
     return hours.map((hourLabel, idx) => {
       const hour24Start = idx * 3;
       const count = reports.filter(r => {
-        if (!r.created_at || String(r.status).toLowerCase() === 'dismissed') return false;
+        if (!r || !r.created_at || !r.status) return false;
+        const stat = String(r.status).toLowerCase().trim();
+        if (stat === 'dismissed' || stat.includes('dismiss')) return false;
         const h = new Date(r.created_at).getHours();
         return h >= hour24Start && h < hour24Start + 3;
       }).length;
@@ -282,7 +285,7 @@ export default function DashboardPage() {
   }, [token, navigate, fetchDashboardData]);
 
   const handleStatusUpdate = async (reportId, newStatus) => {
-    const rawTargetStatus = newStatus.toLowerCase();
+    const rawTargetStatus = newStatus.toLowerCase().trim();
     
     const payload = { status: rawTargetStatus };
     if (rawTargetStatus === 'resolved') {
@@ -314,22 +317,28 @@ export default function DashboardPage() {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  // Filter out resolved AND dismissed reports for active view
+  // Strictly filter out resolved AND dismissed reports for active view
   const activeReports = reports.filter(r => {
-    if (!r) return false;
-    const stat = String(r.status).toLowerCase();
-    return stat !== 'resolved' && stat !== 'dismissed';
+    if (!r || !r.status) return false;
+    const stat = String(r.status).toLowerCase().trim();
+    return stat !== 'resolved' && stat !== 'dismissed' && !stat.includes('dismiss');
   });
   
   const filteredActiveReports = activeReports.filter(r => {
-    const s = String(r.status).toLowerCase();
+    const s = String(r.status || '').toLowerCase().trim();
+    if (s === 'dismissed' || s.includes('dismiss') || s === 'resolved') return false;
+    
     if (statusFilter === 'pending') return s === 'pending' || s === 'submitted' || !s;
     if (statusFilter === 'ongoing') return s === 'ongoing';
     return true;
   });
 
-  // History includes resolved reports (ignoring dismissed)
-  const historyReports = reports.filter(r => r && String(r.status).toLowerCase() === 'resolved').slice(0, 10);
+  // History strictly includes resolved reports (ignoring dismissed)
+  const historyReports = reports.filter(r => {
+    if (!r || !r.status) return false;
+    const stat = String(r.status).toLowerCase().trim();
+    return stat === 'resolved';
+  }).slice(0, 10);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Recent';
@@ -402,8 +411,8 @@ export default function DashboardPage() {
                         <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
                         <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
                         {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
-                        <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase() === 'ongoing' ? 'text-blue-600' : 'text-amber-600'}`}>
-                          {String(report.status).toLowerCase() === 'ongoing' ? 'Ongoing' : 'Pending'}
+                        <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase().trim() === 'ongoing' ? 'text-blue-600' : 'text-amber-600'}`}>
+                          {String(report.status).toLowerCase().trim() === 'ongoing' ? 'Ongoing' : 'Pending'}
                         </div>
                       </Popup>
                     </Marker>
@@ -508,7 +517,7 @@ export default function DashboardPage() {
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
-                Pending ({activeReports.filter(r => String(r.status).toLowerCase() !== 'ongoing').length})
+                Pending ({activeReports.filter(r => String(r.status || '').toLowerCase().trim() !== 'ongoing').length})
               </button>
               <button
                 onClick={() => setStatusFilter('ongoing')}
@@ -518,7 +527,7 @@ export default function DashboardPage() {
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
-                Ongoing ({activeReports.filter(r => String(r.status).toLowerCase() === 'ongoing').length})
+                Ongoing ({activeReports.filter(r => String(r.status || '').toLowerCase().trim() === 'ongoing').length})
               </button>
             </div>
           </div>
@@ -533,7 +542,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               filteredActiveReports.map((report) => {
-                const currentStatusRaw = String(report.status).toLowerCase();
+                const currentStatusRaw = String(report.status || '').toLowerCase().trim();
                 const displayLabel = currentStatusRaw === 'ongoing' ? 'Ongoing' : 'Pending';
                 const senderName = resolveUserName(report);
                 const brgyName = report.barangay || report.location || 'Angeles City';
