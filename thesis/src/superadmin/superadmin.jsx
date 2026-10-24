@@ -13,7 +13,7 @@ export const ANGELES_BARANGAYS = [
   "Santo Rosario",
   "Tabun",
   "Cutud",
-  "Ninoy Aquino"
+  "Marisol"
 ];
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';

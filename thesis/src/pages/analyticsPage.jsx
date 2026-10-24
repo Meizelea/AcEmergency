@@ -12,6 +12,11 @@ import {
 import AdminLayout from '../components/header';
 
 export const ANGELES_BARANGAYS = [
+  "Agapito del Rosario",
+  "Santo Rosario",
+  "Tabun",
+  "Cutud",
+  "Ninoy Aquino",
   "Santa Trinidad",
   "Sta. Trinidad",
   "San Nicolas",
@@ -21,35 +26,34 @@ export const ANGELES_BARANGAYS = [
 
 const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899', '#6366f1'];
 
-// Cache Keys
-const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v1';
-const CACHE_KEY_ANALYTICS_USERS = 'cache_analytics_users_v1';
-const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v2';
+// Bumped cache keys to force clear old session data
+const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v3';
+const CACHE_KEY_ANALYTICS_USERS = 'cache_analytics_users_v3';
+const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v3';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
 
-  // 1. Dynamic State for Assigned Barangay (Initializes from storage or fallback)
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
       const cachedProfile = sessionStorage.getItem(CACHE_KEY_ADMIN_PROFILE);
       if (cachedProfile) {
         const parsed = JSON.parse(cachedProfile);
-        const brgy = parsed?.assigned_barangay || parsed?.residential_barangay || parsed?.barangay;
-        if (brgy) return brgy;
+        const brgy = parsed?.assigned_barangay || parsed?.barangay || parsed?.residential_barangay;
+        if (brgy) return typeof brgy === 'object' ? (brgy.name || brgy.label) : brgy;
       }
       const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
-        return parsed?.assigned_barangay || parsed?.residential_barangay || parsed?.barangay || 'San Nicolas';
+        const brgy = parsed?.assigned_barangay || parsed?.barangay || parsed?.residential_barangay;
+        if (brgy) return typeof brgy === 'object' ? (brgy.name || brgy.label) : brgy;
       }
     } catch (err) {
       console.error("Error reading admin assigned barangay:", err);
     }
-    return 'San Nicolas';
+    return '';
   });
 
-  // Initialize state from sessionStorage if present
   const [rawReports, setRawReports] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_ANALYTICS_REPORTS);
     return cached ? JSON.parse(cached) : [];
@@ -63,8 +67,6 @@ export default function AnalyticsPage() {
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [filterBarangayOnly, setFilterBarangayOnly] = useState(false);
-  
-  // Expanded Time Range Options: 'today' | '7days' | 'month' | 'year' | 'all'
   const [timeRange, setTimeRange] = useState('all');
 
   const token = localStorage.getItem('ac_token');
@@ -78,49 +80,44 @@ export default function AnalyticsPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // 2. Load Admin Profile automatically on page mount
-  useEffect(() => {
-    const loadAdminProfile = async () => {
-      const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          const brgy = parsed.barangay || parsed.assigned_barangay || parsed.residential_barangay;
-          if (brgy) {
-            setAssignedBarangay(brgy);
-            return;
-          }
-        } catch (e) {
-          console.warn('Error reading local user data:', e);
-        }
-      }
+  // Load Admin Profile automatically and update state dynamically
+  const loadAdminProfile = useCallback(async () => {
+    try {
+      const rawToken = token || '';
+      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+      if (!cleanToken) return;
 
-      try {
-        const rawToken = token || '';
-        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+      for (const useBearer of [false, true]) {
         const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
-          headers: { 'Authorization': `Token ${cleanToken}` }
+          headers: getAuthHeaders(useBearer)
         });
+
         if (res.ok) {
           const userData = await res.json();
-          const brgy = userData.barangay || userData.assigned_barangay || userData.residential_barangay;
-          if (brgy) {
-            setAssignedBarangay(brgy);
+          const rawBrgy = userData.assigned_barangay || userData.barangay || userData.residential_barangay;
+          const cleanBrgy = typeof rawBrgy === 'object' ? (rawBrgy.name || rawBrgy.label) : rawBrgy;
+
+          if (cleanBrgy) {
+            setAssignedBarangay(cleanBrgy);
             localStorage.setItem('ac_user_data', JSON.stringify(userData));
             sessionStorage.setItem(CACHE_KEY_ADMIN_PROFILE, JSON.stringify(userData));
           }
+          break;
         }
-      } catch (err) {
-        console.warn('Failed to fetch admin profile:', err);
       }
-    };
-
-    if (token) {
-      loadAdminProfile();
+    } catch (err) {
+      console.warn('Failed to fetch admin profile:', err);
     }
-  }, [token, API_BASE_URL]);
+  }, [token, API_BASE_URL, getAuthHeaders]);
 
-  // Extract category helper
+  useEffect(() => {
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    loadAdminProfile();
+  }, [token, navigate, loadAdminProfile]);
+
   const getCategoryName = (report) => {
     if (!report) return 'Uncategorized';
     if (typeof report.category === 'object' && report.category !== null) {
@@ -131,12 +128,11 @@ export default function AnalyticsPage() {
     return 'Uncategorized';
   };
 
-  // Optional Barangay filter (allows viewing total vs assigned)
   const reports = useMemo(() => {
     if (!filterBarangayOnly || !assignedBarangay) return rawReports;
-    const targetNorm = assignedBarangay.toLowerCase().replace(/^sta\.\s*/, 'santa ');
+    const targetNorm = String(assignedBarangay).toLowerCase().replace(/^sta\.\s*/, 'santa ').trim();
     return rawReports.filter(r => {
-      const b = (r.barangay || r.location || '').toLowerCase().replace(/^sta\.\s*/, 'santa ');
+      const b = String(r.barangay || r.location || '').toLowerCase().replace(/^sta\.\s*/, 'santa ').trim();
       return b.includes(targetNorm) || targetNorm.includes(b);
     });
   }, [rawReports, assignedBarangay, filterBarangayOnly]);
@@ -147,6 +143,8 @@ export default function AnalyticsPage() {
     setIsSyncing(true);
 
     try {
+      await loadAdminProfile();
+
       let fetchedReports = [];
       for (const useBearer of [false, true]) {
         const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
@@ -184,18 +182,12 @@ export default function AnalyticsPage() {
       setIsLoading(false);
       setIsSyncing(false);
     }
-  }, [token, API_BASE_URL, getAuthHeaders, rawReports.length]);
+  }, [token, API_BASE_URL, getAuthHeaders, rawReports.length, loadAdminProfile]);
 
-  // AUTOMATICALLY REFRESH DATA ON EVERY PAGE VISIT/REVISIT
   useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
     fetchData(true);
-  }, [token, navigate, fetchData]);
+  }, [fetchData]);
 
-  // Calculations for Today's Metrics
   const today = new Date().toDateString();
   const todaysReports = useMemo(() => {
     return reports.filter(r => r.created_at && new Date(r.created_at).toDateString() === today);
@@ -216,7 +208,6 @@ export default function AnalyticsPage() {
     return s === 'resolved';
   }).length;
 
-  // Report Trend Time Series
   const trendData = useMemo(() => {
     if (timeRange === 'today') {
       const hours = ['12 AM', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM'];
@@ -297,7 +288,6 @@ export default function AnalyticsPage() {
     return [];
   }, [timeRange, todaysReports, reports]);
 
-  // Hourly Call Volume Distribution
   const hourlyData = useMemo(() => {
     const slots = [
       { slot: 'Morning (6A-12P)', count: 0 },
@@ -318,7 +308,6 @@ export default function AnalyticsPage() {
     return slots;
   }, [reports]);
 
-  // Status Distribution for Donut
   const statusPieData = useMemo(() => {
     const p = reports.filter(r => ['pending', 'submitted'].includes(String(r.status).toLowerCase())).length;
     const o = reports.filter(r => ['ongoing', 'responding'].includes(String(r.status).toLowerCase())).length;
@@ -330,7 +319,6 @@ export default function AnalyticsPage() {
     ].filter(d => d.value > 0);
   }, [reports]);
 
-  // CATEGORY DYNAMIC PARSER
   const incidentTypeData = useMemo(() => {
     const catMap = {};
 
@@ -367,13 +355,14 @@ export default function AnalyticsPage() {
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
             >
-              {filterBarangayOnly ? `Filtering: Brgy. ${assignedBarangay}` : 'Showing All Jurisdiction'}
+              {filterBarangayOnly ? `Filtering: Brgy. ${assignedBarangay || 'Unassigned'}` : 'Showing All Jurisdiction'}
             </button>
 
             <button 
               onClick={() => {
                 sessionStorage.removeItem(CACHE_KEY_ANALYTICS_REPORTS);
                 sessionStorage.removeItem(CACHE_KEY_ANALYTICS_USERS);
+                sessionStorage.removeItem(CACHE_KEY_ADMIN_PROFILE);
                 fetchData(false);
               }} 
               disabled={isSyncing}
@@ -397,14 +386,14 @@ export default function AnalyticsPage() {
             <span className="text-xs font-bold text-gray-500 block">System Reports</span>
             <div className="text-2xl font-black text-gray-900 mt-1">{reports.length}</div>
             <span className="text-[11px] text-gray-400 font-medium">
-              {filterBarangayOnly ? `Submissions in Brgy. ${assignedBarangay}` : 'Total submissions across all areas'}
+              {filterBarangayOnly ? `Submissions in Brgy. ${assignedBarangay || 'Unassigned'}` : 'Total submissions across all areas'}
             </span>
           </div>
 
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
             <span className="text-xs font-bold text-gray-500 block">Covered Jurisdiction</span>
             <div className="text-2xl font-black text-gray-900 mt-1">
-              Brgy. {assignedBarangay}
+              {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
             </div>
             <span className="text-[11px] text-gray-400 font-medium">
               Assigned Station Jurisdiction
