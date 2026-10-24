@@ -361,13 +361,23 @@ export default function DashboardPage() {
           70% { box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
           100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
         }
+        /* Leaflet Z-Index Stacking Reset */
+        .leaflet-container {
+          z-index: 0 !important;
+        }
+        .leaflet-pane {
+          z-index: 1 !important;
+        }
+        .leaflet-top, .leaflet-bottom {
+          z-index: 2 !important;
+        }
       `}</style>
 
       {/* FLUID RESPONSIVE VIEWPORT GRID */}
       <main className="w-full h-full min-h-0 overflow-y-auto md:overflow-hidden grid grid-cols-1 md:grid-cols-12 md:grid-rows-2 bg-gray-200 gap-[1px]">
         
         {/* TELEMETRY LEAFLET MAP */}
-        <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
+        <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative z-0 min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
             <MapContainer 
               center={activeMapCenter} 
@@ -377,7 +387,7 @@ export default function DashboardPage() {
               maxBounds={ANGELES_CITY_BOUNDS} 
               maxBoundsViscosity={1.0} 
               bounceAtZoomLimits={true}
-              style={{ height: '100%', width: '100%' }} 
+              style={{ height: '100%', width: '100%', zIndex: 0 }} 
               zoomControl={false} 
             >
               <MapResizer />
