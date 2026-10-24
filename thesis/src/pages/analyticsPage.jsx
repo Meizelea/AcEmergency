@@ -29,8 +29,8 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v2';
 export default function AnalyticsPage() {
   const navigate = useNavigate();
 
-  // Retrieve assigned admin barangay accurately from session or local storage
-  const assignedBarangay = useMemo(() => {
+  // 1. Dynamic State for Assigned Barangay (Initializes from storage or fallback)
+  const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
       const cachedProfile = sessionStorage.getItem(CACHE_KEY_ADMIN_PROFILE);
       if (cachedProfile) {
@@ -38,7 +38,7 @@ export default function AnalyticsPage() {
         const brgy = parsed?.assigned_barangay || parsed?.residential_barangay || parsed?.barangay;
         if (brgy) return brgy;
       }
-      const storedUser = localStorage.getItem('ac_user');
+      const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
         return parsed?.assigned_barangay || parsed?.residential_barangay || parsed?.barangay || 'San Nicolas';
@@ -47,7 +47,7 @@ export default function AnalyticsPage() {
       console.error("Error reading admin assigned barangay:", err);
     }
     return 'San Nicolas';
-  }, []);
+  });
 
   // Initialize state from sessionStorage if present
   const [rawReports, setRawReports] = useState(() => {
@@ -68,9 +68,7 @@ export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState('all');
 
   const token = localStorage.getItem('ac_token');
-  const targetHostname = window.location.hostname || '127.0.0.1';
-  const API_BASE_URL = 'https://api.aksyon.online';
-  //const API_BASE_URL = `http://${targetHostname}:8000`;
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 
   const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = token || '';
@@ -79,6 +77,48 @@ export default function AnalyticsPage() {
     const authPrefix = useBearer ? 'Bearer' : 'Token';
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
+
+  // 2. Load Admin Profile automatically on page mount
+  useEffect(() => {
+    const loadAdminProfile = async () => {
+      const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          const brgy = parsed.barangay || parsed.assigned_barangay || parsed.residential_barangay;
+          if (brgy) {
+            setAssignedBarangay(brgy);
+            return;
+          }
+        } catch (e) {
+          console.warn('Error reading local user data:', e);
+        }
+      }
+
+      try {
+        const rawToken = token || '';
+        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+        const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
+          headers: { 'Authorization': `Token ${cleanToken}` }
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          const brgy = userData.barangay || userData.assigned_barangay || userData.residential_barangay;
+          if (brgy) {
+            setAssignedBarangay(brgy);
+            localStorage.setItem('ac_user_data', JSON.stringify(userData));
+            sessionStorage.setItem(CACHE_KEY_ADMIN_PROFILE, JSON.stringify(userData));
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch admin profile:', err);
+      }
+    };
+
+    if (token) {
+      loadAdminProfile();
+    }
+  }, [token, API_BASE_URL]);
 
   // Extract category helper
   const getCategoryName = (report) => {
