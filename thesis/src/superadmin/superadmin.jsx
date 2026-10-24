@@ -7,19 +7,16 @@ import {
 
 import AdminLayout from '../components/header';
 
-// Backend Valid Choices (core/choices.py)
+// Updated Angeles Barangay Choices from image list
 export const ANGELES_BARANGAYS = [
-  "Santa Trinidad",
-  "Sta. Trinidad",
-  "San Nicolas",
-  "Lourdes NorthWest",
-  "Claro M. Recto"
+  "Agapito del Rosario",
+  "Santo Rosario",
+  "Tabun",
+  "Cutud",
+  "Ninoy Aquino"
 ];
 
-const API_BASE = 'https://api.aksyon.online';
-//const API_BASE = 'http://localhost:8000';
-
-// CACHE KEY
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 const CACHE_KEY_ADMINS = 'cache_super_admins_v1';
 
 export default function SuperAdminPage() {
@@ -66,18 +63,13 @@ export default function SuperAdminPage() {
     return admin?.contact_number || admin?.phone_number || null;
   };
 
-  // Token & Header extraction
-  const getAuthHeaders = useCallback((isJson = true) => {
+  // Token & Header extraction supporting both Token and Bearer headers
+  const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    const headers = {};
-    if (cleanToken) {
-      headers['Authorization'] = `Token ${cleanToken}`;
-    }
-    if (isJson) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return headers;
+    if (!cleanToken) return {};
+    const authPrefix = useBearer ? 'Bearer' : 'Token';
+    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, []);
 
   // 1. Fetch Administrators List
@@ -93,41 +85,38 @@ export default function SuperAdminPage() {
     setPermissionDenied(false);
 
     try {
-      // 1. First try privileged-admin endpoint
-      let res = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
-        headers: getAuthHeaders(),
-      });
+      let res = null;
+      let data = null;
 
-      if (res.status === 401) {
+      for (const useBearer of [false, true]) {
         res = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
-          headers: {
-            'Authorization': `Bearer ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: getAuthHeaders(useBearer),
         });
+
+        if (res.status === 404) {
+          res = await fetch(`${API_BASE}/api/users/admin/`, {
+            headers: getAuthHeaders(useBearer),
+          });
+        }
+
+        if (res.status === 403) {
+          setPermissionDenied(true);
+          setIsLoading(false);
+          return;
+        }
+
+        if (res.ok) {
+          data = await res.json();
+          break;
+        }
       }
 
-      // 2. Fallback to /admin/ endpoint if privileged endpoint is not used
-      if (res.status === 404) {
-        res = await fetch(`${API_BASE}/api/users/admin/`, {
-          headers: getAuthHeaders(),
-        });
+      if (!res || !res.ok) {
+        throw new Error(`Server returned ${res?.status || 'Unknown error'}`);
       }
 
-      if (res.status === 403) {
-        setPermissionDenied(true);
-        setIsLoading(false);
-        return;
-      }
-
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
-      }
-
-      const data = await res.json();
       const userList = Array.isArray(data) ? data : (data?.results || []);
 
-      // Filter: Keep standard barangay admins, EXCLUDE privileged admins / system superadmins
       const barangayAdmins = userList.filter((u) => {
         const isPrivileged =
           u.is_superuser === true ||
@@ -146,7 +135,6 @@ export default function SuperAdminPage() {
     }
   }, [navigate, getAuthHeaders, admins.length]);
 
-  // AUTOMATICALLY REFRESH ADMIN DIRECTORY EVERY TIME PAGE IS MOUNTED / REVISITED
   useEffect(() => {
     fetchAdmins();
   }, [fetchAdmins]);
@@ -198,10 +186,6 @@ export default function SuperAdminPage() {
 
     try {
       const isEdit = modalMode === 'edit';
-      const endpoint = isEdit 
-        ? `${API_BASE}/api/users/privileged-admin/${selectedAdmin.id}/` 
-        : `${API_BASE}/api/users/privileged-admin/register/`;
-      
       const payload = {
         username: formData.username,
         email: formData.email,
@@ -217,25 +201,34 @@ export default function SuperAdminPage() {
         payload.password = formData.password;
       }
 
-      let response = await fetch(endpoint, {
-        method: isEdit ? 'PATCH' : 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload)
-      });
+      let response = null;
+      for (const useBearer of [false, true]) {
+        const endpoint = isEdit 
+          ? `${API_BASE}/api/users/privileged-admin/${selectedAdmin.id}/` 
+          : `${API_BASE}/api/users/privileged-admin/register/`;
 
-      // Fallback to /api/users/admin/ if privileged endpoint isn't matched
-      if (response.status === 404) {
-        const fallbackEndpoint = isEdit 
-          ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/` 
-          : `${API_BASE}/api/users/admin/`;
-        response = await fetch(fallbackEndpoint, {
+        response = await fetch(endpoint, {
           method: isEdit ? 'PATCH' : 'POST',
-          headers: getAuthHeaders(),
+          headers: getAuthHeaders(useBearer),
           body: JSON.stringify(payload)
         });
+
+        if (response.status === 404) {
+          const fallbackEndpoint = isEdit 
+            ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/` 
+            : `${API_BASE}/api/users/admin/`;
+
+          response = await fetch(fallbackEndpoint, {
+            method: isEdit ? 'PATCH' : 'POST',
+            headers: getAuthHeaders(useBearer),
+            body: JSON.stringify(payload)
+          });
+        }
+
+        if (response.ok) break;
       }
 
-      if (!response.ok) {
+      if (!response || !response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(JSON.stringify(errorData) || 'Failed to save admin record');
       }
@@ -260,21 +253,26 @@ export default function SuperAdminPage() {
     }
 
     try {
-      let response = await fetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ is_active: !currentActiveState })
-      });
-
-      if (response.status === 404) {
-        response = await fetch(`${API_BASE}/api/users/admin/${admin.id}/`, {
+      let response = null;
+      for (const useBearer of [false, true]) {
+        response = await fetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, {
           method: 'PATCH',
-          headers: getAuthHeaders(),
+          headers: getAuthHeaders(useBearer),
           body: JSON.stringify({ is_active: !currentActiveState })
         });
+
+        if (response.status === 404) {
+          response = await fetch(`${API_BASE}/api/users/admin/${admin.id}/`, {
+            method: 'PATCH',
+            headers: getAuthHeaders(useBearer),
+            body: JSON.stringify({ is_active: !currentActiveState })
+          });
+        }
+
+        if (response.ok) break;
       }
 
-      if (response.ok) {
+      if (response && response.ok) {
         const updatedAdmins = admins.map(a => a.id === admin.id ? { ...a, is_active: !currentActiveState } : a);
         setAdmins(updatedAdmins);
         localStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(updatedAdmins));
@@ -403,7 +401,7 @@ export default function SuperAdminPage() {
                         </td>
                         <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-xs font-semibold text-gray-700 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <MapPin size={14} className="text-[#b32d2d] shrink-0" />
+                            <MapPin size={14} className="text-[#b32d2d]" />
                             <span>{brgy ? `Brgy. ${brgy}` : 'Central Command'}</span>
                           </div>
                         </td>
