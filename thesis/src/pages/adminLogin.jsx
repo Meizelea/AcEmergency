@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff } from 'lucide-react';
+import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff, LogOut } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
 
@@ -22,6 +22,37 @@ export default function AdminLogin() {
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotMessage, setForgotMessage] = useState('');
+
+  // REUSABLE LOGOUT FUNCTION
+  const handleLogout = async () => {
+    const token = localStorage.getItem('ac_token');
+
+    if (token) {
+      try {
+        const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
+        await fetch(`${API_BASE}/api/users/logout/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Token ${cleanToken}`
+          }
+        });
+      } catch (err) {
+        console.warn('Logout endpoint call error:', err);
+      }
+    }
+
+    // Clear all persistent user storage credentials
+    localStorage.removeItem('ac_token');
+    localStorage.removeItem('ac_user');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('is_superuser');
+    localStorage.removeItem('username');
+    sessionStorage.clear();
+
+    // Redirect back to login page
+    navigate('/login', { replace: true });
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -162,7 +193,7 @@ export default function AdminLogin() {
       {/* Login Card */}
       <div className="bg-[#2a2a2a] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 border border-white/10">
         {/* Header Banner */}
-        <div className="bg-[#b32d2d] p-8 text-center text-white">
+        <div className="bg-[#b32d2d] p-8 text-center text-white relative">
           <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <ShieldAlert size={32} className="text-white" />
           </div>
@@ -225,15 +256,25 @@ export default function AdminLogin() {
               </div>
             </div>
 
-            {/* Forgot Password Trigger */}
-            <div className="flex justify-end mb-6">
+            {/* Forgot Password & Quick Logout Actions */}
+            <div className="flex items-center justify-between mb-6">
+              {localStorage.getItem('ac_token') ? (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="text-xs text-red-400 hover:text-red-300 font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <LogOut size={13} /> Active Session (Logout)
+                </button>
+              ) : <span />}
+
               <button
                 type="button"
                 onClick={() => {
                   setForgotEmail(formData.email.includes('@') ? formData.email : '');
                   setIsForgotModalOpen(true);
                 }}
-                className="text-xs text-gray-400 hover:text-red-400 transition-colors cursor-pointer"
+                className="text-xs text-gray-400 hover:text-red-400 transition-colors cursor-pointer ml-auto"
               >
                 Forgot Password?
               </button>

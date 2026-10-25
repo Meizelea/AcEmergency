@@ -24,9 +24,9 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v11';
-const CACHE_KEY_UNITS = 'cache_admin_units_v1';
-const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v12';
+const CACHE_KEY_UNITS = 'cache_admin_units_v2';
+const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v10';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -61,6 +61,17 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
+
+// Mobile Model Enum Mapping Dictionary
+const CATEGORY_MAP = {
+  'road_accident': 'Road Accident',
+  'fire': 'Fire',
+  'natural_hazard': 'Flooding and Natural Hazards',
+  'medical_emergency': 'Medical Emergency',
+  'infrastructure_hazard': 'Infrastructure Hazard',
+  'public_safety': 'Public Safety Incident',
+  'other': 'Other'
+};
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -151,14 +162,28 @@ export default function ReportsPage() {
     };
   }, [token]);
 
+  // Enhanced Mobile Emergency Category Parser
   const getCategoryName = (report) => {
     if (!report) return 'General Emergency';
+    
+    let rawCategory = '';
+
     if (typeof report.category === 'object' && report.category !== null) {
-      return report.category.name || report.category.title || report.category.label || 'General Emergency';
+      rawCategory = report.category.name || report.category.title || report.category.label || report.category.code || '';
+    } else if (report.category_name) {
+      rawCategory = report.category_name;
+    } else if (report.category) {
+      rawCategory = String(report.category);
+    } else if (report.incident_type) {
+      rawCategory = String(report.incident_type);
     }
-    if (report.category_name) return report.category_name;
-    if (report.category) return String(report.category);
-    return report.short_message || report.emergency_type || 'General Emergency';
+
+    const cleanKey = rawCategory.toLowerCase().trim();
+    if (CATEGORY_MAP[cleanKey]) {
+      return CATEGORY_MAP[cleanKey];
+    }
+
+    return rawCategory || report.short_message || 'General Emergency';
   };
 
   const resolveMissingUser = async (reportId, userId) => {
@@ -313,6 +338,7 @@ export default function ReportsPage() {
     }
   }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
+  // AUTOMATIC REFRESH POLLING & FOCUS SYNC
   useEffect(() => {
     if (!token) {
       navigate('/login');
@@ -321,6 +347,20 @@ export default function ReportsPage() {
 
     fetchReports(true);
     fetchEmergencyUnits();
+
+    // Auto-refresh interval every 15 seconds
+    const interval = setInterval(() => {
+      fetchReports(true);
+    }, 15000);
+
+    // Refresh when returning to browser tab
+    const handleFocus = () => fetchReports(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [token, navigate, fetchReports, fetchEmergencyUnits]);
 
   const getNearestResponderText = (report) => {
@@ -394,7 +434,6 @@ export default function ReportsPage() {
     }
   };
 
-  // Internal function to perform the actual status update
   const executeStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
@@ -429,7 +468,6 @@ export default function ReportsPage() {
     }
   };
 
-  // Trigger confirmation dialog for updating status
   const requestStatusUpdate = (reportId, newStatus) => {
     setConfirmModal({
       isOpen: true,
@@ -469,18 +507,6 @@ export default function ReportsPage() {
     return '—';
   };
 
-  const handleSortId = () => {
-    setSortBy(prev => prev === 'id_desc' ? 'id_asc' : 'id_desc');
-  };
-
-  const handleSortTimestamp = () => {
-    setSortBy(prev => prev === 'date_desc' ? 'date_asc' : 'date_desc');
-  };
-
-  const handleSortResolvedAt = () => {
-    setSortBy(prev => prev === 'resolved_desc' ? 'resolved_asc' : 'resolved_desc');
-  };
-
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -505,13 +531,9 @@ export default function ReportsPage() {
 
     return matchedSearch && matchedStatus && matchedDate;
   }).sort((a, b) => {
-    if (sortBy === 'id_desc') return Number(b.id) - Number(a.id);
-    if (sortBy === 'id_asc') return Number(a.id) - Number(b.id);
     if (sortBy === 'date_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     if (sortBy === 'date_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
     if (sortBy === 'resolved_desc') return new Date(b.resolved_at || 0) - new Date(a.resolved_at || 0);
-    if (sortBy === 'resolved_asc') return new Date(a.resolved_at || 0) - new Date(b.resolved_at || 0);
-    if (sortBy === 'barangay_asc') return (a.barangay || '').localeCompare(b.barangay || '');
     return 0;
   });
 
@@ -538,6 +560,7 @@ export default function ReportsPage() {
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 w-full">
             
+            {/* SEARCH */}
             <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-xs w-full sm:w-64 lg:w-72 overflow-hidden">
               <Search size={18} className="text-gray-400 ml-3 shrink-0" />
               <input 
@@ -549,6 +572,7 @@ export default function ReportsPage() {
               />
             </div>
 
+            {/* STATUS FILTER */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <Filter size={14} className="text-gray-400 mr-2 shrink-0" />
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
@@ -559,36 +583,35 @@ export default function ReportsPage() {
               </select>
             </div>
 
+            {/* DATE FILTER */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <Calendar size={14} className="text-gray-400 mr-2 shrink-0" />
               <input 
                 type="date" 
                 value={filterDate} 
                 onChange={(e) => setFilterDate(e.target.value)} 
-                className="py-1.5 bg-transparent focus:outline-none cursor-pointer w-full" 
+                className="py-1.5 bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700 w-full" 
               />
               {filterDate && (
-                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" onClick={() => setFilterDate('')} />
+                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1.5 shrink-0" onClick={() => setFilterDate('')} />
               )}
             </div>
 
+            {/* SIMPLIFIED SORT DROPDOWN */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <ArrowUpDown size={14} className="text-gray-400 mr-2 shrink-0" />
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
                 <option value="date_desc">Newest First</option>
                 <option value="date_asc">Oldest First</option>
-                <option value="id_desc">ID (Highest First)</option>
-                <option value="id_asc">ID (Lowest First)</option>
-                <option value="resolved_desc">Resolved (Newest First)</option>
-                <option value="resolved_asc">Resolved (Oldest First)</option>
-                <option value="barangay_asc">Barangay (A-Z)</option>
+                <option value="resolved_desc">Recently Resolved</option>
               </select>
             </div>
 
+            {/* SYNC DATA BUTTON */}
             <button
               onClick={() => fetchReports(false)}
               disabled={isSyncing}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
               {isSyncing ? "Syncing..." : "Sync Data"}
@@ -602,59 +625,12 @@ export default function ReportsPage() {
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
-                  
-                  <th 
-                    onClick={handleSortId}
-                    className="py-3.5 px-4 sm:px-5 w-20 cursor-pointer hover:bg-gray-200/60 transition-colors"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>ID</span>
-                      {sortBy === 'id_desc' ? (
-                        <ArrowDown size={13} className="text-[#b32d2d]" />
-                      ) : sortBy === 'id_asc' ? (
-                        <ArrowUp size={13} className="text-[#b32d2d]" />
-                      ) : (
-                        <ArrowUpDown size={13} className="text-gray-400" />
-                      )}
-                    </div>
-                  </th>
-                  
-                  <th 
-                    onClick={handleSortTimestamp}
-                    className="py-3.5 px-4 sm:px-5 w-48 sm:w-52 cursor-pointer hover:bg-gray-200/60 transition-colors"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>TIMESTAMP</span>
-                      {sortBy === 'date_desc' ? (
-                        <ArrowDown size={13} className="text-[#b32d2d]" />
-                      ) : sortBy === 'date_asc' ? (
-                        <ArrowUp size={13} className="text-[#b32d2d]" />
-                      ) : (
-                        <ArrowUpDown size={13} className="text-gray-400" />
-                      )}
-                    </div>
-                  </th>
-
+                  <th className="py-3.5 px-4 sm:px-5 w-20">ID</th>
+                  <th className="py-3.5 px-4 sm:px-5 w-48 sm:w-52">TIMESTAMP</th>
                   <th className="py-3.5 px-4 sm:px-5">EMERGENCY CATEGORY</th>
                   <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">POSTER NAME</th>
                   <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
-                  
-                  <th 
-                    onClick={handleSortResolvedAt}
-                    className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap cursor-pointer hover:bg-gray-200/60 transition-colors"
-                  >
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>RESOLVED AT</span>
-                      {sortBy === 'resolved_desc' ? (
-                        <ArrowDown size={13} className="text-[#b32d2d]" />
-                      ) : sortBy === 'resolved_asc' ? (
-                        <ArrowUp size={13} className="text-[#b32d2d]" />
-                      ) : (
-                        <ArrowUpDown size={13} className="text-gray-400" />
-                      )}
-                    </div>
-                  </th>
-
+                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">RESOLVED AT</th>
                   <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
                 </tr>
               </thead>

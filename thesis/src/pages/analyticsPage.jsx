@@ -26,10 +26,21 @@ export const ANGELES_BARANGAYS = [
 
 const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899', '#6366f1'];
 
-// Bumped cache keys to force clear old session data
-const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v3';
-const CACHE_KEY_ANALYTICS_USERS = 'cache_analytics_users_v3';
-const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v3';
+// Mobile / Backend Category Mapping Dictionary
+const CATEGORY_MAP = {
+  'road_accident': 'Road Accident',
+  'fire': 'Fire',
+  'natural_hazard': 'Flooding and Natural Hazards',
+  'medical_emergency': 'Medical Emergency',
+  'infrastructure_hazard': 'Infrastructure Hazard',
+  'public_safety': 'Public Safety Incident',
+  'other': 'Other'
+};
+
+// Cache keys for session management
+const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v5';
+const CACHE_KEY_ANALYTICS_USERS = 'cache_analytics_users_v5';
+const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
@@ -66,7 +77,6 @@ export default function AnalyticsPage() {
 
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [filterBarangayOnly, setFilterBarangayOnly] = useState(false);
   const [timeRange, setTimeRange] = useState('all');
 
   const token = localStorage.getItem('ac_token');
@@ -80,7 +90,7 @@ export default function AnalyticsPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // Load Admin Profile automatically and update state dynamically
+  // Load Admin Profile automatically
   const loadAdminProfile = useCallback(async () => {
     try {
       const rawToken = token || '';
@@ -118,25 +128,17 @@ export default function AnalyticsPage() {
     loadAdminProfile();
   }, [token, navigate, loadAdminProfile]);
 
-  const getCategoryName = (report) => {
-    if (!report) return 'Uncategorized';
-    if (typeof report.category === 'object' && report.category !== null) {
-      return report.category.name || report.category.title || report.category.label || 'Uncategorized';
-    }
-    if (report.category_name) return report.category_name;
-    if (report.category) return String(report.category);
-    return 'Uncategorized';
-  };
-
+  // Strict Barangay Filtering logic
   const reports = useMemo(() => {
-    if (!filterBarangayOnly || !assignedBarangay) return rawReports;
+    if (!assignedBarangay) return rawReports;
     const targetNorm = String(assignedBarangay).toLowerCase().replace(/^sta\.\s*/, 'santa ').trim();
     return rawReports.filter(r => {
       const b = String(r.barangay || r.location || '').toLowerCase().replace(/^sta\.\s*/, 'santa ').trim();
       return b.includes(targetNorm) || targetNorm.includes(b);
     });
-  }, [rawReports, assignedBarangay, filterBarangayOnly]);
+  }, [rawReports, assignedBarangay]);
 
+  // Fetch data
   const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
@@ -184,14 +186,82 @@ export default function AnalyticsPage() {
     }
   }, [token, API_BASE_URL, getAuthHeaders, rawReports.length, loadAdminProfile]);
 
+  // AUTOMATIC REFRESH POLLING & FOCUS SYNC
   useEffect(() => {
     fetchData(true);
+
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 15000);
+
+    const handleFocus = () => fetchData(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [fetchData]);
 
-  const today = new Date().toDateString();
+  // Exact TextChoices Category Name Parsing Function
+  const getCategoryName = (report) => {
+    if (!report) return 'Other';
+
+    let rawCategory = '';
+
+    if (typeof report.category === 'object' && report.category !== null) {
+      rawCategory = report.category.name || report.category.title || report.category.label || report.category.code || '';
+    } else if (report.category_name) {
+      rawCategory = report.category_name;
+    } else if (report.category) {
+      rawCategory = String(report.category);
+    } else if (report.incident_type) {
+      rawCategory = String(report.incident_type);
+    }
+
+    const cleanKey = rawCategory.toLowerCase().trim();
+    if (CATEGORY_MAP[cleanKey]) {
+      return CATEGORY_MAP[cleanKey];
+    }
+
+    return rawCategory || 'Other';
+  };
+
+  // Filter reports strictly by chosen time range for all sub-graphs
+  const timeFilteredReports = useMemo(() => {
+    const now = new Date();
+
+    if (timeRange === 'today') {
+      const todayStr = now.toDateString();
+      return reports.filter(r => r.created_at && new Date(r.created_at).toDateString() === todayStr);
+    }
+
+    if (timeRange === '7days') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(now.getDate() - 7);
+      return reports.filter(r => r.created_at && new Date(r.created_at) >= sevenDaysAgo);
+    }
+
+    if (timeRange === 'month') {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(now.getDate() - 30);
+      return reports.filter(r => r.created_at && new Date(r.created_at) >= thirtyDaysAgo);
+    }
+
+    if (timeRange === 'year') {
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(now.getFullYear() - 1);
+      return reports.filter(r => r.created_at && new Date(r.created_at) >= oneYearAgo);
+    }
+
+    return reports; // 'all'
+  }, [reports, timeRange]);
+
+  // Today Metrics Calculations
+  const todayStr = new Date().toDateString();
   const todaysReports = useMemo(() => {
-    return reports.filter(r => r.created_at && new Date(r.created_at).toDateString() === today);
-  }, [reports, today]);
+    return reports.filter(r => r.created_at && new Date(r.created_at).toDateString() === todayStr);
+  }, [reports, todayStr]);
 
   const pendingToday = todaysReports.filter(r => {
     const s = String(r.status).toLowerCase();
@@ -208,6 +278,7 @@ export default function AnalyticsPage() {
     return s === 'resolved';
   }).length;
 
+  // Trend Chart Data
   const trendData = useMemo(() => {
     if (timeRange === 'today') {
       const hours = ['12 AM', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM'];
@@ -288,6 +359,7 @@ export default function AnalyticsPage() {
     return [];
   }, [timeRange, todaysReports, reports]);
 
+  // Hourly Data Synced to Time Filter
   const hourlyData = useMemo(() => {
     const slots = [
       { slot: 'Morning (6A-12P)', count: 0 },
@@ -296,7 +368,7 @@ export default function AnalyticsPage() {
       { slot: 'Night (12A-6A)', count: 0 }
     ];
 
-    reports.forEach(r => {
+    timeFilteredReports.forEach(r => {
       if (!r.created_at) return;
       const h = new Date(r.created_at).getHours();
       if (h >= 6 && h < 12) slots[0].count++;
@@ -306,23 +378,25 @@ export default function AnalyticsPage() {
     });
 
     return slots;
-  }, [reports]);
+  }, [timeFilteredReports]);
 
+  // Status Pie Chart Data Synced to Time Filter
   const statusPieData = useMemo(() => {
-    const p = reports.filter(r => ['pending', 'submitted'].includes(String(r.status).toLowerCase())).length;
-    const o = reports.filter(r => ['ongoing', 'responding'].includes(String(r.status).toLowerCase())).length;
-    const res = reports.filter(r => String(r.status).toLowerCase() === 'resolved').length;
+    const p = timeFilteredReports.filter(r => ['pending', 'submitted'].includes(String(r.status).toLowerCase())).length;
+    const o = timeFilteredReports.filter(r => ['ongoing', 'responding'].includes(String(r.status).toLowerCase())).length;
+    const res = timeFilteredReports.filter(r => String(r.status).toLowerCase() === 'resolved').length;
     return [
       { name: 'Pending', value: p, color: '#dc2626' },
       { name: 'Ongoing', value: o, color: '#0284c7' },
       { name: 'Resolved', value: res, color: '#16a34a' }
     ].filter(d => d.value > 0);
-  }, [reports]);
+  }, [timeFilteredReports]);
 
+  // Emergency Categories Donut Chart Data Synced to TextChoices Models
   const incidentTypeData = useMemo(() => {
     const catMap = {};
 
-    reports.forEach(r => {
+    timeFilteredReports.forEach(r => {
       const catName = getCategoryName(r);
       catMap[catName] = (catMap[catName] || 0) + 1;
     });
@@ -331,7 +405,7 @@ export default function AnalyticsPage() {
       name: catName,
       value: catMap[catName]
     })).filter(d => d.value > 0);
-  }, [reports]);
+  }, [timeFilteredReports]);
 
   return (
     <AdminLayout>
@@ -347,16 +421,10 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <button
-              onClick={() => setFilterBarangayOnly(prev => !prev)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                filterBarangayOnly 
-                  ? 'bg-blue-50 text-blue-700 border-blue-300' 
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {filterBarangayOnly ? `Filtering: Brgy. ${assignedBarangay || 'Unassigned'}` : 'Showing All Jurisdiction'}
-            </button>
+            {/* Specific Barangay Badge Header */}
+            <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-300 shadow-xs">
+              Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
+            </div>
 
             <button 
               onClick={() => {
@@ -386,7 +454,7 @@ export default function AnalyticsPage() {
             <span className="text-xs font-bold text-gray-500 block">System Reports</span>
             <div className="text-2xl font-black text-gray-900 mt-1">{reports.length}</div>
             <span className="text-[11px] text-gray-400 font-medium">
-              {filterBarangayOnly ? `Submissions in Brgy. ${assignedBarangay || 'Unassigned'}` : 'Total submissions across all areas'}
+              Submissions in Brgy. {assignedBarangay || 'Unassigned'}
             </span>
           </div>
 
@@ -406,19 +474,19 @@ export default function AnalyticsPage() {
           <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs">
             <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
             <div className="text-4xl font-black mt-2">{pendingToday}</div>
-            <span className="text-xs text-red-200 mt-1 block">Reports requiring initial triage</span>
+            <span className="text-xs text-red-100 mt-1 block font-medium">Pending Reports</span>
           </div>
 
           <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs">
             <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
             <div className="text-4xl font-black mt-2">{inProgressToday}</div>
-            <span className="text-xs text-white mt-1 block">Active responding fleet units</span>
+            <span className="text-xs text-blue-100 mt-1 block font-medium">Active Emergency Units</span>
           </div>
 
           <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
             <div className="text-4xl font-black mt-2">{resolvedToday}</div>
-            <span className="text-xs text-emerald-200 mt-1 block">Dispatches concluded today</span>
+            <span className="text-xs text-emerald-100 mt-1 block font-medium">Completed Dispatches</span>
           </div>
         </div>
 
@@ -426,8 +494,7 @@ export default function AnalyticsPage() {
         <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs mb-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
             <div>
-              <h3 className="font-bold text-base text-gray-900">Sector Report Volume Trend</h3>
-              <p className="text-xs text-gray-400">Call volume analysis</p>
+              <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
             </div>
 
             <select 
@@ -480,7 +547,7 @@ export default function AnalyticsPage() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xl font-black text-gray-900">{reports.length}</span>
+                <span className="text-xl font-black text-gray-900">{timeFilteredReports.length}</span>
                 <span className="text-[10px] uppercase font-bold text-gray-400">Total</span>
               </div>
             </div>

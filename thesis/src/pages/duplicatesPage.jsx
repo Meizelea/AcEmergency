@@ -3,11 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, AlertTriangle, ShieldCheck, MapPin, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import AdminLayout from '../components/header';
 
-
 const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE_URL = 'https://api.aksyon.online';
 //const API_BASE_URL = `http://${targetHostname}:8000`;
-const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v1';
+const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v2';
 
 // DUPLICATE DETECTION METRICS (MATCHING Django duplicate_detection.py)
 const MAX_TIME_DIFF_MINUTES = 10;
@@ -166,12 +165,26 @@ export default function DuplicatesPage() {
     setIsRefreshing(false);
   }, [getAuthHeaders, detectDuplicatesFromReports, duplicateGroups.length]);
 
+  // AUTOMATIC BACKGROUND REFRESH (15s polling & window focus listener)
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
+
     fetchDuplicates(false);
+
+    const interval = setInterval(() => {
+      fetchDuplicates(true);
+    }, 15000);
+
+    const handleFocus = () => fetchDuplicates(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [token, navigate, fetchDuplicates]);
 
   const handleResolveDuplicate = async (duplicateId, action) => {
@@ -196,7 +209,7 @@ export default function DuplicatesPage() {
               Potential Duplicate Reports
             </h1>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Automated Jaccard text similarity, spatial (haversine ≤300m), and temporal (≤10m) analysis.
+              Reports flagged as potential duplicates based on content, location, and submission time.
             </p>
           </div>
 
