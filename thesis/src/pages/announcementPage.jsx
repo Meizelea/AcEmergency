@@ -4,7 +4,7 @@ import AdminLayout from '../components/header';
 import {
   Megaphone, Plus, Search, Eye, Edit3, Trash2, X,
   Image as ImageIcon, Video, AlertCircle, CheckCircle, Loader2,
-  MapPin, FileText, RefreshCw
+  MapPin, FileText, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
@@ -29,10 +29,18 @@ export default function AnnouncementPage() {
   // Modals
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [fetchingVideo, setFetchingVideo] = useState(false);
+
+  // Confirmation Decision Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    action: null
+  });
 
   // Video URL Cache Ref
   const videoCache = useRef({});
@@ -225,8 +233,8 @@ export default function AnnouncementPage() {
     if (!patchRes.ok) throw new Error('Failed to associate media path with announcement.');
   };
 
-  const handleSubmitForm = async (e) => {
-    e.preventDefault();
+  // Internal Execution: Save or Update Announcement
+  const executeFormSubmit = async () => {
     setSubmitting(true);
     setFeedback({ error: '', success: '' });
 
@@ -276,11 +284,30 @@ export default function AnnouncementPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!selectedAnnouncement) return;
+  // Trigger Confirmation: Save or Update
+  const requestFormSubmit = (e) => {
+    e.preventDefault();
+    const isEditing = Boolean(selectedAnnouncement && selectedAnnouncement.id);
+    
+    setConfirmModal({
+      isOpen: true,
+      title: isEditing ? 'Update Announcement' : 'Publish Announcement',
+      message: isEditing 
+        ? `Are you sure you want to update the details for "${formData.title}"?`
+        : `Are you sure you want to publish the new announcement "${formData.title}"?`,
+      confirmText: isEditing ? 'Update' : 'Publish',
+      action: executeFormSubmit
+    });
+  };
+
+  // Internal Execution: Delete Announcement
+  const executeDelete = async (targetAnnouncement) => {
+    const announcementToDelete = targetAnnouncement || selectedAnnouncement;
+    if (!announcementToDelete) return;
+
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/announcements/admin/${selectedAnnouncement.id}/`, {
+      const res = await fetch(`${API_BASE}/api/announcements/admin/${announcementToDelete.id}/`, {
         method: 'DELETE',
         headers: getAuthHeaders(false),
       });
@@ -288,7 +315,6 @@ export default function AnnouncementPage() {
       if (!res.ok) throw new Error('Failed to delete announcement record.');
 
       setFeedback({ error: '', success: 'Announcement deleted successfully.' });
-      setIsDeleteModalOpen(false);
       setIsDetailModalOpen(false);
       setSelectedAnnouncement(null);
       fetchAnnouncements(true);
@@ -297,6 +323,20 @@ export default function AnnouncementPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Trigger Confirmation: Delete Announcement
+  const requestDelete = (announcement) => {
+    const target = announcement || selectedAnnouncement;
+    if (!target) return;
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Announcement',
+      message: `Are you sure you want to remove "${target.title}"? This action cannot be reversed.`,
+      confirmText: 'Delete Announcement',
+      action: () => executeDelete(target)
+    });
   };
 
   return (
@@ -432,9 +472,16 @@ export default function AnnouncementPage() {
                           <button
                             onClick={() => handleOpenForm(item)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
-                            title="Edit"
+                            title="Edit Announcement"
                           >
                             <Edit3 size={13} />
+                          </button>
+                          <button
+                            onClick={() => requestDelete(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                            title="Delete Announcement"
+                          >
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>
@@ -475,8 +522,7 @@ export default function AnnouncementPage() {
                   </button>
                   <button
                     onClick={() => {
-                      setIsDetailModalOpen(false);
-                      setIsDeleteModalOpen(true);
+                      requestDelete(selectedAnnouncement);
                     }}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-[#b32d2d] transition-colors cursor-pointer"
                   >
@@ -575,7 +621,7 @@ export default function AnnouncementPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmitForm} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
+              <form onSubmit={requestFormSubmit} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
                     Announcement Title
@@ -633,7 +679,7 @@ export default function AnnouncementPage() {
                     className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#b32d2d] hover:bg-[#962626] transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     {submitting && <Loader2 className="animate-spin" size={14} />}
-                    {selectedAnnouncement ? 'Update Announcement' : 'Broadcast Advisory'}
+                    {selectedAnnouncement ? 'Update Announcement' : 'Post Announcement'}
                   </button>
                 </div>
               </form>
@@ -641,37 +687,46 @@ export default function AnnouncementPage() {
           </div>
         )}
 
-        {/* Modal: Delete Confirmation */}
-        {isDeleteModalOpen && selectedAnnouncement && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4">
-            <div className="bg-white max-w-sm w-full p-6 rounded-2xl shadow-xl text-center my-auto">
-              <div className="w-12 h-12 rounded-full bg-red-100 text-[#b32d2d] flex items-center justify-center mx-auto mb-3">
-                <Trash2 size={22} />
-              </div>
-              <h4 className="text-base font-bold text-gray-900 mb-1">Delete Announcement</h4>
-              <p className="text-xs text-gray-500 mb-5">
-                Are you sure you want to remove <span className="font-semibold text-gray-800">"{selectedAnnouncement.title}"</span>? This action cannot be reversed.
-              </p>
-              <div className="flex justify-center gap-2">
-                <button
-                  onClick={() => setIsDeleteModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 font-bold text-xs hover:bg-gray-200 transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-xl bg-[#b32d2d] text-white font-bold text-xs hover:bg-[#962626] transition-all cursor-pointer"
-                >
-                  Confirm Delete
-                </button>
-              </div>
+      </div>
+
+      {/* CONFIRMATION DECISION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
+              <AlertTriangle size={28} />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              {confirmModal.title}
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center gap-2 w-full">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={() => {
+                  if (confirmModal.action) confirmModal.action();
+                  setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                {confirmModal.confirmText}
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
     </AdminLayout>
   );
 }

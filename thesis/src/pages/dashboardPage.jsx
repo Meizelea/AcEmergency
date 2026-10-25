@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { AlertTriangle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -96,6 +97,15 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentAdminBarangay, setCurrentAdminBarangay] = useState('');
+
+  // Confirmation Decision Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    action: null
+  });
 
   const token = localStorage.getItem('ac_token');
 
@@ -284,7 +294,8 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [token, navigate, fetchDashboardData]);
 
-  const handleStatusUpdate = async (reportId, newStatus) => {
+  // Internal function that performs the actual network call to update status
+  const executeStatusUpdate = async (reportId, newStatus) => {
     const rawTargetStatus = newStatus.toLowerCase().trim();
     
     const payload = { status: rawTargetStatus };
@@ -311,6 +322,21 @@ export default function DashboardPage() {
         console.error("Failed to execute status update network call:", error);
       }
     }
+  };
+
+  // Trigger confirmation dialog when user clicks a status button
+  const handleStatusUpdate = (reportId, newStatus) => {
+    const targetReport = reports.find(r => r.id === reportId);
+    const currentStatus = targetReport?.status ? String(targetReport.status).toLowerCase().trim() : '';
+    if (currentStatus === newStatus.toLowerCase().trim()) return;
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Update Report Status',
+      message: `Are you sure you want to change the status of Report #${reportId} to "${newStatus}"?`,
+      confirmText: 'Update Status',
+      action: () => executeStatusUpdate(reportId, newStatus)
+    });
   };
 
   if (!token) {
@@ -595,6 +621,45 @@ export default function DashboardPage() {
         </section>
 
       </main>
+
+      {/* CONFIRMATION DECISION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
+              <AlertTriangle size={28} />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              {confirmModal.title}
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center gap-2 w-full">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={() => {
+                  if (confirmModal.action) confirmModal.action();
+                  setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                {confirmModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </AdminLayout>
   );
 }

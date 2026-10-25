@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2 } from 'lucide-react';
+import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
 
@@ -11,6 +11,7 @@ const API_BASE = 'https://api.aksyon.online';
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -201,18 +202,26 @@ export default function AdminLogin() {
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
                 Password
               </label>
-              <div className="flex items-center bg-[#1f1f1f] border border-gray-700 rounded-lg overflow-hidden focus-within:border-[#b32d2d] transition-colors">
+              <div className="flex items-center bg-[#1f1f1f] border border-gray-700 rounded-lg overflow-hidden focus-within:border-[#b32d2d] transition-colors pr-3">
                 <div className="pl-4 text-gray-500">
                   <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
                   className="w-full p-3 text-gray-200 bg-transparent focus:outline-none text-sm"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-gray-500 hover:text-gray-300 transition-colors focus:outline-none cursor-pointer"
+                  tabIndex="-1"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 

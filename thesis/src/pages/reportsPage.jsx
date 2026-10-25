@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, ArrowUp, ArrowDown, User, Clock, CheckCircle2, RefreshCw
+  Calendar, ArrowUpDown, ArrowUp, ArrowDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -90,7 +90,6 @@ export default function ReportsPage() {
     const cached = sessionStorage.getItem(CACHE_KEY_USERS_MAP);
     const existingMap = cached ? JSON.parse(cached) : {};
 
-    // Eagerly pre-populate users map from initial cached reports
     const cachedReports = sessionStorage.getItem(CACHE_KEY_REPORTS);
     if (cachedReports) {
       try {
@@ -117,12 +116,20 @@ export default function ReportsPage() {
   // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('Pending'); 
-  const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
   const [filterDate, setFilterDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    action: null
+  });
 
   // Video URL Cache
   const videoCache = useRef({});
@@ -184,18 +191,15 @@ export default function ReportsPage() {
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
 
-    // 1. Direct embedded object/string check
     const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
     const resolvedFromObj = resolveUserDisplayName(userObj);
     if (resolvedFromObj) return resolvedFromObj;
 
-    // 2. Direct properties on report object
     const flatFirstLast = `${report.first_name || ''} ${report.last_name || ''}`.trim();
     if (flatFirstLast) return flatFirstLast;
     if (report.reporter_name) return report.reporter_name;
     if (report.username) return report.username;
 
-    // 3. Check memory/session usersMap cache
     const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
       ? report.user 
       : (report.user_id || report.user?.id);
@@ -203,7 +207,6 @@ export default function ReportsPage() {
     if (usersMap[report.id]) return usersMap[report.id];
     if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
 
-    // 4. Trigger async missing user resolution if unmapped
     if (report.id && !usersMap[report.id] && (!rawUserId || !usersMap[rawUserId])) {
       resolveMissingUser(report.id, rawUserId);
     }
@@ -283,7 +286,6 @@ export default function ReportsPage() {
         const rawList = Array.isArray(data) ? data : (data?.results || []);
         const sorted = rawList.sort((a, b) => b.id - a.id);
 
-        // Populate usersMap from fresh report objects immediately
         setUsersMap(prev => {
           const updated = { ...prev };
           sorted.forEach(r => {
@@ -392,7 +394,8 @@ export default function ReportsPage() {
     }
   };
 
-  const handleStatusUpdate = async (reportId, newStatus) => {
+  // Internal function to perform the actual status update
+  const executeStatusUpdate = async (reportId, newStatus) => {
     try {
       const statusDatabaseMap = {
         'Pending': 'pending',      
@@ -424,6 +427,17 @@ export default function ReportsPage() {
     } catch (error) {
       console.error("Failed to execute status update:", error);
     }
+  };
+
+  // Trigger confirmation dialog for updating status
+  const requestStatusUpdate = (reportId, newStatus) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Update Report Status',
+      message: `Are you sure you want to change the status of Report #${reportId} to "${newStatus}"?`,
+      confirmText: 'Update Status',
+      action: () => executeStatusUpdate(reportId, newStatus)
+    });
   };
 
   if (!token) {
@@ -467,10 +481,6 @@ export default function ReportsPage() {
     setSortBy(prev => prev === 'resolved_desc' ? 'resolved_asc' : 'resolved_desc');
   };
 
-  const uniqueBarangays = Array.from(
-    new Set(reports.map(r => r.barangay || r.location).filter(Boolean))
-  );
-
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -487,18 +497,13 @@ export default function ReportsPage() {
     else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
 
-    let matchedBarangay = true;
-    if (selectedBarangayFilter !== 'ALL') {
-      matchedBarangay = barangayText === selectedBarangayFilter.toLowerCase();
-    }
-
     let matchedDate = true;
     if (filterDate && report.created_at) {
       const reportDate = new Date(report.created_at).toISOString().split('T')[0];
       matchedDate = reportDate === filterDate;
     }
 
-    return matchedSearch && matchedStatus && matchedBarangay && matchedDate;
+    return matchedSearch && matchedStatus && matchedDate;
   }).sort((a, b) => {
     if (sortBy === 'id_desc') return Number(b.id) - Number(a.id);
     if (sortBy === 'id_asc') return Number(a.id) - Number(b.id);
@@ -551,16 +556,6 @@ export default function ReportsPage() {
                 <option value="Pending">Pending</option>
                 <option value="Ongoing">Ongoing</option>
                 <option value="Resolved">Resolved</option>
-              </select>
-            </div>
-
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <MapPin size={14} className="text-gray-400 mr-2 shrink-0" />
-              <select value={selectedBarangayFilter} onChange={(e) => setSelectedBarangayFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
-                <option value="ALL">All Barangays</option>
-                {uniqueBarangays.map(brgy => (
-                  <option key={brgy} value={brgy}>{brgy}</option>
-                ))}
               </select>
             </div>
 
@@ -722,7 +717,7 @@ export default function ReportsPage() {
                         <td className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={displayLabel}
-                            onChange={(e) => handleStatusUpdate(report.id, e.target.value)}
+                            onChange={(e) => requestStatusUpdate(report.id, e.target.value)}
                             className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${
                               displayLabel === 'Pending' 
                                 ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
@@ -774,7 +769,7 @@ export default function ReportsPage() {
                     String(selectedReport.status).toLowerCase() === 'ongoing' ? 'Ongoing' :
                     String(selectedReport.status).toLowerCase() === 'resolved' ? 'Resolved' : 'Pending'
                   }
-                  onChange={(e) => handleStatusUpdate(selectedReport.id, e.target.value)}
+                  onChange={(e) => requestStatusUpdate(selectedReport.id, e.target.value)}
                   className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white outline-none cursor-pointer focus:border-[#b32d2d]"
                 >
                   <option value="Pending">PENDING</option>
@@ -958,6 +953,44 @@ export default function ReportsPage() {
 
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION DECISION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
+              <AlertTriangle size={28} />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              {confirmModal.title}
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center gap-2 w-full">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={() => {
+                  if (confirmModal.action) confirmModal.action();
+                  setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                {confirmModal.confirmText}
+              </button>
+            </div>
           </div>
         </div>
       )}

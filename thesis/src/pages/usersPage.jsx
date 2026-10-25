@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Users, Search, Mail, X, Eye, UserCircle, Phone, 
   MapPin, CheckCircle, XCircle, Trash2, AlertCircle, 
-  Filter, Flag, RefreshCw
+  Filter, Flag, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -36,6 +36,15 @@ export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [notificationMsg, setNotificationMsg] = useState('');
+
+  // Confirmation Decision Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    action: null
+  });
 
   const token = localStorage.getItem('ac_token');
   const targetHostname = window.location.hostname || '127.0.0.1';
@@ -138,16 +147,11 @@ export default function UsersPage() {
     setIsModalOpen(true);
   };
 
-  // 2. FUNCTIONAL DISABLE & ENABLE ACCOUNT (TOGGLE IS_ACTIVE TRUE/FALSE)
-  const handleToggleUserStatus = async () => {
+  // Internal execution logic for account status toggling
+  const executeToggleUserStatus = async () => {
     if (!selectedUser) return;
     const currentActiveState = selectedUser.is_active ?? true;
     const targetState = !currentActiveState;
-    const actionText = currentActiveState ? 'disable' : 'activate';
-
-    if (!window.confirm(`Are you sure you want to ${actionText} the account for @${selectedUser.username}?`)) {
-      return;
-    }
 
     // Optimistic UI Update
     const updatedUser = { ...selectedUser, is_active: targetState };
@@ -195,16 +199,44 @@ export default function UsersPage() {
     }
   };
 
-  const handleReportUserPlaceholder = () => {
+  // Trigger confirmation dialog for toggling account status
+  const requestToggleUserStatus = () => {
+    if (!selectedUser) return;
+    const currentActiveState = selectedUser.is_active ?? true;
+    const actionText = currentActiveState ? 'disable' : 'activate';
+
+    setConfirmModal({
+      isOpen: true,
+      title: `${currentActiveState ? 'Disable' : 'Activate'} Account`,
+      message: `Are you sure you want to ${actionText} the account for @${selectedUser.username}?`,
+      confirmText: `${currentActiveState ? 'Disable Account' : 'Activate Account'}`,
+      action: executeToggleUserStatus
+    });
+  };
+
+  // Internal execution logic for reporting a citizen
+  const executeReportUser = () => {
     if (!selectedUser) return;
     setNotificationMsg(`Report flagged for @${selectedUser.username}. (Backend integration pending)`);
+  };
+
+  // Trigger confirmation dialog for reporting a user
+  const requestReportUser = () => {
+    if (!selectedUser) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Flag / Report Citizen',
+      message: `Are you sure you want to flag and register an administrative report against @${selectedUser.username}?`,
+      confirmText: 'Report Citizen',
+      action: executeReportUser
+    });
   };
 
   return (
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] relative flex flex-col">
         
-        {/* CONTROLS & FILTER HEADER (SCALABLE & RESPONSIVE) */}
+        {/* CONTROLS & FILTER HEADER */}
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full lg:w-auto">
             
@@ -247,7 +279,7 @@ export default function UsersPage() {
           </div>
         </div>
 
-        {/* MASTER DIRECTORY TABLE (RESPONSIVE SCROLL CONTAINER) */}
+        {/* MASTER DIRECTORY TABLE */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
           <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-3">
@@ -325,7 +357,7 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* USER FILE MODAL (RESPONSIVE SCALING) */}
+      {/* USER FILE MODAL */}
       {isModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden border border-gray-100 my-8">
@@ -416,14 +448,14 @@ export default function UsersPage() {
               {/* ACTION BUTTONS */}
               <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-gray-100">
                 <button 
-                  onClick={handleReportUserPlaceholder}
+                  onClick={requestReportUser}
                   className="flex-1 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs uppercase tracking-tight rounded-lg border border-amber-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-xs"
                 >
                   <Flag size={14} className="text-amber-600" /> Report Citizen
                 </button>
                 
                 <button 
-                  onClick={handleToggleUserStatus}
+                  onClick={requestToggleUserStatus}
                   className={`flex-1 py-2.5 font-bold text-xs uppercase tracking-tight rounded-lg border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-xs ${
                     (selectedUser.is_active ?? true)
                       ? 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'
@@ -441,6 +473,44 @@ export default function UsersPage() {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION DECISION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
+              <AlertTriangle size={28} />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              {confirmModal.title}
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center gap-2 w-full">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={() => {
+                  if (confirmModal.action) confirmModal.action();
+                  setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                {confirmModal.confirmText}
+              </button>
             </div>
           </div>
         </div>
