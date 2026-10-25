@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
@@ -8,7 +8,8 @@ import {
   Loader2,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  CheckCircle2
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -24,9 +25,17 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v12';
 
-// CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v10';
+const CATEGORY_MAP = {
+  'road_accident': 'Road Accident',
+  'fire': 'Fire',
+  'natural_hazard': 'Flooding and Natural Hazards',
+  'medical_emergency': 'Medical Emergency',
+  'infrastructure_hazard': 'Infrastructure Hazard',
+  'public_safety': 'Public Safety Incident',
+  'other': 'Other'
+};
 
 const barangayCoordsFallback = {
   'Balibago': [15.16727, 120.58543],
@@ -66,6 +75,10 @@ export default function EmergencyUnitsPage() {
   const [matrixData, setMatrixData] = useState([]);
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   
+  // Track IDs of reports that have completed their 8-second grace period
+  const [expiredResolvedIds, setExpiredResolvedIds] = useState(new Set());
+  const activeTimersRef = useRef(new Map());
+
   // Sorting State ('id_desc', 'id_asc', 'dist_asc', 'dist_desc')
   const [sortBy, setSortBy] = useState('id_desc');
 
@@ -83,13 +96,25 @@ export default function EmergencyUnitsPage() {
   }, [token]);
 
   const getCategoryName = (report) => {
-    if (!report) return 'General Emergency';
+    if (!report) return 'Other';
+    let rawCat = '';
+
     if (typeof report.category === 'object' && report.category !== null) {
-      return report.category.name || report.category.title || report.category.label || 'General Emergency';
+      rawCat = report.category.name || report.category.title || report.category.label || report.category.code || '';
+    } else if (report.category_name) {
+      rawCat = report.category_name;
+    } else if (report.category) {
+      rawCat = String(report.category);
+    } else if (report.emergency_type) {
+      rawCat = String(report.emergency_type);
     }
-    if (report.category_name) return report.category_name;
-    if (report.category) return String(report.category);
-    return report.short_message || report.emergency_type || 'General Emergency';
+
+    const cleanKey = rawCat.toLowerCase().trim();
+    if (CATEGORY_MAP[cleanKey]) {
+      return CATEGORY_MAP[cleanKey];
+    }
+
+    return rawCat || report.short_message || 'Other';
   };
 
   const fetchReports = useCallback(async () => {
@@ -101,8 +126,7 @@ export default function EmergencyUnitsPage() {
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data?.results || []);
-          const activeOnly = list.filter(r => r && String(r.status).toLowerCase() !== 'resolved');
-          setRawReports(activeOnly);
+          setRawReports(list);
           sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(list));
           return;
         }
@@ -122,22 +146,67 @@ export default function EmergencyUnitsPage() {
     setIsLoading(false);
   }, [token, navigate, fetchReports, rawReports.length]);
 
-  // AUTOMATICALLY REFRESH TELEMETRY DATA EVERY TIME PAGE IS VISITED / REVISITED
+  // AUTOMATIC POLLING REFRESH (15s interval)
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
+
     synchronizeData(true);
+
+    const interval = setInterval(() => {
+      synchronizeData(true);
+    }, 15000);
+
+    const handleFocus = () => synchronizeData(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [token, navigate, synchronizeData]);
 
+  // 8-SECOND TIMER FOR RESOLVED REPORTS DISAPPEARANCE
+  useEffect(() => {
+    rawReports.forEach((report) => {
+      const isResolved = String(report.status || '').toLowerCase() === 'resolved';
+      
+      if (isResolved && !activeTimersRef.current.has(report.id) && !expiredResolvedIds.has(report.id)) {
+        // Start 8-second timer to hide resolved report
+        const timer = setTimeout(() => {
+          setExpiredResolvedIds(prev => new Set([...prev, report.id]));
+          activeTimersRef.current.delete(report.id);
+        }, 8000);
+
+        activeTimersRef.current.set(report.id, timer);
+      }
+    });
+  }, [rawReports, expiredResolvedIds]);
+
+  // CLEANUP TIMERS ON UNMOUNT
+  useEffect(() => {
+    return () => {
+      activeTimersRef.current.forEach(timer => clearTimeout(timer));
+    };
+  }, []);
+
+  // MATRIX DATA CALCULATION (FILTER OUT RESOLVED REPORTS AFTER 8 SECONDS)
   useEffect(() => {
     if (rawReports.length === 0) {
       setMatrixData([]);
       return;
     }
 
-    const calculated = rawReports.map((report) => {
+    const visibleReports = rawReports.filter(report => {
+      const isResolved = String(report.status || '').toLowerCase() === 'resolved';
+      if (!isResolved) return true;
+      // Show resolved report only while within its 8-second grace window
+      return !expiredResolvedIds.has(report.id);
+    });
+
+    const calculated = visibleReports.map((report) => {
       let brgy = report.barangay || report.location || 'San Nicolas';
       let reportLat = parseFloat(report.latitude);
       let reportLng = parseFloat(report.longitude);
@@ -169,12 +238,14 @@ export default function EmergencyUnitsPage() {
         lat: reportLat,
         lng: reportLng,
         nearest_responder: String(matchedBaseName),
-        distance_km: shortestDistance
+        distance_km: shortestDistance,
+        status: report.status,
+        isResolved: String(report.status || '').toLowerCase() === 'resolved'
       };
     });
 
     setMatrixData(calculated);
-  }, [rawReports]);
+  }, [rawReports, expiredResolvedIds]);
 
   // Click Handlers for Sort Toggles
   const toggleSortId = () => {
@@ -205,8 +276,8 @@ export default function EmergencyUnitsPage() {
               <ShieldAlert size={22} />
             </div>
             <div>
-              <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Tactical Responder Telemetry</h2>
-              <p className="text-xs text-gray-500 font-medium">Read-only view of active emergency dispatch routing and unit telemetry</p>
+              <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Emergency Unit Dispatch</h2>
+              <p className="text-xs text-gray-500 font-medium">View recommended responders based on incident location and proximity.</p>
             </div>
           </div>
 
@@ -223,8 +294,11 @@ export default function EmergencyUnitsPage() {
         {/* DISPATCH MATRIX TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
           <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gray-50/50 flex flex-wrap justify-between items-center gap-2 shrink-0">
-            <h3 className="font-bold text-sm sm:text-base text-gray-900">Proximity Dispatch Matrix</h3>
-            <span className="text-xs text-gray-400 font-bold">{sortedMatrixData.length} Incidents Pending Dispatch</span>
+            <h3 className="font-bold text-sm sm:text-base text-gray-900">Nearest Responders or Dispatch Recommendations</h3>
+            {/* BOLD COUNTER */}
+            <span className="text-xs text-gray-900 font-black">
+              {sortedMatrixData.length} Incidents Pending Dispatch
+            </span>
           </div>
 
           <div className="overflow-x-auto flex-1">
@@ -289,10 +363,27 @@ export default function EmergencyUnitsPage() {
                   </tr>
                 ) : (
                   sortedMatrixData.map((row) => (
-                    <tr key={row.report_id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-500">#{row.report_id}</td>
+                    <tr 
+                      key={row.report_id} 
+                      className={`transition-all duration-500 ${
+                        row.isResolved 
+                          ? 'bg-emerald-50/60 hover:bg-emerald-100/60 opacity-80' 
+                          : 'hover:bg-gray-50/80'
+                      }`}
+                    >
+                      <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-500">
+                        #{row.report_id}
+                        {row.isResolved && (
+                          <span className="block text-[9px] text-emerald-700 font-black uppercase tracking-tight">
+                            Resolving (8s)
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800 max-w-xs truncate" title={row.category}>
-                        {row.category}
+                        <div className="flex items-center gap-1.5">
+                          {row.isResolved && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
+                          <span>{row.category}</span>
+                        </div>
                       </td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800">

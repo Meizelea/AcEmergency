@@ -103,14 +103,27 @@ export default function AnnouncementPage() {
     }
   }, [getAuthHeaders, announcements.length]);
 
-  // AUTOMATICALLY REFRESH ANNOUNCEMENTS EVERY TIME PAGE IS MOUNTED / REVISITED
+  // AUTOMATIC REFRESH AND POLLING (15s interval + Window Focus sync)
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
     if (!token) {
       navigate('/login');
       return;
     }
+
     fetchAnnouncements(true);
+
+    const interval = setInterval(() => {
+      fetchAnnouncements(true);
+    }, 15000);
+
+    const handleFocus = () => fetchAnnouncements(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [navigate, fetchAnnouncements]);
 
   const filteredAnnouncements = useMemo(() => {
@@ -395,7 +408,8 @@ export default function AnnouncementPage() {
                 Public Announcements Directory
               </h2>
             </div>
-            <span className="text-xs font-medium text-gray-400">
+            {/* BOLD COUNTER */}
+            <span className="text-xs font-black text-gray-900">
               {filteredAnnouncements.length} Enrolled Bulletins
             </span>
           </div>
@@ -403,7 +417,8 @@ export default function AnnouncementPage() {
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold text-gray-400 uppercase tracking-wider select-none">
+                {/* BOLD TABLE HEADERS */}
+                <tr className="border-b border-gray-200 bg-gray-50/50 text-xs font-black text-gray-900 uppercase tracking-wider select-none">
                   <th className="py-3.5 px-4 sm:px-6 w-16">ID</th>
                   <th className="py-3.5 px-4 sm:px-6">ANNOUNCEMENT DETAILS</th>
                   <th className="py-3.5 px-4 sm:px-6">ASSIGNED BARANGAY</th>
@@ -415,7 +430,7 @@ export default function AnnouncementPage() {
               <tbody className="divide-y divide-gray-100 text-xs text-gray-600">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="py-12 text-center text-gray-400">
+                    <td colSpan="6" className="py-12 text-center text-gray-400 font-bold">
                       <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
                       Loading announcement records...
                     </td>
@@ -429,17 +444,17 @@ export default function AnnouncementPage() {
                 ) : (
                   filteredAnnouncements.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50/75 transition-colors">
-                      <td className="py-4 px-4 sm:px-6 font-semibold text-gray-400">
+                      <td className="py-4 px-4 sm:px-6 font-bold text-gray-500">
                         #{item.id}
                       </td>
                       <td className="py-4 px-4 sm:px-6 max-w-sm">
-                        <div className="font-bold text-gray-800 text-sm">{item.title}</div>
-                        <div className="text-gray-400 text-xs line-clamp-1 mt-0.5">
+                        <div className="font-bold text-gray-900 text-sm">{item.title}</div>
+                        <div className="text-gray-500 text-xs line-clamp-1 mt-0.5 font-medium">
                           {item.content}
                         </div>
                       </td>
                       <td className="py-4 px-4 sm:px-6">
-                        <span className="flex items-center gap-1.5 text-gray-600 font-medium">
+                        <span className="flex items-center gap-1.5 text-gray-800 font-bold">
                           <MapPin size={14} className="text-red-500 shrink-0" />
                           {item.barangay ? `Brgy. ${item.barangay}` : 'Brgy. Not Specified'}
                         </span>
@@ -454,24 +469,24 @@ export default function AnnouncementPage() {
                             <Video size={12} /> Video
                           </span>
                         ) : (
-                          <span className="text-gray-300 text-[11px] font-medium">—</span>
+                          <span className="text-gray-400 text-[11px] font-bold">—</span>
                         )}
                       </td>
-                      <td className="py-4 px-4 sm:px-6 text-gray-500">
+                      <td className="py-4 px-4 sm:px-6 text-gray-700 font-bold">
                         {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="py-4 px-4 sm:px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenDetail(item)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                           >
                             <Eye size={13} />
                             VIEW FILE
                           </button>
                           <button
                             onClick={() => handleOpenForm(item)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                             title="Edit Announcement"
                           >
                             <Edit3 size={13} />
