@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
 import { 
   User, 
@@ -16,7 +17,8 @@ import {
   X,
   Eye,
   EyeOff,
-  RefreshCw
+  RefreshCw,
+  LogOut
 } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
@@ -25,6 +27,8 @@ const API_BASE = 'https://api.aksyon.online';
 const CACHE_KEY_PROFILE = 'cache_admin_profile_v2';
 
 export default function AdminProfilePage() {
+  const navigate = useNavigate();
+
   const [profile, setProfile] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_PROFILE);
     if (cached) return JSON.parse(cached);
@@ -72,6 +76,36 @@ export default function AdminProfilePage() {
     return cleanToken 
       ? { 'Authorization': `Token ${cleanToken}`, 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/json' };
+  };
+
+  // LOGOUT WORKFLOW FUNCTION
+  const handleLogout = async () => {
+    const token = localStorage.getItem('ac_token');
+    if (token) {
+      try {
+        const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
+        await fetch(`${API_BASE}/api/users/logout/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Token ${cleanToken}`
+          }
+        });
+      } catch (err) {
+        console.warn('Logout endpoint diagnostic failure:', err);
+      }
+    }
+
+    // Clear all persistent user storage credentials
+    localStorage.removeItem('ac_token');
+    localStorage.removeItem('ac_user');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('is_superuser');
+    localStorage.removeItem('username');
+    sessionStorage.clear();
+
+    // Redirect to login page
+    navigate('/login', { replace: true });
   };
 
   const syncProfileState = (userObj) => {
@@ -275,7 +309,7 @@ export default function AdminProfilePage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => {
                 sessionStorage.removeItem(CACHE_KEY_PROFILE);
@@ -284,6 +318,13 @@ export default function AdminProfilePage() {
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <LogOut size={14} /> Logout
             </button>
 
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold shadow-xs">
@@ -358,6 +399,14 @@ export default function AdminProfilePage() {
                 </span>
               </div>
             </div>
+
+            {/* Card Bottom Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="mt-4 w-full py-2 bg-red-50 hover:bg-red-100 text-[#b32d2d] border border-red-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+            >
+              <LogOut size={14} /> Terminate Session (Logout)
+            </button>
           </div>
 
           {/* Top Right: Officer Profile Information Form */}
