@@ -320,13 +320,6 @@ export default function AdminProfilePage() {
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
             </button>
 
-            <button
-              onClick={handleLogout}
-              className="bg-[#b32d2d] hover:bg-[#8b2323] text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
-            >
-              <LogOut size={14} /> Logout
-            </button>
-
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold shadow-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               COMMAND POST AUTHENTICATED
