@@ -77,6 +77,9 @@ export default function EmergencyUnitsPage() {
   
   // Track IDs of reports that have completed their 8-second grace period
   const [expiredResolvedIds, setExpiredResolvedIds] = useState(new Set());
+  
+  // Ref to track when each report was first detected as resolved
+  const resolvedTimestampsRef = useRef(new Map());
   const activeTimersRef = useRef(new Map());
 
   // Sorting State ('id_desc', 'id_asc', 'dist_asc', 'dist_desc')
@@ -168,22 +171,38 @@ export default function EmergencyUnitsPage() {
     };
   }, [token, navigate, synchronizeData]);
 
-  // 8-SECOND TIMER FOR RESOLVED REPORTS DISAPPEARANCE
+  // ACCURATE 8-SECOND TIMER FOR RESOLVED REPORTS DISAPPEARANCE
   useEffect(() => {
+    const now = Date.now();
+
     rawReports.forEach((report) => {
       const isResolved = String(report.status || '').toLowerCase() === 'resolved';
       
-      if (isResolved && !activeTimersRef.current.has(report.id) && !expiredResolvedIds.has(report.id)) {
-        // Start 8-second timer to hide resolved report
-        const timer = setTimeout(() => {
-          setExpiredResolvedIds(prev => new Set([...prev, report.id]));
-          activeTimersRef.current.delete(report.id);
-        }, 8000);
+      if (isResolved) {
+        // Record initial resolved time if not present
+        if (!resolvedTimestampsRef.current.has(report.id)) {
+          resolvedTimestampsRef.current.set(report.id, now);
+        }
 
-        activeTimersRef.current.set(report.id, timer);
+        const firstResolvedAt = resolvedTimestampsRef.current.get(report.id);
+        const elapsed = now - firstResolvedAt;
+
+        if (elapsed >= 8000) {
+          // Grace period already passed, mark as expired immediately
+          setExpiredResolvedIds(prev => new Set(prev).add(report.id));
+        } else if (!activeTimersRef.current.has(report.id)) {
+          // Schedule remaining grace period time
+          const remainingTime = 8000 - elapsed;
+          const timer = setTimeout(() => {
+            setExpiredResolvedIds(prev => new Set(prev).add(report.id));
+            activeTimersRef.current.delete(report.id);
+          }, remainingTime);
+
+          activeTimersRef.current.set(report.id, timer);
+        }
       }
     });
-  }, [rawReports, expiredResolvedIds]);
+  }, [rawReports]);
 
   // CLEANUP TIMERS ON UNMOUNT
   useEffect(() => {
@@ -192,7 +211,7 @@ export default function EmergencyUnitsPage() {
     };
   }, []);
 
-  // MATRIX DATA CALCULATION (FILTER OUT RESOLVED REPORTS AFTER 8 SECONDS)
+  // MATRIX DATA CALCULATION (EXCLUDE RESOLVED REPORTS AFTER 8 SECONDS)
   useEffect(() => {
     if (rawReports.length === 0) {
       setMatrixData([]);
@@ -202,7 +221,7 @@ export default function EmergencyUnitsPage() {
     const visibleReports = rawReports.filter(report => {
       const isResolved = String(report.status || '').toLowerCase() === 'resolved';
       if (!isResolved) return true;
-      // Show resolved report only while within its 8-second grace window
+      // Exclude report completely if it is in expiredResolvedIds
       return !expiredResolvedIds.has(report.id);
     });
 
@@ -297,7 +316,7 @@ export default function EmergencyUnitsPage() {
             <h3 className="font-bold text-sm sm:text-base text-gray-900">Nearest Responders or Dispatch Recommendations</h3>
             {/* BOLD COUNTER */}
             <span className="text-xs text-gray-900 font-black">
-              {sortedMatrixData.length} Incidents Pending Dispatch
+              {sortedMatrixData.filter(r => !r.isResolved).length} Incidents Pending Dispatch
             </span>
           </div>
 
