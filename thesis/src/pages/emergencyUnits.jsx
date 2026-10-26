@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
@@ -8,8 +8,7 @@ import {
   Loader2,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown,
-  CheckCircle2
+  ArrowDown
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -67,20 +66,16 @@ const barangayCoordsFallback = {
 export default function EmergencyUnitsPage() {
   const navigate = useNavigate();
 
+  // Filter out any cached resolved reports right on initialization
   const [rawReports, setRawReports] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_REPORTS);
-    return cached ? JSON.parse(cached) : [];
+    if (!cached) return [];
+    const list = JSON.parse(cached);
+    return list.filter(r => String(r.status || '').toLowerCase() !== 'resolved');
   });
 
   const [matrixData, setMatrixData] = useState([]);
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
-  
-  // Track IDs of reports that have completed their 8-second grace period
-  const [expiredResolvedIds, setExpiredResolvedIds] = useState(new Set());
-  
-  // Ref to track when each report was first detected as resolved
-  const resolvedTimestampsRef = useRef(new Map());
-  const activeTimersRef = useRef(new Map());
 
   // Sorting State ('id_desc', 'id_asc', 'dist_asc', 'dist_desc')
   const [sortBy, setSortBy] = useState('id_desc');
@@ -129,8 +124,12 @@ export default function EmergencyUnitsPage() {
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data?.results || []);
-          setRawReports(list);
-          sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(list));
+          
+          // STRICT FILTER: Exclude resolved reports completely
+          const activeOnly = list.filter(r => String(r.status || '').toLowerCase() !== 'resolved');
+
+          setRawReports(activeOnly);
+          sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(activeOnly));
           return;
         }
       } catch (err) {
@@ -171,61 +170,14 @@ export default function EmergencyUnitsPage() {
     };
   }, [token, navigate, synchronizeData]);
 
-  // ACCURATE 8-SECOND TIMER FOR RESOLVED REPORTS DISAPPEARANCE
-  useEffect(() => {
-    const now = Date.now();
-
-    rawReports.forEach((report) => {
-      const isResolved = String(report.status || '').toLowerCase() === 'resolved';
-      
-      if (isResolved) {
-        // Record initial resolved time if not present
-        if (!resolvedTimestampsRef.current.has(report.id)) {
-          resolvedTimestampsRef.current.set(report.id, now);
-        }
-
-        const firstResolvedAt = resolvedTimestampsRef.current.get(report.id);
-        const elapsed = now - firstResolvedAt;
-
-        if (elapsed >= 8000) {
-          // Grace period already passed, mark as expired immediately
-          setExpiredResolvedIds(prev => new Set(prev).add(report.id));
-        } else if (!activeTimersRef.current.has(report.id)) {
-          // Schedule remaining grace period time
-          const remainingTime = 8000 - elapsed;
-          const timer = setTimeout(() => {
-            setExpiredResolvedIds(prev => new Set(prev).add(report.id));
-            activeTimersRef.current.delete(report.id);
-          }, remainingTime);
-
-          activeTimersRef.current.set(report.id, timer);
-        }
-      }
-    });
-  }, [rawReports]);
-
-  // CLEANUP TIMERS ON UNMOUNT
-  useEffect(() => {
-    return () => {
-      activeTimersRef.current.forEach(timer => clearTimeout(timer));
-    };
-  }, []);
-
-  // MATRIX DATA CALCULATION (EXCLUDE RESOLVED REPORTS AFTER 8 SECONDS)
+  // MATRIX DATA CALCULATION
   useEffect(() => {
     if (rawReports.length === 0) {
       setMatrixData([]);
       return;
     }
 
-    const visibleReports = rawReports.filter(report => {
-      const isResolved = String(report.status || '').toLowerCase() === 'resolved';
-      if (!isResolved) return true;
-      // Exclude report completely if it is in expiredResolvedIds
-      return !expiredResolvedIds.has(report.id);
-    });
-
-    const calculated = visibleReports.map((report) => {
+    const calculated = rawReports.map((report) => {
       let brgy = report.barangay || report.location || 'San Nicolas';
       let reportLat = parseFloat(report.latitude);
       let reportLng = parseFloat(report.longitude);
@@ -258,13 +210,12 @@ export default function EmergencyUnitsPage() {
         lng: reportLng,
         nearest_responder: String(matchedBaseName),
         distance_km: shortestDistance,
-        status: report.status,
-        isResolved: String(report.status || '').toLowerCase() === 'resolved'
+        status: report.status
       };
     });
 
     setMatrixData(calculated);
-  }, [rawReports, expiredResolvedIds]);
+  }, [rawReports]);
 
   // Click Handlers for Sort Toggles
   const toggleSortId = () => {
@@ -314,9 +265,8 @@ export default function EmergencyUnitsPage() {
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
           <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gray-50/50 flex flex-wrap justify-between items-center gap-2 shrink-0">
             <h3 className="font-bold text-sm sm:text-base text-gray-900">Nearest Responders or Dispatch Recommendations</h3>
-            {/* BOLD COUNTER */}
             <span className="text-xs text-gray-900 font-black">
-              {sortedMatrixData.filter(r => !r.isResolved).length} Incidents Pending Dispatch
+              {sortedMatrixData.length} Incidents Pending Dispatch
             </span>
           </div>
 
@@ -384,25 +334,13 @@ export default function EmergencyUnitsPage() {
                   sortedMatrixData.map((row) => (
                     <tr 
                       key={row.report_id} 
-                      className={`transition-all duration-500 ${
-                        row.isResolved 
-                          ? 'bg-emerald-50/60 hover:bg-emerald-100/60 opacity-80' 
-                          : 'hover:bg-gray-50/80'
-                      }`}
+                      className="hover:bg-gray-50/80 transition-all duration-200"
                     >
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-500">
                         #{row.report_id}
-                        {row.isResolved && (
-                          <span className="block text-[9px] text-emerald-700 font-black uppercase tracking-tight">
-                            Resolving (8s)
-                          </span>
-                        )}
                       </td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800 max-w-xs truncate" title={row.category}>
-                        <div className="flex items-center gap-1.5">
-                          {row.isResolved && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
-                          <span>{row.category}</span>
-                        </div>
+                        <span>{row.category}</span>
                       </td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-medium text-gray-600">Brgy. {row.barangay}</td>
                       <td className="py-3.5 sm:py-4 px-4 sm:px-6 font-bold text-gray-800">
