@@ -13,6 +13,7 @@ import {
   Megaphone,
   UserCheck,
   Copy,
+  Database,
   X
 } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export default function AdminLayout({ children }) {
     switch (path) {
       case '/superadmin': return 'Admin Management';
       case '/privileged-emergency-units': return 'Emergency Units';
+      case '/backups': return 'Database Backups';
       case '/analytics': return 'Analytics';
       case '/reports': return 'Reports';
       case '/duplicates': return 'Duplicates';
@@ -64,6 +66,7 @@ export default function AdminLayout({ children }) {
     ? [
         { path: '/superadmin', label: 'Admin Management', icon: <ShieldCheck size={22} /> },
         { path: '/privileged-emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
+        { path: '/backups', label: 'Database Backups', icon: <Database size={22} /> },
       ]
     : [
         { path: '/analytics', label: 'Analytics', icon: <LayoutGrid size={22} /> },
@@ -73,7 +76,6 @@ export default function AdminLayout({ children }) {
         { path: '/users', label: 'Users', icon: <Users size={22} /> },
         { path: '/emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
         { path: '/announcements', label: 'Announcements', icon: <Megaphone size={22} /> },
-        
       ];
 
   return (
@@ -138,10 +140,11 @@ export default function AdminLayout({ children }) {
           {/* HEADER NAVIGATION */}
           <header className="bg-[#b32d2d] text-white px-3 py-2.5 flex items-center justify-between shrink-0 border-b border-black/10 gap-2">
             <div className="flex items-center gap-2 md:gap-4 overflow-hidden min-w-0">
-              {/* Menu Toggle Button */}
+              
+              {/* Menu Toggle Button (Visible only on Mobile/Tablet, hidden on Desktop via `lg:hidden`) */}
               <button 
                 onClick={() => setShowSidebar(!showSidebar)}
-                className="p-1.5 rounded-lg hover:bg-black/10 transition-colors shrink-0"
+                className="p-1.5 rounded-lg hover:bg-black/10 transition-colors shrink-0 lg:hidden"
                 aria-label="Toggle Navigation Menu"
               >
                 <Menu size={22} />
