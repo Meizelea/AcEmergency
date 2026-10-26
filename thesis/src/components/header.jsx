@@ -49,7 +49,7 @@ export default function AdminLayout({ children }) {
     switch (path) {
       case '/superadmin': return 'Admin Management';
       case '/privileged-emergency-units': return 'Emergency Units';
-      case '/backups': return 'Database Backups';
+      case '/backups': return 'Backups';
       case '/analytics': return 'Analytics';
       case '/reports': return 'Reports';
       case '/duplicates': return 'Duplicates';
@@ -66,7 +66,7 @@ export default function AdminLayout({ children }) {
     ? [
         { path: '/superadmin', label: 'Admin Management', icon: <ShieldCheck size={22} /> },
         { path: '/privileged-emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
-        { path: '/backups', label: 'Database Backups', icon: <Database size={22} /> },
+        { path: '/backups', label: 'Backups', icon: <Database size={22} /> },
       ]
     : [
         { path: '/analytics', label: 'Analytics', icon: <LayoutGrid size={22} /> },

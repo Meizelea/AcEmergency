@@ -4,16 +4,13 @@ import AdminLayout from '../components/header';
 import {
   Database,
   CloudUpload,
-  RefreshCw,
   HardDrive,
   ShieldCheck,
   AlertCircle,
   CheckCircle,
   Loader2,
-  AlertTriangle,
   FileSpreadsheet,
   Clock,
-  Download,
   Info
 } from 'lucide-react';
 
@@ -109,7 +106,7 @@ export default function BackupsPage() {
     } catch (err) {
       console.error('Database backup error:', err);
       setFeedback({
-        error: err.message || 'A server error occurred while producing the database dump.',
+        error: err.message || 'A server error occurred while producing the database copy.',
         success: '',
       });
     } finally {
@@ -139,7 +136,7 @@ export default function BackupsPage() {
               SYSTEM DATABASE BACKUPS
             </h1>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Create PostgreSQL custom dump snapshots and upload directly to secure Supabase storage.
+              Create complete system backups and save verified copies directly to secure cloud storage.
             </p>
           </div>
 
@@ -153,7 +150,7 @@ export default function BackupsPage() {
               {isCreating ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Generating & Dumping DB...
+                  Generating Backup...
                 </>
               ) : (
                 <>
@@ -177,40 +174,45 @@ export default function BackupsPage() {
           </div>
         )}
 
-        {/* ROW 1: STATUS CARDS & INSTRUCTIONS */}
+        {/* ROW 1: USER-FRIENDLY STATUS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* Card 1: Capacity */}
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
             <div className="p-3 bg-red-50 text-[#b32d2d] rounded-xl shrink-0">
               <HardDrive size={24} />
             </div>
             <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Bucket Limit</span>
-              <span className="text-base font-black text-gray-900">49.00 MB Max</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Custom compressed octet-stream format</p>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Maximum File Size</span>
+              <span className="text-base font-black text-gray-900">49.00 MB Capacity</span>
+              <p className="text-[10px] text-gray-400 mt-0.5">Optimized compressed database format</p>
             </div>
           </div>
 
+          {/* Card 2: Health Check */}
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-xl shrink-0">
               <ShieldCheck size={24} />
             </div>
             <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Integrity Verification</span>
-              <span className="text-base font-black text-gray-900">pg_restore Check</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Automated structure & table validation</p>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Backup Quality Check</span>
+              <span className="text-base font-black text-gray-900">Automated Health Check</span>
+              <p className="text-[10px] text-gray-400 mt-0.5">Verifies database contents are complete & readable</p>
             </div>
           </div>
 
+          {/* Card 3: Storage */}
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-xl shrink-0">
               <Clock size={24} />
             </div>
             <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Storage Destination</span>
-              <span className="text-base font-black text-gray-900">aksyon-backups</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Encrypted cloud bucket archive</p>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Cloud Storage</span>
+              <span className="text-base font-black text-gray-900">Secure Backup Folder</span>
+              <p className="text-[10px] text-gray-400 mt-0.5">Safely saved to encrypted system storage</p>
             </div>
           </div>
+
         </div>
 
         {/* ROW 2: BACKUP HISTORY DIRECTORY TABLE */}
@@ -230,8 +232,8 @@ export default function BackupsPage() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50/50 text-xs font-black text-gray-900 uppercase tracking-wider select-none">
                   <th className="py-3.5 px-6">SNAPSHOT FILENAME</th>
-                  <th className="py-3.5 px-6">ARCHIVE SIZE</th>
-                  <th className="py-3.5 px-6">STORAGE BUCKET</th>
+                  <th className="py-3.5 px-6">FILE SIZE</th>
+                  <th className="py-3.5 px-6">STORAGE LOCATION</th>
                   <th className="py-3.5 px-6">TIMESTAMP (UTC)</th>
                   <th className="py-3.5 px-6 text-right">STATUS</th>
                 </tr>
@@ -256,7 +258,7 @@ export default function BackupsPage() {
                       </td>
                       <td className="py-4 px-6 font-semibold text-gray-500">
                         <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md text-[11px]">
-                          aksyon-backups
+                          Secure Cloud Storage
                         </span>
                       </td>
                       <td className="py-4 px-6 font-medium text-gray-500">
@@ -264,7 +266,7 @@ export default function BackupsPage() {
                       </td>
                       <td className="py-4 px-6 text-right">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
-                          <CheckCircle size={12} /> Verified & Uploaded
+                          <CheckCircle size={12} /> Verified & Saved
                         </span>
                       </td>
                     </tr>
@@ -286,11 +288,11 @@ export default function BackupsPage() {
             </div>
 
             <h3 className="font-extrabold text-base text-gray-900 mb-1">
-              Trigger Database Dump
+              Create System Database Backup
             </h3>
 
             <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
-              This operation will execute <code className="bg-gray-100 text-red-600 px-1 py-0.5 rounded">pg_dump</code> on the production database, perform integrity checks, and upload the dump to Supabase. Continue?
+              Are you sure you want to generate a new database copy? It will perform an integrity check and store the file in secure cloud storage.
             </p>
 
             <div className="flex items-center gap-2 w-full">
@@ -309,7 +311,7 @@ export default function BackupsPage() {
                 className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {isCreating && <Loader2 size={14} className="animate-spin" />}
-                Confirm Backup
+                Create Backup
               </button>
             </div>
           </div>
