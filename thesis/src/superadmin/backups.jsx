@@ -15,21 +15,18 @@ import {
   Upload,
   FileJson,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 
 const API_BASE = 'https://api.aksyon.online';
-const CACHE_KEY_BACKUPS = 'cache_admin_backups_history_v2';
 
 export default function BackupsPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
-  const [backupHistory, setBackupHistory] = useState(() => {
-    const cached = sessionStorage.getItem(CACHE_KEY_BACKUPS);
-    return cached ? JSON.parse(cached) : [];
-  });
-
+  const [backupHistory, setBackupHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
@@ -40,13 +37,43 @@ export default function BackupsPage() {
   const [selectedJsonFile, setSelectedJsonFile] = useState(null);
   const [parsedJsonPayload, setParsedJsonPayload] = useState(null);
 
-  const getAuthHeaders = useCallback(() => {
+  const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    return cleanToken
-      ? { Authorization: `Token ${cleanToken}`, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
+    if (!cleanToken) return { 'Content-Type': 'application/json' };
+    const prefix = useBearer ? 'Bearer' : 'Token';
+    return { Authorization: `${prefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, []);
+
+  // PERMANENT CLOUD FETCH: GET all existing cloud backups from server
+  const fetchCloudBackups = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      let res = await fetch(`${API_BASE}/api/backups/database/`, {
+        method: 'GET',
+        headers: getAuthHeaders(false),
+      });
+
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/backups/database/`, {
+          method: 'GET',
+          headers: getAuthHeaders(true),
+        });
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.backups || data.results || []);
+        setBackupHistory(list);
+      } else {
+        console.warn('Backup directory list endpoint returned non-OK status:', res.status);
+      }
+    } catch (err) {
+      console.error('Failed to fetch cloud backups:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [getAuthHeaders]);
 
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
@@ -63,8 +90,12 @@ export default function BackupsPage() {
         error: 'Access Restricted: Database backups require Privileged Administrator authorization.',
         success: ''
       });
+      setLoadingHistory(false);
+      return;
     }
-  }, [navigate]);
+
+    fetchCloudBackups();
+  }, [navigate, fetchCloudBackups]);
 
   // Create PostgreSQL Binary Dump Backup
   const handleCreateBackup = async () => {
@@ -74,34 +105,26 @@ export default function BackupsPage() {
     try {
       let res = await fetch(`${API_BASE}/api/backups/database/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(false),
       });
 
       if (res.status === 401) {
-        const rawToken = localStorage.getItem('ac_token') || '';
-        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
         res = await fetch(`${API_BASE}/api/backups/database/`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: getAuthHeaders(true),
         });
       }
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.message || 'Backup creation failed.');
 
-      const newBackup = { ...data.backup, format: 'DUMP' };
-      const updatedHistory = [newBackup, ...backupHistory];
-
-      setBackupHistory(updatedHistory);
-      sessionStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(updatedHistory));
-
       setFeedback({
         error: '',
-        success: `PostgreSQL Dump created successfully! File: ${newBackup.filename}`,
+        success: `PostgreSQL Dump created successfully! File: ${data.backup?.filename || 'Backup archive'}`,
       });
+
+      // Refetch full persistent list from cloud
+      await fetchCloudBackups();
     } catch (err) {
       setFeedback({ error: err.message || 'Server error creating backup.', success: '' });
     } finally {
@@ -116,11 +139,20 @@ export default function BackupsPage() {
     setFeedback({ error: '', success: '' });
 
     try {
-      const res = await fetch(`${API_BASE}/api/backups/json/export/`, {
-        headers: getAuthHeaders(),
+      let res = await fetch(`${API_BASE}/api/backups/json/export/`, {
+        headers: getAuthHeaders(false),
       });
 
-      if (!res.ok) throw new Error('Failed to generate JSON snapshot.');
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/backups/json/export/`, {
+          headers: getAuthHeaders(true),
+        });
+      }
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.error || `Export failed with status ${res.status}`);
+      }
 
       const jsonPayload = await res.json();
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -137,19 +169,10 @@ export default function BackupsPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const newBackup = {
-        filename,
-        size_bytes: blob.size,
-        created_at: timestamp,
-        format: 'JSON'
-      };
-
-      const updatedHistory = [newBackup, ...backupHistory];
-      setBackupHistory(updatedHistory);
-      sessionStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(updatedHistory));
-
       setFeedback({ error: '', success: `JSON database export saved to your downloads: ${filename}` });
+      await fetchCloudBackups();
     } catch (err) {
+      console.error("JSON Export Error:", err);
       setFeedback({ error: err.message || 'JSON export failed.', success: '' });
     } finally {
       setIsCreating(false);
@@ -188,25 +211,33 @@ export default function BackupsPage() {
     setFeedback({ error: '', success: '' });
 
     try {
-      const res = await fetch(`${API_BASE}/api/backups/json/restore/`, {
+      let res = await fetch(`${API_BASE}/api/backups/json/restore/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(false),
         body: JSON.stringify({ data: parsedJsonPayload }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to restore database state.');
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/backups/json/restore/`, {
+          method: 'POST',
+          headers: getAuthHeaders(true),
+          body: JSON.stringify({ data: parsedJsonPayload }),
+        });
+      }
 
-      // CLEAR CLIENT SESSION CACHE SO OTHER PAGES RE-FETCH RESTORED DATA
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to restore database state.');
+
       sessionStorage.clear();
 
       setFeedback({
         error: '',
-        success: 'Database restored successfully! All active modules have been synchronized with the imported backup.',
+        success: 'Database restored successfully! All active modules have been synchronized.',
       });
       setRestoreModalOpen(false);
       setSelectedJsonFile(null);
       setParsedJsonPayload(null);
+      await fetchCloudBackups();
     } catch (err) {
       setFeedback({ error: err.message || 'Database restore failed.', success: '' });
     } finally {
@@ -238,7 +269,6 @@ export default function BackupsPage() {
             </p>
           </div>
 
-          {/* HIDDEN FILE INPUT FOR IMPORT */}
           <input
             type="file"
             ref={fileInputRef}
@@ -248,6 +278,16 @@ export default function BackupsPage() {
           />
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchCloudBackups}
+              disabled={loadingHistory}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              title="Refresh cloud list"
+            >
+              <RefreshCw size={14} className={loadingHistory ? "animate-spin text-[#b32d2d]" : ""} />
+            </button>
+
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -332,10 +372,10 @@ export default function BackupsPage() {
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FileSpreadsheet size={18} className="text-[#b32d2d]" />
-              <h2 className="text-sm font-bold text-gray-900">Session Generated Backups</h2>
+              <h2 className="text-sm font-bold text-gray-900">Cloud Saved Backups</h2>
             </div>
             <span className="text-xs font-black text-gray-900">
-              {backupHistory.length} Total Snapshots Created
+              {backupHistory.length} Total Snapshots Stored
             </span>
           </div>
 
@@ -346,42 +386,51 @@ export default function BackupsPage() {
                   <th className="py-3.5 px-6">SNAPSHOT FILENAME</th>
                   <th className="py-3.5 px-6">FORMAT</th>
                   <th className="py-3.5 px-6">FILE SIZE</th>
-                  <th className="py-3.5 px-6">TIMESTAMP (UTC)</th>
+                  <th className="py-3.5 px-6">TIMESTAMP</th>
                   <th className="py-3.5 px-6 text-center">STATUS</th>
                   <th className="py-3.5 px-6 text-right">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs text-gray-600">
-                {backupHistory.length === 0 ? (
+                {loadingHistory ? (
+                  <tr>
+                    <td colSpan="6" className="py-12 text-center text-gray-400 font-bold">
+                      <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
+                      Loading cloud backups from server...
+                    </td>
+                  </tr>
+                ) : backupHistory.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="py-12 text-center text-gray-400 font-medium">
                       <Database className="mx-auto mb-2 opacity-30" size={32} />
-                      No backup snapshots created in this session yet.
+                      No backup snapshots stored in cloud storage yet.
                     </td>
                   </tr>
                 ) : (
                   backupHistory.map((item, index) => (
-                    <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
+                    <tr key={item.filename || item.id || index} className="hover:bg-gray-50/80 transition-colors">
                       <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
-                        {item.format === 'JSON' ? (
+                        {item.format === 'JSON' || item.filename?.endsWith('.json') ? (
                           <FileJson size={15} className="text-emerald-600" />
                         ) : (
                           <Database size={15} className="text-[#b32d2d]" />
                         )}
-                        {item.filename}
+                        {item.filename || item.name}
                       </td>
                       <td className="py-4 px-6 font-bold">
                         <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
-                          item.format === 'JSON' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+                          item.format === 'JSON' || item.filename?.endsWith('.json')
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-red-50 text-red-700 border border-red-200'
                         }`}>
-                          {item.format || 'DUMP'}
+                          {item.format || (item.filename?.endsWith('.json') ? 'JSON' : 'DUMP')}
                         </span>
                       </td>
                       <td className="py-4 px-6 font-bold text-gray-700">
-                        {formatBytes(item.size_bytes)}
+                        {formatBytes(item.size_bytes || item.size)}
                       </td>
                       <td className="py-4 px-6 font-medium text-gray-500">
-                        {item.created_at || 'N/A'}
+                        {item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'}
                       </td>
                       <td className="py-4 px-6 text-center">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
@@ -392,23 +441,12 @@ export default function BackupsPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => {
-                              const fallbackBucketUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${item.filename}`;
+                              const fallbackBucketUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${item.filename || item.name}`;
                               window.open(item.download_url || fallbackBucketUrl, '_blank');
                             }}
                             className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
                           >
                             <Download size={13} /> Download
-                          </button>
-                          <button
-                            onClick={() => {
-                              const filtered = backupHistory.filter((_, idx) => idx !== index);
-                              setBackupHistory(filtered);
-                              sessionStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(filtered));
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
-                            title="Remove from session view"
-                          >
-                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>
