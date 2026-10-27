@@ -443,12 +443,16 @@ export default function AnnouncementPage() {
                   </tr>
                 ) : (
                   filteredAnnouncements.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50/75 transition-colors">
+                    <tr 
+                      key={item.id} 
+                      onClick={() => handleOpenDetail(item)}
+                      className="hover:bg-gray-50/80 transition-colors cursor-pointer group"
+                    >
                       <td className="py-4 px-4 sm:px-6 font-bold text-gray-500">
                         #{item.id}
                       </td>
                       <td className="py-4 px-4 sm:px-6 max-w-sm">
-                        <div className="font-bold text-gray-900 text-sm">{item.title}</div>
+                        <div className="font-bold text-gray-900 text-sm group-hover:text-[#b32d2d] transition-colors">{item.title}</div>
                         <div className="text-gray-500 text-xs line-clamp-1 mt-0.5 font-medium">
                           {item.content}
                         </div>
@@ -478,21 +482,30 @@ export default function AnnouncementPage() {
                       <td className="py-4 px-4 sm:px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => handleOpenDetail(item)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetail(item);
+                            }}
                             className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                           >
                             <Eye size={13} />
                             VIEW FILE
                           </button>
                           <button
-                            onClick={() => handleOpenForm(item)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenForm(item);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                             title="Edit Announcement"
                           >
                             <Edit3 size={13} />
                           </button>
                           <button
-                            onClick={() => requestDelete(item)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestDelete(item);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-[11px] font-bold transition-all cursor-pointer"
                             title="Delete Announcement"
                           >
