@@ -63,7 +63,15 @@ function MapViewController({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
     if (center && Array.isArray(center) && center.length === 2) {
-      map.setView(center, zoom, { animate: true });
+      map.invalidateSize();
+      map.setView(center, zoom, { animate: false });
+      
+      const timer = setTimeout(() => {
+        map.invalidateSize();
+        map.flyTo(center, zoom, { duration: 0.8 });
+      }, 250);
+
+      return () => clearTimeout(timer);
     }
   }, [center, zoom, map]);
   return null;
@@ -114,7 +122,20 @@ export default function DashboardPage() {
 
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [currentAdminBarangay, setCurrentAdminBarangay] = useState('');
+
+  // Instant local lookup for assigned barangay on mount
+  const [currentAdminBarangay, setCurrentAdminBarangay] = useState(() => {
+    try {
+      const rawUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        return u.assigned_barangay || u.barangay || u.barangay_name || '';
+      }
+    } catch (e) {
+      console.warn('Failed to parse local user barangay:', e);
+    }
+    return '';
+  });
 
   // Confirmation Decision Modal State
   const [confirmModal, setConfirmModal] = useState({
@@ -137,25 +158,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadAdminProfile = async () => {
-      // 1. Try reading from local stored user payload
-      const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          const brgy = parsed.assigned_barangay || parsed.barangay || parsed.barangay_name;
-          if (brgy) {
-            setCurrentAdminBarangay(brgy);
-            return;
-          }
-        } catch (e) {
-          console.warn('Error reading local user data:', e);
-        }
-      }
+      const rawToken = token || '';
+      const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+      if (!cleanToken) return;
 
-      // 2. Fetch directly from server endpoint if local context is missing
       try {
-        const rawToken = token || '';
-        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
         const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
           headers: { 'Authorization': `Token ${cleanToken}` }
         });
