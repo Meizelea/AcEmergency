@@ -16,6 +16,7 @@ const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 
 // PRECISE BARANGAY COORDINATES FOR ANGELES CITY
 const barangayCoords = {
+  'Agapito del Rosario': [15.1390, 120.5885],
   'San Nicolas': [15.1325, 120.5880],
   'Sta. Trinidad': [15.1360, 120.5925],
   'Santa Trinidad': [15.1360, 120.5925],
@@ -30,7 +31,6 @@ const barangayCoords = {
   'Lourdes NorthWest': [15.1410, 120.5810],
   'Lourdes Sur': [15.1375, 120.5865],
   'Claro M. Recto': [15.1420, 120.5990],
-  'Agapito del Rosario': [15.1390, 120.5885],
   'Santo Rosario': [15.1338, 120.5910]
 };
 
@@ -41,16 +41,16 @@ const ANGELES_CITY_BOUNDS = [
 
 const DEFAULT_CITY_CENTER = [15.1360, 120.5900];
 
-// Helper to normalize any variations of barangay names
+// Dynamic Helper to normalize string key matching for all barangays
 function normalizeBarangayName(name) {
   if (!name || typeof name !== 'string') return '';
   let clean = name.trim();
   clean = clean.replace(/^(brgy\.?|barangay)\s+/i, '').trim();
 
   const lower = clean.toLowerCase();
-  if (lower === 'santa trinidad' || lower === 'sta trinidad') return 'Sta. Trinidad';
+  if (lower.includes('agapito')) return 'Agapito del Rosario';
+  if (lower === 'santa trinidad' || lower === 'sta trinidad' || lower === 'sta. trinidad') return 'Sta. Trinidad';
   if (lower === 'lourdes northwest' || lower === 'lourdes north west') return 'Lourdes NorthWest';
-  if (lower === 'agapito del rosario') return 'Agapito del Rosario';
   if (lower === 'san nicolas') return 'San Nicolas';
   if (lower === 'claro m recto' || lower === 'claro m. recto') return 'Claro M. Recto';
   if (lower === 'santo rosario' || lower === 'sta rosario' || lower === 'sta. rosario') return 'Santo Rosario';
@@ -59,21 +59,23 @@ function normalizeBarangayName(name) {
   return clean;
 }
 
+// Map Controller that dynamically pans Leaflet when profile center changes
 function MapViewController({ center, zoom }) {
   const map = useMap();
+
   useEffect(() => {
     if (center && Array.isArray(center) && center.length === 2) {
       map.invalidateSize();
-      map.setView(center, zoom, { animate: false });
+      map.flyTo(center, zoom, { duration: 1.2, animate: true });
       
       const timer = setTimeout(() => {
         map.invalidateSize();
-        map.flyTo(center, zoom, { duration: 0.8 });
-      }, 250);
+      }, 300);
 
       return () => clearTimeout(timer);
     }
   }, [center, zoom, map]);
+
   return null;
 }
 
@@ -123,13 +125,17 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Instant local lookup for assigned barangay on mount
+  // Dynamic initialization from active local session profile
   const [currentAdminBarangay, setCurrentAdminBarangay] = useState(() => {
     try {
-      const rawUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
-      if (rawUser) {
-        const u = JSON.parse(rawUser);
-        return u.assigned_barangay || u.barangay || u.barangay_name || '';
+      const keysToSearch = ['ac_user_data', 'ac_user', 'user', 'user_data', 'profile'];
+      for (const k of keysToSearch) {
+        const item = localStorage.getItem(k);
+        if (item) {
+          const u = JSON.parse(item);
+          const brgy = u.assigned_barangay || u.barangay || u.barangay_name;
+          if (brgy && typeof brgy === 'string') return brgy;
+        }
       }
     } catch (e) {
       console.warn('Failed to parse local user barangay:', e);
@@ -137,7 +143,6 @@ export default function DashboardPage() {
     return '';
   });
 
-  // Confirmation Decision Modal State
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -156,6 +161,7 @@ export default function DashboardPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
+  // Dynamically fetch account data for whichever admin is logged in
   useEffect(() => {
     const loadAdminProfile = async () => {
       const rawToken = token || '';
@@ -184,7 +190,7 @@ export default function DashboardPage() {
     }
   }, [token]);
 
-  // Compute map center using normalized barangay name
+  // Dynamically calculate center coordinates based on logged-in admin's barangay
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
@@ -195,7 +201,7 @@ export default function DashboardPage() {
     return DEFAULT_CITY_CENTER;
   }, [currentAdminBarangay]);
 
-  // Compute map zoom dynamically
+  // Dynamically switch zoom level (16 when localized to a barangay, 14 otherwise)
   const activeZoomLevel = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
