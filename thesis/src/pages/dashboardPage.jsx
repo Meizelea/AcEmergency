@@ -11,7 +11,6 @@ import AdminLayout from '../components/header';
 const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 
-// Updated cache key to bust old cached session data containing dismissed items
 const CACHE_KEY_DASHBOARD_REPORTS = 'cache_dashboard_reports_v2';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 
@@ -19,6 +18,7 @@ const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v9';
 const barangayCoords = {
   'San Nicolas': [15.1325, 120.5880],
   'Sta. Trinidad': [15.1360, 120.5925],
+  'Santa Trinidad': [15.1360, 120.5925],
   'Cutud': [15.1500, 120.6120],
   'Balibago': [15.1680, 120.5890],
   'Cutcut': [15.1330, 120.5690],
@@ -40,6 +40,24 @@ const ANGELES_CITY_BOUNDS = [
 ];
 
 const DEFAULT_CITY_CENTER = [15.1360, 120.5900];
+
+// Helper to normalize any variations of barangay names
+function normalizeBarangayName(name) {
+  if (!name || typeof name !== 'string') return '';
+  let clean = name.trim();
+  clean = clean.replace(/^(brgy\.?|barangay)\s+/i, '').trim();
+
+  const lower = clean.toLowerCase();
+  if (lower === 'santa trinidad' || lower === 'sta trinidad') return 'Sta. Trinidad';
+  if (lower === 'lourdes northwest' || lower === 'lourdes north west') return 'Lourdes NorthWest';
+  if (lower === 'agapito del rosario') return 'Agapito del Rosario';
+  if (lower === 'san nicolas') return 'San Nicolas';
+  if (lower === 'claro m recto' || lower === 'claro m. recto') return 'Claro M. Recto';
+  if (lower === 'santo rosario' || lower === 'sta rosario' || lower === 'sta. rosario') return 'Santo Rosario';
+  if (lower === 'lourdes sur') return 'Lourdes Sur';
+
+  return clean;
+}
 
 function MapViewController({ center, zoom }) {
   const map = useMap();
@@ -119,11 +137,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadAdminProfile = async () => {
-      const storedUser = localStorage.getItem('ac_user_data');
+      // 1. Try reading from local stored user payload
+      const storedUser = localStorage.getItem('ac_user_data') || localStorage.getItem('ac_user');
       if (storedUser) {
         try {
           const parsed = JSON.parse(storedUser);
-          const brgy = parsed.barangay || parsed.assigned_barangay;
+          const brgy = parsed.assigned_barangay || parsed.barangay || parsed.barangay_name;
           if (brgy) {
             setCurrentAdminBarangay(brgy);
             return;
@@ -133,6 +152,7 @@ export default function DashboardPage() {
         }
       }
 
+      // 2. Fetch directly from server endpoint if local context is missing
       try {
         const rawToken = token || '';
         const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
@@ -141,7 +161,7 @@ export default function DashboardPage() {
         });
         if (res.ok) {
           const userData = await res.json();
-          const brgy = userData.barangay || userData.assigned_barangay;
+          const brgy = userData.assigned_barangay || userData.barangay || userData.barangay_name;
           if (brgy) {
             setCurrentAdminBarangay(brgy);
             localStorage.setItem('ac_user_data', JSON.stringify(userData));
@@ -157,12 +177,10 @@ export default function DashboardPage() {
     }
   }, [token]);
 
+  // Compute map center using normalized barangay name
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
-      let cleanBrgy = currentAdminBarangay.trim();
-      if (cleanBrgy.toLowerCase() === 'santa trinidad') cleanBrgy = 'Sta. Trinidad';
-      if (cleanBrgy.toLowerCase() === 'lourdes northwest') cleanBrgy = 'Lourdes NorthWest';
-
+      const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
       if (barangayCoords[cleanBrgy]) {
         return barangayCoords[cleanBrgy];
       }
@@ -170,7 +188,14 @@ export default function DashboardPage() {
     return DEFAULT_CITY_CENTER;
   }, [currentAdminBarangay]);
 
-  const activeZoomLevel = currentAdminBarangay && barangayCoords[currentAdminBarangay] ? 16 : 14;
+  // Compute map zoom dynamically
+  const activeZoomLevel = useMemo(() => {
+    if (currentAdminBarangay) {
+      const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
+      if (barangayCoords[cleanBrgy]) return 16;
+    }
+    return 14;
+  }, [currentAdminBarangay]);
 
   const fetchUsersMap = useCallback(async () => {
     for (const useBearer of [false, true]) {
@@ -220,7 +245,7 @@ export default function DashboardPage() {
     reports.forEach(report => {
       if (report && report.status) {
         const stat = String(report.status).toLowerCase().trim();
-        if (stat === 'dismissed' || stat.includes('dismiss')) return; // Completely skip dismissed
+        if (stat === 'dismissed' || stat.includes('dismiss')) return; 
         if (stat === 'resolved') resolvedCount++;
         else if (stat === 'ongoing') ongoingCount++;
         else pendingCount++;
@@ -294,7 +319,6 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [token, navigate, fetchDashboardData]);
 
-  // Internal function that performs the actual network call to update status
   const executeStatusUpdate = async (reportId, newStatus) => {
     const rawTargetStatus = newStatus.toLowerCase().trim();
     
@@ -324,7 +348,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Trigger confirmation dialog when user clicks a status button
   const handleStatusUpdate = (reportId, newStatus) => {
     const targetReport = reports.find(r => r.id === reportId);
     const currentStatus = targetReport?.status ? String(targetReport.status).toLowerCase().trim() : '';
@@ -343,7 +366,6 @@ export default function DashboardPage() {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  // Strictly filter out resolved AND dismissed reports for active view
   const activeReports = reports.filter(r => {
     if (!r || !r.status) return false;
     const stat = String(r.status).toLowerCase().trim();
@@ -359,7 +381,6 @@ export default function DashboardPage() {
     return true;
   });
 
-  // History strictly includes resolved reports (ignoring dismissed)
   const historyReports = reports.filter(r => {
     if (!r || !r.status) return false;
     const stat = String(r.status).toLowerCase().trim();
@@ -387,7 +408,6 @@ export default function DashboardPage() {
           70% { box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
           100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
         }
-        /* Leaflet Z-Index Stacking Reset */
         .leaflet-container {
           z-index: 0 !important;
         }
@@ -399,7 +419,6 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* FLUID RESPONSIVE VIEWPORT GRID */}
       <main className="w-full h-full min-h-0 overflow-y-auto md:overflow-hidden grid grid-cols-1 md:grid-cols-12 md:grid-rows-2 bg-gray-200 gap-[1px]">
         
         {/* TELEMETRY LEAFLET MAP */}
@@ -425,9 +444,8 @@ export default function DashboardPage() {
               />
               
               {activeReports.map((report) => {
-                let targetBarangay = report.barangay || report.location || 'San Nicolas';
-                if (targetBarangay === 'Lourdes North West') targetBarangay = 'Lourdes NorthWest';
-                if (targetBarangay === 'San Trinidad' || targetBarangay === 'Santa Trinidad') targetBarangay = 'Sta. Trinidad';
+                let rawBrgy = report.barangay || report.location || 'San Nicolas';
+                let targetBarangay = normalizeBarangayName(rawBrgy);
                 
                 let latPosition = parseFloat(report.latitude);
                 let lngPosition = parseFloat(report.longitude);
