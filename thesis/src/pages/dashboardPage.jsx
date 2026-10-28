@@ -117,7 +117,10 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Extract initial user profile barangay dynamically
+  // Track profile loading state specifically for map initialization
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+
+  // Synchronous initial cache resolution
   const [currentAdminBarangay, setCurrentAdminBarangay] = useState(() => {
     try {
       const keysToSearch = ['ac_user_data', 'ac_user', 'user', 'user_data', 'profile'];
@@ -153,12 +156,15 @@ export default function DashboardPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // Fetch admin profile directly on mount to ensure barangay assignment matches server state
+  // Fetch admin profile and unblock map mounting once resolved
   useEffect(() => {
     const loadAdminProfile = async () => {
       const rawToken = token || '';
       const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-      if (!cleanToken) return;
+      if (!cleanToken) {
+        setIsProfileLoading(false);
+        return;
+      }
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
@@ -168,22 +174,24 @@ export default function DashboardPage() {
           const userData = await res.json();
           const brgy = userData.assigned_barangay || userData.barangay || userData.barangay_name || userData.assigned_barangay_name || userData?.profile?.barangay;
           if (brgy) {
-            console.log('Fetched logged in admin assigned barangay:', brgy);
             setCurrentAdminBarangay(brgy);
             localStorage.setItem('ac_user_data', JSON.stringify(userData));
           }
         }
       } catch (err) {
         console.warn('Failed to fetch admin profile:', err);
+      } finally {
+        setIsProfileLoading(false);
       }
     };
 
     if (token) {
       loadAdminProfile();
+    } else {
+      setIsProfileLoading(false);
     }
   }, [token]);
 
-  // Compute active map coordinates based on admin barangay
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
@@ -429,59 +437,62 @@ export default function DashboardPage() {
         {/* TELEMETRY LEAFLET MAP */}
         <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative z-0 min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
-            {/* Adding dynamic key forces Leaflet instance to re-mount at correct initial center once user profile resolves */}
-            <MapContainer 
-              key={`leaflet-map-${normalizeBarangayName(currentAdminBarangay)}`}
-              center={activeMapCenter} 
-              zoom={activeZoomLevel} 
-              minZoom={12} 
-              maxZoom={18}
-              maxBounds={ANGELES_CITY_BOUNDS} 
-              maxBoundsViscosity={1.0} 
-              bounceAtZoomLimits={true}
-              style={{ height: '100%', width: '100%', zIndex: 0 }} 
-              zoomControl={false} 
-            >
-              <MapResizer />
-              <MapViewController center={activeMapCenter} zoom={activeZoomLevel} />
-              
-              <TileLayer 
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
-                bounds={ANGELES_CITY_BOUNDS}
-              />
-              
-              {activeReports.map((report) => {
-                let rawBrgy = report.barangay || report.location || 'San Nicolas';
-                let targetBarangay = normalizeBarangayName(rawBrgy);
+            {isProfileLoading ? (
+              <div className="text-gray-400 font-bold text-xs">Locating assigned sector...</div>
+            ) : (
+              <MapContainer 
+                key={`map-${normalizeBarangayName(currentAdminBarangay)}`}
+                center={activeMapCenter} 
+                zoom={activeZoomLevel} 
+                minZoom={12} 
+                maxZoom={18}
+                maxBounds={ANGELES_CITY_BOUNDS} 
+                maxBoundsViscosity={1.0} 
+                bounceAtZoomLimits={true}
+                style={{ height: '100%', width: '100%', zIndex: 0 }} 
+                zoomControl={false} 
+              >
+                <MapResizer />
+                <MapViewController center={activeMapCenter} zoom={activeZoomLevel} />
                 
-                let latPosition = parseFloat(report.latitude);
-                let lngPosition = parseFloat(report.longitude);
+                <TileLayer 
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                  bounds={ANGELES_CITY_BOUNDS}
+                />
+                
+                {activeReports.map((report) => {
+                  let rawBrgy = report.barangay || report.location || 'San Nicolas';
+                  let targetBarangay = normalizeBarangayName(rawBrgy);
+                  
+                  let latPosition = parseFloat(report.latitude);
+                  let lngPosition = parseFloat(report.longitude);
 
-                if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
-                  const coords = barangayCoords[targetBarangay];
-                  if (coords) {
-                    latPosition = coords[0];
-                    lngPosition = coords[1];
+                  if (isNaN(latPosition) || isNaN(lngPosition) || latPosition > 90 || lngPosition > 180) {
+                    const coords = barangayCoords[targetBarangay];
+                    if (coords) {
+                      latPosition = coords[0];
+                      lngPosition = coords[1];
+                    }
                   }
-                }
 
-                if (latPosition && lngPosition) {
-                  return (
-                    <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
-                      <Popup className="font-sans">
-                        <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
-                        <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
-                        {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
-                        <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase().trim() === 'ongoing' ? 'text-blue-600' : 'text-amber-600'}`}>
-                          {String(report.status).toLowerCase().trim() === 'ongoing' ? 'Ongoing' : 'Pending'}
-                        </div>
-                      </Popup>
-                    </Marker>
-                  );
-                }
-                return null; 
-              })}
-            </MapContainer>
+                  if (latPosition && lngPosition) {
+                    return (
+                      <Marker key={`map-${report.id}`} position={[latPosition, lngPosition]} icon={createStatusIcon(report.status)}>
+                        <Popup className="font-sans">
+                          <div className="font-bold text-gray-800">{report.short_message || report.description || 'Incident Emergency'}</div>
+                          <div className="text-xs text-gray-500">Brgy. {targetBarangay}</div>
+                          {report.street && <div className="text-[11px] text-gray-400 font-medium">St: {report.street}</div>}
+                          <div className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${String(report.status).toLowerCase().trim() === 'ongoing' ? 'text-blue-600' : 'text-amber-600'}`}>
+                            {String(report.status).toLowerCase().trim() === 'ongoing' ? 'Ongoing' : 'Pending'}
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  }
+                  return null; 
+                })}
+              </MapContainer>
+            )}
           </div>
         </section>
 
