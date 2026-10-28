@@ -41,7 +41,6 @@ const ANGELES_CITY_BOUNDS = [
 
 const DEFAULT_CITY_CENTER = [15.1360, 120.5900];
 
-// Dynamic Helper to normalize string key matching for all barangays
 function normalizeBarangayName(name) {
   if (!name || typeof name !== 'string') return '';
   let clean = name.trim();
@@ -59,20 +58,13 @@ function normalizeBarangayName(name) {
   return clean;
 }
 
-// Map Controller that dynamically pans Leaflet when profile center changes
 function MapViewController({ center, zoom }) {
   const map = useMap();
 
   useEffect(() => {
     if (center && Array.isArray(center) && center.length === 2) {
       map.invalidateSize();
-      map.flyTo(center, zoom, { duration: 1.2, animate: true });
-      
-      const timer = setTimeout(() => {
-        map.invalidateSize();
-      }, 300);
-
-      return () => clearTimeout(timer);
+      map.setView(center, zoom, { animate: false });
     }
   }, [center, zoom, map]);
 
@@ -125,7 +117,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Dynamic initialization from active local session profile
+  // Extract initial user profile barangay dynamically
   const [currentAdminBarangay, setCurrentAdminBarangay] = useState(() => {
     try {
       const keysToSearch = ['ac_user_data', 'ac_user', 'user', 'user_data', 'profile'];
@@ -133,7 +125,7 @@ export default function DashboardPage() {
         const item = localStorage.getItem(k);
         if (item) {
           const u = JSON.parse(item);
-          const brgy = u.assigned_barangay || u.barangay || u.barangay_name;
+          const brgy = u.assigned_barangay || u.barangay || u.barangay_name || u.assigned_barangay_name || u?.profile?.barangay;
           if (brgy && typeof brgy === 'string') return brgy;
         }
       }
@@ -161,7 +153,7 @@ export default function DashboardPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // Dynamically fetch account data for whichever admin is logged in
+  // Fetch admin profile directly on mount to ensure barangay assignment matches server state
   useEffect(() => {
     const loadAdminProfile = async () => {
       const rawToken = token || '';
@@ -174,8 +166,9 @@ export default function DashboardPage() {
         });
         if (res.ok) {
           const userData = await res.json();
-          const brgy = userData.assigned_barangay || userData.barangay || userData.barangay_name;
+          const brgy = userData.assigned_barangay || userData.barangay || userData.barangay_name || userData.assigned_barangay_name || userData?.profile?.barangay;
           if (brgy) {
+            console.log('Fetched logged in admin assigned barangay:', brgy);
             setCurrentAdminBarangay(brgy);
             localStorage.setItem('ac_user_data', JSON.stringify(userData));
           }
@@ -190,7 +183,7 @@ export default function DashboardPage() {
     }
   }, [token]);
 
-  // Dynamically calculate center coordinates based on logged-in admin's barangay
+  // Compute active map coordinates based on admin barangay
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
@@ -201,7 +194,6 @@ export default function DashboardPage() {
     return DEFAULT_CITY_CENTER;
   }, [currentAdminBarangay]);
 
-  // Dynamically switch zoom level (16 when localized to a barangay, 14 otherwise)
   const activeZoomLevel = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
@@ -437,7 +429,9 @@ export default function DashboardPage() {
         {/* TELEMETRY LEAFLET MAP */}
         <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative z-0 min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
+            {/* Adding dynamic key forces Leaflet instance to re-mount at correct initial center once user profile resolves */}
             <MapContainer 
+              key={`leaflet-map-${normalizeBarangayName(currentAdminBarangay)}`}
               center={activeMapCenter} 
               zoom={activeZoomLevel} 
               minZoom={12} 
