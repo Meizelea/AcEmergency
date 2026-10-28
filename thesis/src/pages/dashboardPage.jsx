@@ -117,10 +117,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Track profile loading state specifically for map initialization
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
-
-  // Synchronous initial cache resolution
+  // Synchronous extraction across all potential localStorage keys
   const [currentAdminBarangay, setCurrentAdminBarangay] = useState(() => {
     try {
       const keysToSearch = ['ac_user_data', 'ac_user', 'user', 'user_data', 'profile'];
@@ -129,7 +126,7 @@ export default function DashboardPage() {
         if (item) {
           const u = JSON.parse(item);
           const brgy = u.assigned_barangay || u.barangay || u.barangay_name || u.assigned_barangay_name || u?.profile?.barangay;
-          if (brgy && typeof brgy === 'string') return brgy;
+          if (brgy && typeof brgy === 'string' && brgy.trim().length > 0) return brgy.trim();
         }
       }
     } catch (e) {
@@ -156,15 +153,12 @@ export default function DashboardPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // Fetch admin profile and unblock map mounting once resolved
+  // Fetch admin profile directly on mount
   useEffect(() => {
     const loadAdminProfile = async () => {
       const rawToken = token || '';
       const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-      if (!cleanToken) {
-        setIsProfileLoading(false);
-        return;
-      }
+      if (!cleanToken) return;
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/users/me/`, {
@@ -173,25 +167,23 @@ export default function DashboardPage() {
         if (res.ok) {
           const userData = await res.json();
           const brgy = userData.assigned_barangay || userData.barangay || userData.barangay_name || userData.assigned_barangay_name || userData?.profile?.barangay;
-          if (brgy) {
-            setCurrentAdminBarangay(brgy);
+          if (brgy && typeof brgy === 'string') {
+            console.log('Successfully fetched assigned barangay:', brgy);
+            setCurrentAdminBarangay(brgy.trim());
             localStorage.setItem('ac_user_data', JSON.stringify(userData));
           }
         }
       } catch (err) {
         console.warn('Failed to fetch admin profile:', err);
-      } finally {
-        setIsProfileLoading(false);
       }
     };
 
     if (token) {
       loadAdminProfile();
-    } else {
-      setIsProfileLoading(false);
     }
   }, [token]);
 
+  // Compute active map coordinates strictly when currentAdminBarangay exists
   const activeMapCenter = useMemo(() => {
     if (currentAdminBarangay) {
       const cleanBrgy = normalizeBarangayName(currentAdminBarangay);
@@ -437,11 +429,15 @@ export default function DashboardPage() {
         {/* TELEMETRY LEAFLET MAP */}
         <section className="col-span-1 md:col-span-8 md:row-span-1 bg-white relative z-0 min-h-[300px] md:min-h-0 h-full w-full flex items-center justify-center">
           <div className="w-full h-full flex items-center justify-center">
-            {isProfileLoading ? (
-              <div className="text-gray-400 font-bold text-xs">Locating assigned sector...</div>
+            {/* STRICT CONDITION: DO NOT RENDER MAP AT ALL UNTIL CURRENT ADMIN BARANGAY IS RESOLVED */}
+            {!currentAdminBarangay ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                <div className="text-gray-400 font-bold text-xs tracking-wide">Locating sector...</div>
+              </div>
             ) : (
               <MapContainer 
-                key={`map-${normalizeBarangayName(currentAdminBarangay)}`}
+                key={`map-sector-${normalizeBarangayName(currentAdminBarangay)}`}
                 center={activeMapCenter} 
                 zoom={activeZoomLevel} 
                 minZoom={12} 
