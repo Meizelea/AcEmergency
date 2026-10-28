@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, ArrowUp, ArrowDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle
+  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -38,7 +38,7 @@ const redMarkerIcon = L.divIcon({
 const barangayCoordsFallback = {
   'Santa Trinidad': [15.1320, 120.5950],
   'Sta. Trinidad': [15.1320, 120.5950],
-  'San Nicolas': [15.1340, 120.5910],
+  'San Nicolas': [15.140, 120.5910],
   'Lourdes NorthWest': [15.1410, 120.5810],
   'Claro M. Recto': [15.1420, 120.5990]
 };
@@ -71,6 +71,17 @@ const CATEGORY_MAP = {
   'infrastructure_hazard': 'Infrastructure Hazard',
   'public_safety': 'Public Safety Incident',
   'other': 'Other'
+};
+
+// Emergency Category to Database Unit Type Mapper
+const CATEGORY_UNIT_TYPES = {
+  'Road Accident': ['Police', 'Medical', 'Hospital', 'Traffic', 'Emergency', 'PNP'],
+  'Fire': ['Fire', 'BFP', 'Fire Station', 'Rescue'],
+  'Medical Emergency': ['Medical', 'Hospital', 'Ambulance', 'Health', 'ER'],
+  'Flooding and Natural Hazards': ['Disaster', 'DRRMO', 'CDRRMO', 'Rescue', 'Barangay'],
+  'Infrastructure Hazard': ['Barangay', 'Engineering', 'DRRMO', 'Public Works'],
+  'Public Safety Incident': ['Police', 'PNP', 'Barangay', 'Law Enforcement', 'Patrol'],
+  'Other': [] // Matches any active unit
 };
 
 export default function ReportsPage() {
@@ -348,12 +359,10 @@ export default function ReportsPage() {
     fetchReports(true);
     fetchEmergencyUnits();
 
-    // Auto-refresh interval every 15 seconds
     const interval = setInterval(() => {
       fetchReports(true);
     }, 15000);
 
-    // Refresh when returning to browser tab
     const handleFocus = () => fetchReports(true);
     window.addEventListener('focus', handleFocus);
 
@@ -363,6 +372,7 @@ export default function ReportsPage() {
     };
   }, [token, navigate, fetchReports, fetchEmergencyUnits]);
 
+  // CATEGORY-AWARE NEAREST RESPONDER CALCULATION
   const getNearestResponderText = (report) => {
     if (report?.nearest_responder) {
       const responderName = typeof report.nearest_responder === 'object' 
@@ -383,14 +393,33 @@ export default function ReportsPage() {
     }
 
     const activeUnits = emergencyUnits.filter(u => u.is_active !== false);
-    const pool = activeUnits.length > 0 ? activeUnits : emergencyUnits;
+    const basePool = activeUnits.length > 0 ? activeUnits : emergencyUnits;
 
-    if (pool.length === 0) return 'N/A';
+    if (basePool.length === 0) return 'N/A';
 
-    let nearestUnit = pool[0];
+    // Filter unit pool according to emergency category
+    const categoryName = getCategoryName(report);
+    const allowedTypes = CATEGORY_UNIT_TYPES[categoryName] || [];
+
+    let categoryFilteredPool = basePool;
+    if (allowedTypes.length > 0) {
+      const matched = basePool.filter((unit) => {
+        const unitType = (unit.type || unit.unit_type || unit.category || '').toLowerCase();
+        const unitName = (unit.name || '').toLowerCase();
+        return allowedTypes.some((t) => 
+          unitType.includes(t.toLowerCase()) || unitName.includes(t.toLowerCase())
+        );
+      });
+
+      if (matched.length > 0) {
+        categoryFilteredPool = matched;
+      }
+    }
+
+    let nearestUnit = categoryFilteredPool[0];
     let minDistance = calculateHaversineDistance(reportLat, reportLng, nearestUnit.latitude, nearestUnit.longitude);
 
-    pool.forEach((unit) => {
+    categoryFilteredPool.forEach((unit) => {
       const dist = calculateHaversineDistance(reportLat, reportLng, unit.latitude, unit.longitude);
       if (dist < minDistance) {
         minDistance = dist;
