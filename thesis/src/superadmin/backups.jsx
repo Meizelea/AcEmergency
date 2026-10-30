@@ -15,7 +15,9 @@ import {
   Upload,
   FileJson,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw,
+  RefreshCw
 } from 'lucide-react';
 
 const API_BASE = 'https://api.aksyon.online';
@@ -25,21 +27,26 @@ export default function BackupsPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
-  // Load past session backups from localStorage/sessionStorage
   const [backupHistory, setBackupHistory] = useState(() => {
     const cached = localStorage.getItem(CACHE_KEY_BACKUPS);
     return cached ? JSON.parse(cached) : [];
   });
 
+  const [isFetchingList, setIsFetchingList] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
-  // Modals
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
+  
+  // JSON Client State
+  const [jsonRestoreModalOpen, setJsonRestoreModalOpen] = useState(false);
   const [selectedJsonFile, setSelectedJsonFile] = useState(null);
   const [parsedJsonPayload, setParsedJsonPayload] = useState(null);
+
+  // PostgreSQL Dump Server Restore State
+  const [dumpRestoreModalOpen, setDumpRestoreModalOpen] = useState(false);
+  const [selectedDumpFilename, setSelectedDumpFilename] = useState('');
 
   const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = localStorage.getItem('ac_token') || '';
@@ -48,6 +55,46 @@ export default function BackupsPage() {
     const prefix = useBearer ? 'Bearer' : 'Token';
     return { Authorization: `${prefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, []);
+
+  // GET /api/backups/database/list/
+  const fetchServerBackups = useCallback(async () => {
+    setIsFetchingList(true);
+    try {
+      let res = await fetch(`${API_BASE}/api/backups/database/list/`, {
+        headers: getAuthHeaders(false)
+      });
+
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/backups/database/list/`, {
+          headers: getAuthHeaders(true)
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to fetch server backup list.');
+
+      // Matches views.py DatabaseBackupListView payload structure: {"backups": [...]}
+      const serverBackups = (data.backups || []).map(b => ({
+        filename: b.filename,
+        size_bytes: b.size_bytes || 0,
+        created_at: b.created_at ? new Date(b.created_at).toLocaleString() : 'N/A',
+        format: 'DUMP',
+        download_url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${b.filename}`
+      }));
+
+      setBackupHistory((prev) => {
+        const localJsons = prev.filter(item => item.format === 'JSON' || item.filename?.endsWith('.json'));
+        const combined = [...serverBackups, ...localJsons];
+        const uniqueList = Array.from(new Map(combined.map(item => [item.filename, item])).values());
+        localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(uniqueList));
+        return uniqueList;
+      });
+    } catch (err) {
+      console.warn("Server backup listing error:", err);
+    } finally {
+      setIsFetchingList(false);
+    }
+  }, [getAuthHeaders]);
 
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
@@ -64,10 +111,12 @@ export default function BackupsPage() {
         error: 'Access Restricted: Database backups require Privileged Administrator authorization.',
         success: ''
       });
+    } else {
+      fetchServerBackups();
     }
-  }, [navigate]);
+  }, [navigate, fetchServerBackups]);
 
-  // Create PostgreSQL Binary Dump Backup
+  // POST /api/backups/database/
   const handleCreateBackup = async () => {
     setIsCreating(true);
     setFeedback({ error: '', success: '' });
@@ -88,13 +137,14 @@ export default function BackupsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.message || 'Backup creation failed.');
 
-      // Construct backup object directly from POST response
+      // Matches views.py DatabaseBackupView HTTP 201 response: {"message": "...", "backup": {...}}
+      const backupObj = data.backup || data;
       const newBackup = {
-        filename: data.filename || data.backup?.filename || `aksyon-db-${new Date().toISOString().replace(/[:.]/g, '')}.dump`,
-        size_bytes: data.size_bytes || data.backup?.size_bytes || 424120, // default placeholder size if unreturned
-        created_at: new Date().toLocaleString(),
+        filename: backupObj.filename || `aksyon-db-${new Date().toISOString().replace(/[:.]/g, '')}.dump`,
+        size_bytes: backupObj.size_bytes || 0,
+        created_at: backupObj.created_at ? new Date(backupObj.created_at).toLocaleString() : new Date().toLocaleString(),
         format: 'DUMP',
-        download_url: data.download_url || data.backup?.download_url
+        download_url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${backupObj.filename}`
       };
 
       const updatedHistory = [newBackup, ...backupHistory];
@@ -105,6 +155,7 @@ export default function BackupsPage() {
         error: '',
         success: `PostgreSQL Dump created successfully! File: ${newBackup.filename}`,
       });
+      fetchServerBackups();
     } catch (err) {
       setFeedback({ error: err.message || 'Server error creating backup.', success: '' });
     } finally {
@@ -113,13 +164,58 @@ export default function BackupsPage() {
     }
   };
 
-  // Client-Side Export JSON (Using available API datasets)
+  // POST /api/backups/database/restore/
+  const handleExecuteDumpRestore = async () => {
+    if (!selectedDumpFilename) return;
+
+    setIsRestoring(true);
+    setFeedback({ error: '', success: '' });
+
+    try {
+      let res = await fetch(`${API_BASE}/api/backups/database/restore/`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ filename: selectedDumpFilename })
+      });
+
+      if (res.status === 401) {
+        res = await fetch(`${API_BASE}/api/backups/database/restore/`, {
+          method: 'POST',
+          headers: getAuthHeaders(true),
+          body: JSON.stringify({ filename: selectedDumpFilename })
+        });
+      }
+
+      const data = await res.json();
+      
+      if (!res.ok) {
+        // Handles HTTP 409 CONFLICT from RestoreRejected and HTTP 500 from RestoreError
+        if (res.status === 409) {
+          throw new Error(`Restore Safety Violation: ${data.detail || 'Database contains existing application data or incomplete schema.'}`);
+        }
+        throw new Error(data.detail || data.message || 'Database restoration failed.');
+      }
+
+      sessionStorage.clear();
+
+      setFeedback({
+        error: '',
+        success: data.message || `Database restored successfully from dump: ${selectedDumpFilename}`,
+      });
+      setDumpRestoreModalOpen(false);
+      setSelectedDumpFilename('');
+    } catch (err) {
+      setFeedback({ error: err.message || 'Database restore failed.', success: '' });
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
   const handleExportJson = async () => {
     setIsCreating(true);
     setFeedback({ error: '', success: '' });
 
     try {
-      // Fetch available data from public API endpoints to construct JSON snapshot
       const [reportsRes, unitsRes, announcementsRes] = await Promise.all([
         fetch(`${API_BASE}/api/reports/admin/`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE}/api/emergency-units/`, { headers: getAuthHeaders() }),
@@ -143,7 +239,6 @@ export default function BackupsPage() {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `aksyon-db-export-${timestamp}.json`;
 
-      // Trigger Browser Download
       const blob = new Blob([JSON.stringify(jsonPayload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -167,14 +262,12 @@ export default function BackupsPage() {
 
       setFeedback({ error: '', success: `JSON database export saved to your downloads: ${filename}` });
     } catch (err) {
-      console.error("JSON Export Error:", err);
       setFeedback({ error: err.message || 'JSON export failed.', success: '' });
     } finally {
       setIsCreating(false);
     }
   };
 
-  // Select Local JSON File for Import
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -190,7 +283,7 @@ export default function BackupsPage() {
         const parsed = JSON.parse(event.target.result);
         setSelectedJsonFile(file);
         setParsedJsonPayload(parsed);
-        setRestoreModalOpen(true);
+        setJsonRestoreModalOpen(true);
       } catch (err) {
         setFeedback({ error: 'Invalid or corrupt JSON structure.', success: '' });
       }
@@ -198,22 +291,19 @@ export default function BackupsPage() {
     reader.readAsText(file);
   };
 
-  // Execute Client-Side Restore
-  const handleExecuteRestore = async () => {
+  const handleExecuteJsonRestore = async () => {
     if (!parsedJsonPayload) return;
 
     setIsRestoring(true);
     setFeedback({ error: '', success: '' });
 
     try {
-      // Clear client session caches so pages refetch updated data
       sessionStorage.clear();
-
       setFeedback({
         error: '',
         success: 'Local snapshot verified! Cache cleared and active views re-synchronized.',
       });
-      setRestoreModalOpen(false);
+      setJsonRestoreModalOpen(false);
       setSelectedJsonFile(null);
       setParsedJsonPayload(null);
     } catch (err) {
@@ -249,7 +339,7 @@ export default function BackupsPage() {
               SYSTEM DATABASE BACKUPS & RESTORE
             </h1>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Create PostgreSQL dumps, export/import JSON snapshots, or restore database state.
+              Create PostgreSQL dumps, export/import JSON snapshots, or restore server database state.
             </p>
           </div>
 
@@ -262,6 +352,16 @@ export default function BackupsPage() {
           />
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchServerBackups}
+              disabled={isFetchingList}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 p-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              title="Refresh Server Backups List"
+            >
+              <RefreshCw size={15} className={`text-gray-600 ${isFetchingList ? 'animate-spin' : ''}`} />
+            </button>
+
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -335,7 +435,7 @@ export default function BackupsPage() {
             </div>
             <div>
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Cloud Storage</span>
-              <span className="text-base font-black text-gray-900">Secure Backup Folder</span>
+              <span className="text-base font-black text-gray-900">Secure Supabase Storage</span>
               <p className="text-[10px] text-gray-400 mt-0.5">Safely saved to encrypted system storage</p>
             </div>
           </div>
@@ -374,58 +474,75 @@ export default function BackupsPage() {
                     </td>
                   </tr>
                 ) : (
-                  backupHistory.map((item, index) => (
-                    <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
-                        {item.format === 'JSON' || item.filename?.endsWith('.json') ? (
-                          <FileJson size={15} className="text-emerald-600" />
-                        ) : (
-                          <Database size={15} className="text-[#b32d2d]" />
-                        )}
-                        {item.filename}
-                      </td>
-                      <td className="py-4 px-6 font-bold">
-                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
-                          item.format === 'JSON' || item.filename?.endsWith('.json')
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-red-50 text-red-700 border border-red-200'
-                        }`}>
-                          {item.format || 'DUMP'}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 font-bold text-gray-700">
-                        {formatBytes(item.size_bytes)}
-                      </td>
-                      <td className="py-4 px-6 font-medium text-gray-500">
-                        {item.created_at || 'N/A'}
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
-                          <CheckCircle size={12} /> Verified & Saved
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              const fallbackBucketUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${item.filename}`;
-                              window.open(item.download_url || fallbackBucketUrl, '_blank');
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
-                          >
-                            <Download size={13} /> Download
-                          </button>
-                          <button
-                            onClick={() => removeItemFromHistory(index)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
-                            title="Remove log entry"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  backupHistory.map((item, index) => {
+                    const isDump = item.format === 'DUMP' || item.filename?.endsWith('.dump');
+                    const fallbackBucketUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${item.filename}`;
+
+                    return (
+                      <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
+                        <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
+                          {isDump ? (
+                            <Database size={15} className="text-[#b32d2d]" />
+                          ) : (
+                            <FileJson size={15} className="text-emerald-600" />
+                          )}
+                          {item.filename}
+                        </td>
+                        <td className="py-4 px-6 font-bold">
+                          <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
+                            isDump
+                              ? 'bg-red-50 text-red-700 border border-red-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}>
+                            {item.format || (isDump ? 'DUMP' : 'JSON')}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 font-bold text-gray-700">
+                          {formatBytes(item.size_bytes)}
+                        </td>
+                        <td className="py-4 px-6 font-medium text-gray-500">
+                          {item.created_at || 'N/A'}
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
+                            <CheckCircle size={12} /> Verified & Saved
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Dump Restore Action Button */}
+                            {isDump && (
+                              <button
+                                onClick={() => {
+                                  setSelectedDumpFilename(item.filename);
+                                  setDumpRestoreModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                                title="Restore PostgreSQL Database from this dump"
+                              >
+                                <RotateCcw size={13} /> Restore
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => window.open(item.download_url || fallbackBucketUrl, '_blank')}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                            >
+                              <Download size={13} /> Download
+                            </button>
+                            
+                            <button
+                              onClick={() => removeItemFromHistory(index)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
+                              title="Remove log entry"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -434,8 +551,59 @@ export default function BackupsPage() {
 
       </div>
 
-      {/* CONFIRM RESTORE MODAL */}
-      {restoreModalOpen && selectedJsonFile && (
+      {/* CONFIRM SERVER DUMP RESTORE MODAL */}
+      {dumpRestoreModalOpen && selectedDumpFilename && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
+            <div className="p-3 bg-red-50 text-[#b32d2d] rounded-full mb-4">
+              <AlertTriangle size={28} />
+            </div>
+
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              Restore Database from Dump?
+            </h3>
+
+            <p className="text-xs text-gray-600 font-medium mb-4 leading-relaxed">
+              You are about to execute a full PostgreSQL server restoration using dump file: <br/>
+              <strong className="text-gray-900 block mt-1 break-all">{selectedDumpFilename}</strong>
+            </p>
+
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] font-semibold text-left mb-6 w-full space-y-1">
+              <p>⚠️ <strong>Safety Rejection Warnings:</strong></p>
+              <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
+                <li>Restoration will fail with a Conflict (409) if existing application data is present in the database.</li>
+                <li>Ensures all system privileges and schema configurations are properly maintained.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setDumpRestoreModalOpen(false);
+                  setSelectedDumpFilename('');
+                }}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExecuteDumpRestore}
+                disabled={isRestoring}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {isRestoring ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                Execute Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM JSON RESTORE MODAL */}
+      {jsonRestoreModalOpen && selectedJsonFile && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
@@ -443,11 +611,11 @@ export default function BackupsPage() {
             </div>
 
             <h3 className="font-extrabold text-base text-gray-900 mb-1">
-              Restore Database from JSON?
+              Verify JSON Database Snapshot?
             </h3>
 
             <p className="text-xs text-gray-600 font-medium mb-4 leading-relaxed">
-              You are about to import <strong className="text-gray-900">{selectedJsonFile.name}</strong>.
+              You are about to verify local JSON snapshot <strong className="text-gray-900">{selectedJsonFile.name}</strong>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] font-semibold text-left mb-6 w-full">
@@ -458,7 +626,7 @@ export default function BackupsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setRestoreModalOpen(false);
+                  setJsonRestoreModalOpen(false);
                   setSelectedJsonFile(null);
                   setParsedJsonPayload(null);
                 }}
@@ -469,7 +637,7 @@ export default function BackupsPage() {
 
               <button
                 type="button"
-                onClick={handleExecuteRestore}
+                onClick={handleExecuteJsonRestore}
                 disabled={isRestoring}
                 className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
