@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, AlertCircle, 
-  Clock, CheckCircle2, Users, FileText, Shield
+  Clock, CheckCircle2, Users, FileText, Shield, CalendarDays, X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
@@ -26,7 +26,6 @@ export const ANGELES_BARANGAYS = [
 
 const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6', '#ec4899', '#6366f1'];
 
-// Mobile / Backend Category Mapping Dictionary
 const CATEGORY_MAP = {
   'road_accident': 'Road Accident',
   'fire': 'Fire',
@@ -37,7 +36,6 @@ const CATEGORY_MAP = {
   'other': 'Other'
 };
 
-// Cache keys for session management
 const CACHE_KEY_ANALYTICS_REPORTS = 'cache_analytics_reports_v5';
 const CACHE_KEY_ANALYTICS_USERS = 'cache_analytics_users_v5';
 const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
@@ -77,7 +75,11 @@ export default function AnalyticsPage() {
 
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [timeRange, setTimeRange] = useState('all');
+  
+  // Default to '7days' (This Week) instead of 'all'
+  const [timeRange, setTimeRange] = useState('7days');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const token = localStorage.getItem('ac_token');
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
@@ -90,7 +92,6 @@ export default function AnalyticsPage() {
     return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
   }, [token]);
 
-  // Load Admin Profile automatically
   const loadAdminProfile = useCallback(async () => {
     try {
       const rawToken = token || '';
@@ -128,7 +129,6 @@ export default function AnalyticsPage() {
     loadAdminProfile();
   }, [token, navigate, loadAdminProfile]);
 
-  // Strict Barangay Filtering logic
   const reports = useMemo(() => {
     if (!assignedBarangay) return rawReports;
     const targetNorm = String(assignedBarangay).toLowerCase().replace(/^sta\.\s*/, 'santa ').trim();
@@ -138,7 +138,6 @@ export default function AnalyticsPage() {
     });
   }, [rawReports, assignedBarangay]);
 
-  // Fetch data
   const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
@@ -186,7 +185,6 @@ export default function AnalyticsPage() {
     }
   }, [token, API_BASE_URL, getAuthHeaders, rawReports.length, loadAdminProfile]);
 
-  // AUTOMATIC REFRESH POLLING & FOCUS SYNC
   useEffect(() => {
     fetchData(true);
 
@@ -203,7 +201,6 @@ export default function AnalyticsPage() {
     };
   }, [fetchData]);
 
-  // Exact TextChoices Category Name Parsing Function
   const getCategoryName = (report) => {
     if (!report) return 'Other';
 
@@ -227,9 +224,19 @@ export default function AnalyticsPage() {
     return rawCategory || 'Other';
   };
 
-  // Filter reports strictly by chosen time range for all sub-graphs
+  // Filter reports strictly by chosen time range or custom date range
   const timeFilteredReports = useMemo(() => {
     const now = new Date();
+
+    if ((fromDate || toDate) && timeRange === 'custom') {
+      const startMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+      const endMs = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+      return reports.filter(r => {
+        if (!r.created_at) return false;
+        const time = new Date(r.created_at).getTime();
+        return time >= startMs && time <= endMs;
+      });
+    }
 
     if (timeRange === 'today') {
       const todayStr = now.toDateString();
@@ -255,9 +262,8 @@ export default function AnalyticsPage() {
     }
 
     return reports; // 'all'
-  }, [reports, timeRange]);
+  }, [reports, timeRange, fromDate, toDate]);
 
-  // Today Metrics Calculations
   const todayStr = new Date().toDateString();
   const todaysReports = useMemo(() => {
     return reports.filter(r => r.created_at && new Date(r.created_at).toDateString() === todayStr);
@@ -337,6 +343,23 @@ export default function AnalyticsPage() {
       return months;
     }
 
+    if (timeRange === 'custom') {
+      const dateMap = {};
+      timeFilteredReports.forEach(r => {
+        if (!r.created_at) return;
+        const dStr = new Date(r.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+        dateMap[dStr] = (dateMap[dStr] || 0) + 1;
+      });
+
+      const keys = Object.keys(dateMap);
+      if (keys.length === 0) return [{ time: 'N/A', reports: 0 }];
+
+      return keys.map(k => ({
+        time: k,
+        reports: dateMap[k]
+      }));
+    }
+
     if (timeRange === 'all') {
       const yearMap = {};
       reports.forEach(r => {
@@ -357,9 +380,8 @@ export default function AnalyticsPage() {
     }
 
     return [];
-  }, [timeRange, todaysReports, reports]);
+  }, [timeRange, todaysReports, reports, timeFilteredReports]);
 
-  // Hourly Data Synced to Time Filter
   const hourlyData = useMemo(() => {
     const slots = [
       { slot: 'Morning (6A-12P)', count: 0 },
@@ -380,7 +402,6 @@ export default function AnalyticsPage() {
     return slots;
   }, [timeFilteredReports]);
 
-  // Status Pie Chart Data Synced to Time Filter
   const statusPieData = useMemo(() => {
     const p = timeFilteredReports.filter(r => ['pending', 'submitted'].includes(String(r.status).toLowerCase())).length;
     const o = timeFilteredReports.filter(r => ['ongoing', 'responding'].includes(String(r.status).toLowerCase())).length;
@@ -392,7 +413,6 @@ export default function AnalyticsPage() {
     ].filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  // Emergency Categories Donut Chart Data Synced to TextChoices Models
   const incidentTypeData = useMemo(() => {
     const catMap = {};
 
@@ -421,7 +441,6 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            {/* Specific Barangay Badge Header */}
             <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-300 shadow-xs">
               Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
             </div>
@@ -497,17 +516,74 @@ export default function AnalyticsPage() {
               <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
             </div>
 
-            <select 
-              value={timeRange} 
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
-            >
-              <option value="today">Today</option>
-              <option value="7days">This Week (7 Days)</option>
-              <option value="month">Past Month</option>
-              <option value="year">Past Year</option>
-              <option value="all">All Time</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* TIME RANGE HORIZON DROPDOWN */}
+              <select 
+                value={timeRange} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTimeRange(val);
+                  if (val !== 'custom') {
+                    setFromDate('');
+                    setToDate('');
+                  }
+                }}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
+              >
+                <option value="7days">This Week (7 Days)</option>
+                <option value="today">Today</option>
+                <option value="month">Past Month</option>
+                <option value="year">Past Year</option>
+                <option value="custom">Custom Date Range...</option>
+                <option value="all">All Time</option>
+              </select>
+
+              {/* DUAL DATE PICKER FOR CUSTOM TIME WINDOW */}
+              <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
+                <CalendarDays size={14} className="text-gray-400 shrink-0" />
+                
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-gray-400 uppercase">From</span>
+                  <input 
+                    type="date" 
+                    value={fromDate} 
+                    onChange={(e) => {
+                      setFromDate(e.target.value);
+                      setTimeRange('custom');
+                    }} 
+                    className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                  />
+                </div>
+
+                <span className="text-gray-300">•</span>
+
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-gray-400 uppercase">To</span>
+                  <input 
+                    type="date" 
+                    value={toDate} 
+                    onChange={(e) => {
+                      setToDate(e.target.value);
+                      setTimeRange('custom');
+                    }} 
+                    className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                  />
+                </div>
+
+                {(fromDate || toDate) && (
+                  <X 
+                    size={14} 
+                    className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
+                    onClick={() => {
+                      setFromDate('');
+                      setToDate('');
+                      setTimeRange('7days');
+                    }} 
+                    title="Clear Custom Dates"
+                  />
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="h-64 w-full min-w-0">
