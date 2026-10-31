@@ -35,6 +35,7 @@ export default function BackupsPage() {
   const [isFetchingList, setIsFetchingList] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [downloadingFile, setDownloadingFile] = useState('');
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -70,16 +71,19 @@ export default function BackupsPage() {
         });
       }
 
+      if (res.status === 401) {
+        setFeedback({ error: 'Session expired or invalidated. Please log back in.', success: '' });
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to fetch server backup list.');
 
-      // Matches views.py DatabaseBackupListView payload structure: {"backups": [...]}
       const serverBackups = (data.backups || []).map(b => ({
         filename: b.filename,
         size_bytes: b.size_bytes || 0,
         created_at: b.created_at ? new Date(b.created_at).toLocaleString() : 'N/A',
-        format: 'DUMP',
-        download_url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${b.filename}`
+        format: 'DUMP'
       }));
 
       setBackupHistory((prev) => {
@@ -134,17 +138,19 @@ export default function BackupsPage() {
         });
       }
 
+      if (res.status === 401) {
+        throw new Error('Authentication expired. Please log in again to generate backups.');
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.message || 'Backup creation failed.');
 
-      // Matches views.py DatabaseBackupView HTTP 201 response: {"message": "...", "backup": {...}}
       const backupObj = data.backup || data;
       const newBackup = {
         filename: backupObj.filename || `aksyon-db-${new Date().toISOString().replace(/[:.]/g, '')}.dump`,
         size_bytes: backupObj.size_bytes || 0,
         created_at: backupObj.created_at ? new Date(backupObj.created_at).toLocaleString() : new Date().toLocaleString(),
-        format: 'DUMP',
-        download_url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${backupObj.filename}`
+        format: 'DUMP'
       };
 
       const updatedHistory = [newBackup, ...backupHistory];
@@ -186,10 +192,13 @@ export default function BackupsPage() {
         });
       }
 
+      if (res.status === 401) {
+        throw new Error('Authentication failure: Token was invalidated. Please log back in before restoring.');
+      }
+
       const data = await res.json();
       
       if (!res.ok) {
-        // Handles HTTP 409 CONFLICT from RestoreRejected and HTTP 500 from RestoreError
         if (res.status === 409) {
           throw new Error(`Restore Safety Violation: ${data.detail || 'Database contains existing application data or incomplete schema.'}`);
         }
@@ -208,6 +217,37 @@ export default function BackupsPage() {
       setFeedback({ error: err.message || 'Database restore failed.', success: '' });
     } finally {
       setIsRestoring(false);
+    }
+  };
+
+  // Authenticated Dump Download Helper
+  const handleDownloadDump = async (filename) => {
+    setDownloadingFile(filename);
+    setFeedback({ error: '', success: '' });
+
+    try {
+      const storageUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${filename}`;
+      const res = await fetch(storageUrl);
+
+      if (!res.ok) {
+        throw new Error('Public bucket access disabled. Backup files are stored securely in a private storage bucket.');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setFeedback({ error: '', success: `Downloaded backup snapshot: ${filename}` });
+    } catch (err) {
+      setFeedback({ error: err.message || 'Download failed.', success: '' });
+    } finally {
+      setDownloadingFile('');
     }
   };
 
@@ -395,8 +435,18 @@ export default function BackupsPage() {
 
         {/* FEEDBACK NOTIFICATIONS */}
         {feedback.error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shadow-xs shrink-0">
-            <AlertCircle size={16} className="shrink-0" /> {feedback.error}
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold shadow-xs shrink-0">
+            <div className="flex items-center gap-3">
+              <AlertCircle size={16} className="shrink-0" /> {feedback.error}
+            </div>
+            {feedback.error.includes('expired') || feedback.error.includes('invalidated') ? (
+              <button
+                onClick={() => navigate('/login')}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg font-bold text-[11px] hover:bg-red-700 transition-all cursor-pointer"
+              >
+                Log In Again
+              </button>
+            ) : null}
           </div>
         )}
         {feedback.success && (
@@ -476,7 +526,6 @@ export default function BackupsPage() {
                 ) : (
                   backupHistory.map((item, index) => {
                     const isDump = item.format === 'DUMP' || item.filename?.endsWith('.dump');
-                    const fallbackBucketUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${item.filename}`;
 
                     return (
                       <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
@@ -525,10 +574,12 @@ export default function BackupsPage() {
                             )}
 
                             <button
-                              onClick={() => window.open(item.download_url || fallbackBucketUrl, '_blank')}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                              onClick={() => handleDownloadDump(item.filename)}
+                              disabled={downloadingFile === item.filename}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
                             >
-                              <Download size={13} /> Download
+                              {downloadingFile === item.filename ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                              Download
                             </button>
                             
                             <button
@@ -569,10 +620,10 @@ export default function BackupsPage() {
             </p>
 
             <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] font-semibold text-left mb-6 w-full space-y-1">
-              <p>⚠️ <strong>Safety Rejection Warnings:</strong></p>
+              <p>⚠️ <strong>Important Note:</strong></p>
               <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
-                <li>Restoration will fail with a Conflict (409) if existing application data is present in the database.</li>
-                <li>Ensures all system privileges and schema configurations are properly maintained.</li>
+                <li>If your auth token was cleared via SQL cleanup, please refresh or log back in first.</li>
+                <li>Restoration will apply schema and database state in a single transaction.</li>
               </ul>
             </div>
 
