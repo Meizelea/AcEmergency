@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle
+  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle, CalendarDays
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -18,7 +18,6 @@ const getApiBaseUrl = () => {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
   }
   return `https://api.aksyon.online`;
-  //return `http://${targetHostname}:8000`;
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -62,7 +61,6 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Mobile Model Enum Mapping Dictionary
 const CATEGORY_MAP = {
   'road_accident': 'Road Accident',
   'fire': 'Fire',
@@ -73,7 +71,6 @@ const CATEGORY_MAP = {
   'other': 'Other'
 };
 
-// Emergency Category to Database Unit Type Mapper
 const CATEGORY_UNIT_TYPES = {
   'Road Accident': ['Police', 'Medical', 'Hospital', 'Traffic', 'Emergency', 'PNP'],
   'Fire': ['Fire', 'BFP', 'Fire Station', 'Rescue'],
@@ -81,7 +78,7 @@ const CATEGORY_UNIT_TYPES = {
   'Flooding and Natural Hazards': ['Disaster', 'DRRMO', 'CDRRMO', 'Rescue', 'Barangay'],
   'Infrastructure Hazard': ['Barangay', 'Engineering', 'DRRMO', 'Public Works'],
   'Public Safety Incident': ['Police', 'PNP', 'Barangay', 'Law Enforcement', 'Patrol'],
-  'Other': [] // Matches any active unit
+  'Other': []
 };
 
 export default function ReportsPage() {
@@ -137,14 +134,15 @@ export default function ReportsPage() {
   
   // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('Pending'); 
-  const [filterDate, setFilterDate] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All'); 
+  const [dateRangeFilter, setDateRangeFilter] = useState('7_days'); // Defaults to 7 Days (This Week)
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -153,7 +151,6 @@ export default function ReportsPage() {
     action: null
   });
 
-  // Video URL Cache
   const videoCache = useRef({});
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
@@ -173,7 +170,6 @@ export default function ReportsPage() {
     };
   }, [token]);
 
-  // Enhanced Mobile Emergency Category Parser
   const getCategoryName = (report) => {
     if (!report) return 'General Emergency';
     
@@ -349,7 +345,6 @@ export default function ReportsPage() {
     }
   }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
-  // AUTOMATIC REFRESH POLLING & FOCUS SYNC
   useEffect(() => {
     if (!token) {
       navigate('/login');
@@ -372,7 +367,6 @@ export default function ReportsPage() {
     };
   }, [token, navigate, fetchReports, fetchEmergencyUnits]);
 
-  // CATEGORY-AWARE NEAREST RESPONDER CALCULATION
   const getNearestResponderText = (report) => {
     if (report?.nearest_responder) {
       const responderName = typeof report.nearest_responder === 'object' 
@@ -397,7 +391,6 @@ export default function ReportsPage() {
 
     if (basePool.length === 0) return 'N/A';
 
-    // Filter unit pool according to emergency category
     const categoryName = getCategoryName(report);
     const allowedTypes = CATEGORY_UNIT_TYPES[categoryName] || [];
 
@@ -536,6 +529,7 @@ export default function ReportsPage() {
     return '—';
   };
 
+  // Enhanced Filter Logic Supporting Custom "From" and "To" Date Range
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -553,9 +547,29 @@ export default function ReportsPage() {
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
 
     let matchedDate = true;
-    if (filterDate && report.created_at) {
-      const reportDate = new Date(report.created_at).toISOString().split('T')[0];
-      matchedDate = reportDate === filterDate;
+    const now = new Date();
+
+    // 1. Check Custom "From - To" Date Range Picker first if populated
+    if ((fromDate || toDate) && report.created_at) {
+      const reportTime = new Date(report.created_at).getTime();
+      const startMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+      const endMs = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+      matchedDate = reportTime >= startMs && reportTime <= endMs;
+    } 
+    // 2. Preset Date Horizon Filter (Today, 7 Days, 30 Days)
+    else if (dateRangeFilter !== 'all_time' && dateRangeFilter !== 'custom' && report.created_at) {
+      const reportTimestamp = new Date(report.created_at).getTime();
+      if (dateRangeFilter === 'today') {
+        const todayStr = now.toISOString().split('T')[0];
+        const reportDateStr = new Date(report.created_at).toISOString().split('T')[0];
+        matchedDate = todayStr === reportDateStr;
+      } else if (dateRangeFilter === '7_days') {
+        const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+        matchedDate = reportTimestamp >= sevenDaysAgo;
+      } else if (dateRangeFilter === '30_days') {
+        const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+        matchedDate = reportTimestamp >= thirtyDaysAgo;
+      }
     }
 
     return matchedSearch && matchedStatus && matchedDate;
@@ -612,21 +626,76 @@ export default function ReportsPage() {
               </select>
             </div>
 
-            {/* DATE FILTER */}
+            {/* QUICK DATE HORIZON FILTER */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <Calendar size={14} className="text-gray-400 mr-2 shrink-0" />
-              <input 
-                type="date" 
-                value={filterDate} 
-                onChange={(e) => setFilterDate(e.target.value)} 
-                className="py-1.5 bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700 w-full" 
-              />
-              {filterDate && (
-                <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer ml-1.5 shrink-0" onClick={() => setFilterDate('')} />
+              <Clock size={14} className="text-gray-400 mr-2 shrink-0" />
+              <select 
+                value={dateRangeFilter} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDateRangeFilter(val);
+                  if (val !== 'custom') {
+                    setFromDate('');
+                    setToDate('');
+                  }
+                }} 
+                className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full"
+              >
+                <option value="7_days">This Week (7 Days)</option>
+                <option value="today">Today</option>
+                <option value="30_days">Last 30 Days</option>
+                <option value="custom">Custom Date Range...</option>
+                <option value="all_time">All Time</option>
+              </select>
+            </div>
+
+            {/* CUSTOM "FROM" AND "TO" DATE RANGE PICKER */}
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
+              <CalendarDays size={14} className="text-gray-400 shrink-0" />
+              
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400 uppercase">From</span>
+                <input 
+                  type="date" 
+                  value={fromDate} 
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setDateRangeFilter('custom');
+                  }} 
+                  className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                />
+              </div>
+
+              <span className="text-gray-300">•</span>
+
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400 uppercase">To</span>
+                <input 
+                  type="date" 
+                  value={toDate} 
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setDateRangeFilter('custom');
+                  }} 
+                  className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                />
+              </div>
+
+              {(fromDate || toDate) && (
+                <X 
+                  size={14} 
+                  className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
+                  onClick={() => {
+                    setFromDate('');
+                    setToDate('');
+                    setDateRangeFilter('7_days');
+                  }} 
+                  title="Clear Date Range"
+                />
               )}
             </div>
 
-            {/* SIMPLIFIED SORT DROPDOWN */}
+            {/* SORT DROPDOWN */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
               <ArrowUpDown size={14} className="text-gray-400 mr-2 shrink-0" />
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
