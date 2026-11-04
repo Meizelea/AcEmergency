@@ -55,7 +55,7 @@ export default function PrivilegedEmergencyUnitsPage() {
     switch (String(type).toLowerCase()) {
       case 'fire': return 'Fire Engine';
       case 'hospital': return 'Ambulance / Medical';
-      case 'police': return 'Rescue Truck / Police';
+      case 'police': return 'Police';
       default: return type || 'Rescue Truck';
     }
   };
