@@ -58,10 +58,9 @@ export default function PrivilegedEmergencyUnitsPage() {
 
   const getUnitTypeLabel = (type) => {
     switch (String(type).toLowerCase()) {
-      case 'fire': return 'Fire Engine';
-      case 'hospital': return 'Ambulance / Medical';
+      case 'fire': return 'Fire Truck';
+      case 'hospital': return 'Ambulance';
       case 'police': return 'Police';
-      case 'drrmo': return 'DRRMO';
       default: return type || 'Rescue Truck';
     }
   };
@@ -276,7 +275,6 @@ export default function PrivilegedEmergencyUnitsPage() {
                   <option value="hospital">Ambulance / Medical</option>
                   <option value="police">Police</option>
                   <option value="fire">Fire Engine</option>
-                  <option value="drrmo">DRRMO</option>
                 </select>
               </div>
 
@@ -410,7 +408,6 @@ export default function PrivilegedEmergencyUnitsPage() {
                       <option value="hospital">Hospital (Ambulance)</option>
                       <option value="police">Police Department</option>
                       <option value="fire">Fire Department</option>
-                      <option value="drrmo">DRRMO (Disaster Risk Reduction)</option>
                     </select>
                   </div>
                   <div>
