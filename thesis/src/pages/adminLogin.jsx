@@ -163,9 +163,14 @@ export default function AdminLogin() {
       <div className="bg-[#2a2a2a] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 border border-white/10">
         {/* Header Banner */}
         <div className="bg-[#b32d2d] p-8 text-center text-white">
-          <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-            <ShieldAlert size={32} className="text-white" />
-          </div>
+          {/* Replace the Shield icon circle with this */}
+            <div className="bg-white/10 p-3 rounded-full inline-flex items-center justify-center mb-2">
+              <img 
+                src="/AKSYON.svg" 
+                alt="AKSYON Logo" 
+                className="w-8 h-8 object-contain"
+              />
+            </div>
           <h1 className="text-2xl font-black tracking-tight uppercase">Aksyon</h1>
           <p className="text-red-100 text-sm mt-1 font-medium">Command Center Portal</p>
         </div>
