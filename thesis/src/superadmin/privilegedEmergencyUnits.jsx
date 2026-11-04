@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ShieldAlert, Truck, Navigation, RefreshCw, Plus, Eye, Edit3, 
-  Trash2, X, MapPin, Phone, AlertCircle, Building2, Radio, 
-  CheckCircle2, RotateCcw, Loader2, CheckCircle, XCircle 
+  ShieldAlert, RefreshCw, Plus, Edit3, 
+  Trash2, X, AlertCircle, Building2, 
+  Loader2, CheckCircle, XCircle, Filter, Search 
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -25,6 +25,11 @@ export default function PrivilegedEmergencyUnitsPage() {
     return cached ? JSON.parse(cached) : [];
   });
   const [isLoading, setIsLoading] = useState(() => units.length === 0);
+
+  // Filters State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
 
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create');
@@ -56,6 +61,7 @@ export default function PrivilegedEmergencyUnitsPage() {
       case 'fire': return 'Fire Engine';
       case 'hospital': return 'Ambulance / Medical';
       case 'police': return 'Police';
+      case 'drrmo': return 'DRRMO';
       default: return type || 'Rescue Truck';
     }
   };
@@ -87,6 +93,30 @@ export default function PrivilegedEmergencyUnitsPage() {
     }
     fetchEmergencyUnits();
   }, [navigate, fetchEmergencyUnits]);
+
+  // Filtered Emergency Units
+  const filteredUnits = useMemo(() => {
+    return units.filter(unit => {
+      const nameMatch = (unit.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const addressMatch = (unit.address || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const contactMatch = (unit.contact_number || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = nameMatch || addressMatch || contactMatch;
+
+      let matchesCategory = true;
+      if (categoryFilter !== 'All') {
+        matchesCategory = String(unit.unit_type).toLowerCase() === categoryFilter.toLowerCase();
+      }
+
+      let matchesStatus = true;
+      if (statusFilter === 'active') {
+        matchesStatus = (unit.is_active ?? true) === true;
+      } else if (statusFilter === 'disabled') {
+        matchesStatus = (unit.is_active ?? true) === false;
+      }
+
+      return matchesSearch && matchesCategory && matchesStatus;
+    });
+  }, [units, searchQuery, categoryFilter, statusFilter]);
 
   const openCreateModal = () => {
     setModalMode('create');
@@ -209,9 +239,60 @@ export default function PrivilegedEmergencyUnitsPage() {
 
         {/* EMERGENCY UNITS INVENTORY TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
-          <div className="px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-gray-200 bg-gray-50/50 shrink-0">
-            <h3 className="font-bold text-sm sm:text-base text-gray-900">Privileged Emergency Units Console</h3>
-            <span className="text-xs text-gray-400 font-bold">{units.length} Enrolled Stations</span>
+          
+          {/* CONTROL & FILTER HEADER */}
+          <div className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-gray-200 bg-gray-50/50 shrink-0">
+            <div className="flex items-center gap-3">
+              <h3 className="font-bold text-sm sm:text-base text-gray-900 whitespace-nowrap">Privileged Emergency Units Console</h3>
+              <span className="text-xs text-gray-400 font-bold hidden sm:inline">•</span>
+              <span className="text-xs text-gray-500 font-bold">{filteredUnits.length} Enrolled Stations</span>
+            </div>
+
+            {/* SEARCH & FILTERS BAR */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative bg-white border border-gray-300 rounded-lg flex items-center shadow-2xs overflow-hidden w-full sm:w-48 lg:w-56">
+                <Search size={15} className="text-gray-400 ml-2.5 shrink-0" />
+                <input 
+                  type="text" 
+                  placeholder="Search station or address..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full py-1.5 px-2 text-xs font-medium text-gray-700 focus:outline-none"
+                />
+                {searchQuery && (
+                  <X size={14} className="text-gray-400 hover:text-red-500 cursor-pointer mr-2 shrink-0" onClick={() => setSearchQuery('')} />
+                )}
+              </div>
+
+              {/* CATEGORY CHOICE FILTER */}
+              <div className="bg-white border border-gray-300 rounded-lg flex items-center px-2.5 shadow-2xs text-xs text-gray-600 font-bold">
+                <Filter size={13} className="text-gray-400 mr-1.5 shrink-0" />
+                <select 
+                  value={categoryFilter} 
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="py-1.5 bg-transparent focus:outline-none cursor-pointer pr-1 w-full text-xs font-bold text-gray-700"
+                >
+                  <option value="All">All Categories</option>
+                  <option value="hospital">Ambulance / Medical</option>
+                  <option value="police">Police</option>
+                  <option value="fire">Fire Engine</option>
+                  <option value="drrmo">DRRMO</option>
+                </select>
+              </div>
+
+              {/* STATUS FILTER */}
+              <div className="bg-white border border-gray-300 rounded-lg flex items-center px-2.5 shadow-2xs text-xs text-gray-600 font-bold">
+                <select 
+                  value={statusFilter} 
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="py-1.5 bg-transparent focus:outline-none cursor-pointer pr-1 w-full text-xs font-bold text-gray-700"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="active">Active Only</option>
+                  <option value="disabled">Disabled Only</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div className="overflow-x-auto flex-1">
@@ -219,7 +300,7 @@ export default function PrivilegedEmergencyUnitsPage() {
               <thead>
                 <tr className="bg-[#f8f9fa] border-b-2 border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider select-none">
                   <th className="py-3.5 sm:py-4 px-4 sm:px-6 min-w-[200px]">Unit / Base Station</th>
-                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap min-w-[170px]">Category Choice</th>
+                  <th className="py-3.5 sm:py-4 px-4 sm:px-6 text-center whitespace-nowrap min-w-[170px]">Category Choice</th>
                   <th className="py-3.5 sm:py-4 px-4 sm:px-6 min-w-[200px]">Address & Coordinates</th>
                   <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">Contact Hotline</th>
                   <th className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">Status</th>
@@ -233,14 +314,14 @@ export default function PrivilegedEmergencyUnitsPage() {
                       <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} /> Querying database...
                     </td>
                   </tr>
-                ) : units.length === 0 ? (
+                ) : filteredUnits.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="py-12 text-center text-gray-400 font-medium">
-                      No emergency units registered in database.
+                      No emergency units matched your filter criteria.
                     </td>
                   </tr>
                 ) : (
-                  units.map((unit) => {
+                  filteredUnits.map((unit) => {
                     const isActive = unit.is_active ?? true;
                     return (
                       <tr key={unit.id} className="hover:bg-gray-50/80 transition-colors">
@@ -250,7 +331,7 @@ export default function PrivilegedEmergencyUnitsPage() {
                             <span>{unit.name}</span>
                           </div>
                         </td>
-                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 whitespace-nowrap">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-center whitespace-nowrap">
                           <span className="px-3 py-1 rounded-full text-[11px] font-bold border bg-gray-50 text-gray-800 inline-block whitespace-nowrap shrink-0 shadow-2xs">
                             {getUnitTypeLabel(unit.unit_type)}
                           </span>
@@ -329,6 +410,7 @@ export default function PrivilegedEmergencyUnitsPage() {
                       <option value="hospital">Hospital (Ambulance)</option>
                       <option value="police">Police Department</option>
                       <option value="fire">Fire Department</option>
+                      <option value="drrmo">DRRMO (Disaster Risk Reduction)</option>
                     </select>
                   </div>
                   <div>
