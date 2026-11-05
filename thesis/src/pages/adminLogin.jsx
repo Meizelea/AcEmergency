@@ -166,7 +166,7 @@ export default function AdminLogin() {
           {/* Replace the Shield icon circle with this */}
             <div className="bg-white/10 p-3 rounded-full inline-flex items-center justify-center mb-2">
               <img 
-                src="/aksyonlogo.png" 
+                src="/aksyonlogos.png" 
                 alt="AKSYON Logo" 
                 className="w-8 h-8 object-contain"
               />
