@@ -11,8 +11,6 @@ import L from 'leaflet';
 
 import AdminLayout from '../components/header';
 
-const targetHostname = window.location.hostname || '127.0.0.1';
-
 const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, "");
@@ -132,10 +130,10 @@ export default function ReportsPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Search, Filters & Sorting
+  // Search, Filters & Sorting - Defaulted dateRangeFilter to 'all_time' so older records show up!
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All'); 
-  const [dateRangeFilter, setDateRangeFilter] = useState('7_days'); // Defaults to 7 Days (This Week)
+  const [dateRangeFilter, setDateRangeFilter] = useState('all_time'); 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
@@ -159,14 +157,16 @@ export default function ReportsPage() {
 
   const token = localStorage.getItem('ac_token');
 
-  const getAuthHeaders = useCallback(() => {
+  const getAuthHeaders = useCallback((useBearer = false) => {
     const rawToken = token || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    if (!cleanToken) return { 'Content-Type': 'application/json' };
+    const authPrefix = useBearer ? 'Bearer' : 'Token';
     return {
       'Content-Type': 'application/json',
       'Authorization': rawToken.startsWith('Bearer ') || rawToken.startsWith('Token ') 
         ? rawToken 
-        : `Token ${cleanToken}`
+        : `${authPrefix} ${cleanToken}`
     };
   }, [token]);
 
@@ -307,42 +307,46 @@ export default function ReportsPage() {
     if (!silent && reports.length === 0) setIsLoading(true);
     setIsSyncing(true);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
-        method: 'GET',
-        headers: getAuthHeaders()
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const rawList = Array.isArray(data) ? data : (data?.results || []);
-        const sorted = rawList.sort((a, b) => b.id - a.id);
-
-        setUsersMap(prev => {
-          const updated = { ...prev };
-          sorted.forEach(r => {
-            const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
-            const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
-            const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
-            if (name) {
-              if (r.id) updated[r.id] = name;
-              if (uid) updated[uid] = name;
-            }
-          });
-          sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
-          return updated;
+    for (const useBearer of [false, true]) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
+          method: 'GET',
+          headers: getAuthHeaders(useBearer)
         });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const rawList = Array.isArray(data) ? data : (data?.results || data?.data || []);
+          const sorted = rawList.sort((a, b) => (b.id || 0) - (a.id || 0));
 
-        setReports(sorted);
-        sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
-        fetchUsersMap();
+          setUsersMap(prev => {
+            const updated = { ...prev };
+            sorted.forEach(r => {
+              const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
+              const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
+              const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
+              if (name) {
+                if (r.id) updated[r.id] = name;
+                if (uid) updated[uid] = name;
+              }
+            });
+            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
+            return updated;
+          });
+
+          setReports(sorted);
+          sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
+          fetchUsersMap();
+          setIsLoading(false);
+          setIsSyncing(false);
+          return;
+        }
+      } catch (error) {
+        console.error("Error fetching reports:", error);
       }
-    } catch (error) {
-      console.error("Error fetching reports:", error);
-    } finally {
-      setIsLoading(false);
-      setIsSyncing(false);
     }
+    setIsLoading(false);
+    setIsSyncing(false);
   }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
   useEffect(() => {
@@ -529,7 +533,7 @@ export default function ReportsPage() {
     return '—';
   };
 
-  // Enhanced Filter Logic Supporting Custom "From" and "To" Date Range
+  // Filter Logic
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
@@ -549,34 +553,42 @@ export default function ReportsPage() {
     let matchedDate = true;
     const now = new Date();
 
-    // 1. Check Custom "From - To" Date Range Picker first if populated
-    if ((fromDate || toDate) && report.created_at) {
-      const reportTime = new Date(report.created_at).getTime();
+    // Custom From/To Date Range
+    if ((fromDate || toDate) && (report.created_at || report.timestamp)) {
+      const reportDateRaw = report.created_at || report.timestamp;
+      const reportTime = new Date(reportDateRaw).getTime();
       const startMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
       const endMs = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
-      matchedDate = reportTime >= startMs && reportTime <= endMs;
+      if (!isNaN(reportTime)) {
+        matchedDate = reportTime >= startMs && reportTime <= endMs;
+      }
     } 
-    // 2. Preset Date Horizon Filter (Today, 7 Days, 30 Days)
-    else if (dateRangeFilter !== 'all_time' && dateRangeFilter !== 'custom' && report.created_at) {
-      const reportTimestamp = new Date(report.created_at).getTime();
-      if (dateRangeFilter === 'today') {
-        const todayStr = now.toISOString().split('T')[0];
-        const reportDateStr = new Date(report.created_at).toISOString().split('T')[0];
-        matchedDate = todayStr === reportDateStr;
-      } else if (dateRangeFilter === '7_days') {
-        const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-        matchedDate = reportTimestamp >= sevenDaysAgo;
-      } else if (dateRangeFilter === '30_days') {
-        const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
-        matchedDate = reportTimestamp >= thirtyDaysAgo;
+    // Preset Date Filter
+    else if (dateRangeFilter !== 'all_time' && dateRangeFilter !== 'custom' && (report.created_at || report.timestamp)) {
+      const reportDateRaw = report.created_at || report.timestamp;
+      const reportTimestamp = new Date(reportDateRaw).getTime();
+      if (!isNaN(reportTimestamp)) {
+        if (dateRangeFilter === 'today') {
+          const todayStr = now.toISOString().split('T')[0];
+          const reportDateStr = new Date(reportDateRaw).toISOString().split('T')[0];
+          matchedDate = todayStr === reportDateStr;
+        } else if (dateRangeFilter === '7_days') {
+          const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+          matchedDate = reportTimestamp >= sevenDaysAgo;
+        } else if (dateRangeFilter === '30_days') {
+          const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+          matchedDate = reportTimestamp >= thirtyDaysAgo;
+        }
       }
     }
 
     return matchedSearch && matchedStatus && matchedDate;
   }).sort((a, b) => {
-    if (sortBy === 'date_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    if (sortBy === 'date_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
-    if (sortBy === 'resolved_desc') return new Date(b.resolved_at || 0) - new Date(a.resolved_at || 0);
+    const timeA = new Date(a.created_at || a.timestamp || 0).getTime();
+    const timeB = new Date(b.created_at || b.timestamp || 0).getTime();
+    if (sortBy === 'date_desc') return timeB - timeA;
+    if (sortBy === 'date_asc') return timeA - timeB;
+    if (sortBy === 'resolved_desc') return new Date(b.resolved_at || 0).getTime() - new Date(a.resolved_at || 0).getTime();
     return 0;
   });
 
@@ -641,15 +653,15 @@ export default function ReportsPage() {
                 }} 
                 className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full"
               >
+                <option value="all_time">All Time</option>
                 <option value="7_days">This Week (7 Days)</option>
                 <option value="today">Today</option>
                 <option value="30_days">Last 30 Days</option>
                 <option value="custom">Custom Date Range...</option>
-                <option value="all_time">All Time</option>
               </select>
             </div>
 
-            {/* CUSTOM "FROM" AND "TO" DATE RANGE PICKER */}
+            {/* CUSTOM DATE RANGE PICKER */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
               <CalendarDays size={14} className="text-gray-400 shrink-0" />
               
@@ -688,7 +700,7 @@ export default function ReportsPage() {
                   onClick={() => {
                     setFromDate('');
                     setToDate('');
-                    setDateRangeFilter('7_days');
+                    setDateRangeFilter('all_time');
                   }} 
                   title="Clear Date Range"
                 />
@@ -736,7 +748,7 @@ export default function ReportsPage() {
                 {isLoading ? (
                   <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
                 ) : filteredReports.length === 0 ? (
-                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-medium">No records matched.</td></tr>
+                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-medium">No records matched your filter criteria.</td></tr>
                 ) : (
                   filteredReports.map((report) => {
                     const currentStatusRaw = String(report.status).toLowerCase();
@@ -757,7 +769,7 @@ export default function ReportsPage() {
                         <td className="py-3.5 px-4 sm:px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <Clock size={13} className="text-red-500 shrink-0" />
-                            <span>{formatDate(report.created_at)}</span>
+                            <span>{formatDate(report.created_at || report.timestamp)}</span>
                           </div>
                         </td>
 
@@ -826,7 +838,7 @@ export default function ReportsPage() {
                   Report ID #{selectedReport.id}
                 </h3>
                 <p className="text-xs text-gray-400 font-semibold mt-0.5 flex flex-wrap items-center gap-2">
-                  <span>{formatDate(selectedReport.created_at)}</span>
+                  <span>{formatDate(selectedReport.created_at || selectedReport.timestamp)}</span>
                   <span>•</span>
                   <span className={`uppercase font-black ${
                     String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
