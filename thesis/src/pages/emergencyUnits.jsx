@@ -8,7 +8,8 @@ import {
   Phone, 
   ShieldCheck, 
   ShieldAlert,
-  Radio
+  Radio,
+  Eye
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -29,7 +30,9 @@ export default function EmergencyUnitsPage() {
   // Load cached units or default to empty list
   const [units, setUnits] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_UNITS);
-    return cached ? JSON.parse(cached) : [];
+    if (cached) return JSON.parse(cached);
+    const localCached = localStorage.getItem('cache_admin_units_v1');
+    return localCached ? JSON.parse(localCached) : [];
   });
 
   const [isLoading, setIsLoading] = useState(() => units.length === 0);
@@ -52,34 +55,51 @@ export default function EmergencyUnitsPage() {
       case 'fire': return 'Fire Engine';
       case 'hospital': return 'Ambulance / Medical';
       case 'police': return 'Police';
-      case 'drrmo': return 'DRRMO';
       default: return type || 'General Responder';
     }
   };
 
-  // Fetch emergency responder units with fallback authentication headers
+  // View-Only Fetcher: Tries public read-only endpoints & unauthenticated fallback
   const fetchEmergencyUnits = useCallback(async () => {
-    for (const useBearer of [false, true]) {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/emergency-units/`, { 
-          headers: getAuthHeaders(useBearer) 
-        });
+    const endpointsToTry = [
+      `${API_BASE_URL}/api/emergency-units/public/`,
+      `${API_BASE_URL}/api/public/emergency-units/`,
+      `${API_BASE_URL}/api/emergency-units/`
+    ];
 
+    for (const url of endpointsToTry) {
+      // First try with token
+      for (const useBearer of [false, true]) {
+        try {
+          const res = await fetch(url, { headers: getAuthHeaders(useBearer) });
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.results || data?.data || []);
+            if (list.length > 0) {
+              setUnits(list);
+              sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
+              return;
+            }
+          }
+        } catch (err) {
+          console.error(`Failed loading units from ${url}:`, err);
+        }
+      }
+
+      // Fallback: Try unauthenticated public request
+      try {
+        const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
         if (res.ok) {
           const data = await res.json();
-          // Extract array from raw list, results key, or data key
-          const list = Array.isArray(data) 
-            ? data 
-            : (data?.results || data?.data || []);
-
-          setUnits(list);
-          sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
-          return;
-        } else {
-          console.warn(`Fetch returned status ${res.status} with useBearer=${useBearer}`);
+          const list = Array.isArray(data) ? data : (data?.results || data?.data || []);
+          if (list.length > 0) {
+            setUnits(list);
+            sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
+            return;
+          }
         }
       } catch (err) {
-        console.error("Failed to load emergency units:", err);
+        // Silent catch for public endpoint trial
       }
     }
   }, [getAuthHeaders]);
@@ -127,8 +147,13 @@ export default function EmergencyUnitsPage() {
               <Truck size={22} />
             </div>
             <div>
-              <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Emergency Units Directory</h2>
-              <p className="text-xs text-gray-500 font-medium">Active emergency responder stations and dispatch units.</p>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-xl sm:text-2xl text-gray-900">Emergency Units Directory</h2>
+                <span className="bg-gray-200 text-gray-700 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <Eye size={12} /> Read-Only Directory
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 font-medium">Active emergency responder stations and dispatch units available across the network.</p>
             </div>
           </div>
 
@@ -138,11 +163,11 @@ export default function EmergencyUnitsPage() {
             className="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
-            {isLoading ? "Syncing..." : "Refresh Units"}
+            {isLoading ? "Syncing..." : "Refresh Directory"}
           </button>
         </div>
 
-        {/* EMERGENCY UNITS DIRECTORY TABLE */}
+        {/* EMERGENCY UNITS DIRECTORY TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
           <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center shrink-0">
             <h3 className="font-bold text-sm sm:text-base text-gray-900 flex items-center gap-2">
@@ -169,7 +194,7 @@ export default function EmergencyUnitsPage() {
                   <tr>
                     <td colSpan="5" className="py-12 text-center text-gray-400 font-bold">
                       <Loader2 className="animate-spin inline mr-2 text-[#b32d2d]" size={18} />
-                      Loading emergency unit records...
+                      Loading emergency unit directory...
                     </td>
                   </tr>
                 ) : units.length === 0 ? (
@@ -180,13 +205,12 @@ export default function EmergencyUnitsPage() {
                   </tr>
                 ) : (
                   units.map((unit, index) => {
-                    // Normalize isActive boolean or status string
                     const isActive = unit.is_active !== undefined 
                       ? Boolean(unit.is_active) 
                       : String(unit.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
 
                     return (
-                      <tr key={unit.id || index} className="hover:bg-gray-50/80 transition-colors">
+                      <tr key={unit.id || index} className="hover:bg-gray-50/80 transition-colors select-none">
                         <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
                           <Truck size={16} className="text-[#b32d2d] shrink-0" />
                           {unit.name || unit.station_name || 'Emergency Base Unit'}
