@@ -168,7 +168,7 @@ export default function AdminLogin() {
               <img 
                 src="/aksyonlogo.png" 
                 alt="AKSYON Logo" 
-                className="w-24 h-24 object-contain"
+                className="w-8 h-8 object-contain"
               />
             </div>
           <h1 className="text-2xl font-black tracking-tight uppercase">Aksyon</h1>

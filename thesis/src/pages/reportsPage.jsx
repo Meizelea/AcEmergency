@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle, CalendarDays
+  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle, CalendarDays, Tag
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -130,9 +130,10 @@ export default function ReportsPage() {
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Search, Filters & Sorting - Defaulted dateRangeFilter to 'all_time' so older records show up!
+  // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All'); 
+  const [categoryFilter, setCategoryFilter] = useState('All'); // <-- NEW CATEGORY FILTER STATE
   const [dateRangeFilter, setDateRangeFilter] = useState('all_time'); 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -533,11 +534,12 @@ export default function ReportsPage() {
     return '—';
   };
 
-  // Filter Logic
+  // Enhanced Filter Logic
   const filteredReports = reports.filter(report => {
     if (!report) return false;
     const reportText = (report.short_message || report.description || '').toLowerCase();
-    const categoryText = getCategoryName(report).toLowerCase();
+    const resolvedCatName = getCategoryName(report);
+    const categoryText = resolvedCatName.toLowerCase();
     const barangayText = (report.barangay || report.location || '').toLowerCase();
     const posterText = getReporterName(report).toLowerCase();
     const query = searchQuery.toLowerCase();
@@ -549,6 +551,12 @@ export default function ReportsPage() {
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
     else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
+
+    // Category Filter Match
+    let matchedCategory = true;
+    if (categoryFilter !== 'All') {
+      matchedCategory = resolvedCatName.toLowerCase() === categoryFilter.toLowerCase();
+    }
 
     let matchedDate = true;
     const now = new Date();
@@ -582,7 +590,7 @@ export default function ReportsPage() {
       }
     }
 
-    return matchedSearch && matchedStatus && matchedDate;
+    return matchedSearch && matchedStatus && matchedCategory && matchedDate;
   }).sort((a, b) => {
     const timeA = new Date(a.created_at || a.timestamp || 0).getTime();
     const timeB = new Date(b.created_at || b.timestamp || 0).getTime();
@@ -625,6 +633,21 @@ export default function ReportsPage() {
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 className="w-full py-2 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
               />
+            </div>
+
+            {/* CATEGORY FILTER DROPDOWN */}
+            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
+              <Tag size={14} className="text-gray-400 mr-2 shrink-0" />
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full">
+                <option value="All">All Categories</option>
+                <option value="Road Accident">Road Accident</option>
+                <option value="Fire">Fire</option>
+                <option value="Medical Emergency">Medical Emergency</option>
+                <option value="Flooding and Natural Hazards">Flooding & Natural Hazards</option>
+                <option value="Infrastructure Hazard">Infrastructure Hazard</option>
+                <option value="Public Safety Incident">Public Safety Incident</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
 
             {/* STATUS FILTER */}
