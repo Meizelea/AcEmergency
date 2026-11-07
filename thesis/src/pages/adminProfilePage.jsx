@@ -57,6 +57,8 @@ export default function AdminProfilePage() {
     is_superuser: profile?.is_superuser ?? false,
   });
 
+  const isPrivilegedRole = adminData.role === 'PRIVILEGED ADMIN';
+
   // Password Form State
   const [passwordForm, setPasswordForm] = useState({
     current_password: '',
@@ -180,8 +182,6 @@ export default function AdminProfilePage() {
       if (!adminData.id) {
         throw new Error('User ID missing. Please refresh or re-authenticate.');
       }
-
-      const isPrivilegedRole = adminData.role === 'PRIVILEGED ADMIN';
 
       const payload = {
         first_name: adminData.first_name,
@@ -443,10 +443,15 @@ export default function AdminProfilePage() {
                       <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="text"
-                        disabled
+                        disabled={!isPrivilegedRole}
                         value={adminData.contact_number}
+                        onChange={(e) => setAdminData({ ...adminData, contact_number: e.target.value })}
                         placeholder="+63 900 000 0000"
-                        className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
+                        className={`w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs font-medium ${
+                          isPrivilegedRole 
+                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white" 
+                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                        }`}
                       />
                     </div>
                   </div>
@@ -456,10 +461,15 @@ export default function AdminProfilePage() {
                       <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="email"
-                        disabled
+                        disabled={!isPrivilegedRole}
                         value={adminData.email}
+                        onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
                         placeholder="admin@aksyon.online"
-                        className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
+                        className={`w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs font-medium ${
+                          isPrivilegedRole 
+                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white" 
+                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                        }`}
                       />
                     </div>
                   </div>
@@ -476,20 +486,22 @@ export default function AdminProfilePage() {
                       className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                     />
                   </div>
-                  <span className="text-[10px] text-gray-400 mt-1 block">Officer identity details and barangay jurisdiction can only be modified by the System Superadmin.</span>
+                  <span className="text-[10px] text-gray-400 mt-1 block">Barangay jurisdiction can only be modified by the System Superadmin.</span>
                 </div>
               </div>
 
-              <div className="flex justify-end pt-3 border-t border-gray-100">
-                <button
-                  type="submit"
-                  disabled={savingDetails}
-                  className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {savingDetails ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-                  Save Officer Details
-                </button>
-              </div>
+              {isPrivilegedRole && (
+                <div className="flex justify-end pt-3 border-t border-gray-100">
+                  <button
+                    type="submit"
+                    disabled={savingDetails}
+                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingDetails ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                    Save
+                  </button>
+                </div>
+              )}
             </form>
           </div>
 
