@@ -26,6 +26,28 @@ const API_BASE = 'https://api.aksyon.online';
 //const API_BASE = `http://${targetHostname}:8000`;
 const CACHE_KEY_PROFILE = 'cache_admin_profile_v2';
 
+// Robust check across all possible superuser / privileged admin indicators
+const checkIsPrivileged = (userObj) => {
+  if (!userObj) {
+    const storedSuperuser = localStorage.getItem('is_superuser');
+    const storedRole = localStorage.getItem('user_role');
+    if (storedSuperuser === 'true' || storedSuperuser === true) return true;
+    if (storedRole && String(storedRole).toUpperCase().includes('PRIVILEGED')) return true;
+    return false;
+  }
+
+  if (userObj.is_superuser || userObj.is_privileged || userObj.is_staff_superuser) {
+    return true;
+  }
+
+  const roleStr = String(userObj.role || userObj.user_type || userObj.user_role || '').toUpperCase();
+  if (roleStr.includes('PRIVILEGED') || roleStr.includes('SUPER') || roleStr === 'SUPERADMIN') {
+    return true;
+  }
+
+  return false;
+};
+
 export default function AdminProfilePage() {
   const navigate = useNavigate();
 
@@ -43,6 +65,9 @@ export default function AdminProfilePage() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [feedback, setFeedback] = useState({ error: '', success: '', info: '' });
 
+  // Calculate privilege state dynamically
+  const isPrivilegedRole = checkIsPrivileged(profile);
+
   // Profile Form State
   const [adminData, setAdminData] = useState({
     id: profile?.id || null,
@@ -52,12 +77,29 @@ export default function AdminProfilePage() {
     last_name: profile?.last_name || '',
     contact_number: profile?.contact_number || profile?.phone_number || '',
     assigned_barangay: profile?.assigned_barangay || profile?.residential_barangay || '',
-    role: profile?.is_superuser || profile?.role?.toUpperCase() === 'PRIVILEGED ADMIN' ? 'PRIVILEGED ADMIN' : 'ADMIN',
+    role: isPrivilegedRole ? 'PRIVILEGED ADMIN' : 'ADMIN',
     is_staff: true,
-    is_superuser: profile?.is_superuser ?? false,
+    is_superuser: isPrivilegedRole,
   });
 
-  const isPrivilegedRole = adminData.role === 'PRIVILEGED ADMIN';
+  // Keep adminData updated when profile changes
+  useEffect(() => {
+    if (profile) {
+      const isPriv = checkIsPrivileged(profile);
+      setAdminData(prev => ({
+        ...prev,
+        id: profile.id || prev.id,
+        username: profile.username || prev.username,
+        email: profile.email || prev.email,
+        first_name: profile.first_name || prev.first_name,
+        last_name: profile.last_name || prev.last_name,
+        contact_number: profile.contact_number || profile.phone_number || prev.contact_number,
+        assigned_barangay: profile.assigned_barangay || profile.residential_barangay || prev.assigned_barangay,
+        role: isPriv ? 'PRIVILEGED ADMIN' : 'ADMIN',
+        is_superuser: isPriv,
+      }));
+    }
+  }, [profile]);
 
   // Password Form State
   const [passwordForm, setPasswordForm] = useState({
@@ -111,10 +153,8 @@ export default function AdminProfilePage() {
   };
 
   const syncProfileState = (userObj) => {
-    const resolvedRole = userObj.is_superuser || userObj.role?.toUpperCase() === 'PRIVILEGED ADMIN'
-      ? 'PRIVILEGED ADMIN'
-      : 'ADMIN';
-
+    const isPriv = checkIsPrivileged(userObj);
+    const resolvedRole = isPriv ? 'PRIVILEGED ADMIN' : 'ADMIN';
     const resolvedBarangay = userObj.assigned_barangay || userObj.residential_barangay || '';
 
     const formattedData = {
@@ -127,7 +167,7 @@ export default function AdminProfilePage() {
       assigned_barangay: resolvedBarangay,
       role: resolvedRole,
       is_staff: true,
-      is_superuser: resolvedRole === 'PRIVILEGED ADMIN',
+      is_superuser: isPriv,
     };
 
     setAdminData(formattedData);
@@ -175,6 +215,8 @@ export default function AdminProfilePage() {
   // 2. Profile Update Workflow
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
+    if (!isPrivilegedRole) return;
+
     setSavingDetails(true);
     setFeedback({ error: '', success: '', info: '' });
 
@@ -344,7 +386,7 @@ export default function AdminProfilePage() {
           </div>
         )}
 
-        {/* ROW 1: USER BADGE (LEFT) & OFFICER PROFILE FORM (RIGHT) - MATCHED HEIGHT */}
+        {/* ROW 1: USER BADGE (LEFT) & OFFICER PROFILE FORM (RIGHT) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           
           {/* Top Left: Admin Identity Badge */}
@@ -449,7 +491,7 @@ export default function AdminProfilePage() {
                         placeholder="+63 900 000 0000"
                         className={`w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs font-medium ${
                           isPrivilegedRole 
-                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white" 
+                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white cursor-text" 
                             : "bg-gray-100 text-gray-500 cursor-not-allowed"
                         }`}
                       />
@@ -467,7 +509,7 @@ export default function AdminProfilePage() {
                         placeholder="admin@aksyon.online"
                         className={`w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs font-medium ${
                           isPrivilegedRole 
-                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white" 
+                            ? "bg-gray-50 text-gray-800 focus:outline-none focus:border-[#b32d2d] focus:bg-white cursor-text" 
                             : "bg-gray-100 text-gray-500 cursor-not-allowed"
                         }`}
                       />
@@ -495,7 +537,7 @@ export default function AdminProfilePage() {
                   <button
                     type="submit"
                     disabled={savingDetails}
-                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
+                    className="flex items-center gap-1.5 bg-[#b32d2d] hover:bg-[#962626] text-white px-5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-xs disabled:opacity-50 cursor-pointer"
                   >
                     {savingDetails ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                     Save
@@ -507,7 +549,7 @@ export default function AdminProfilePage() {
 
         </div>
 
-        {/* ROW 2: SYSTEM PERMISSIONS (LEFT) & SECURITY PASSPHRASE (RIGHT) - MATCHED HEIGHT */}
+        {/* ROW 2: SYSTEM PERMISSIONS (LEFT) & SECURITY PASSPHRASE (RIGHT) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           
           {/* Bottom Left: System Permissions Summary Card */}
