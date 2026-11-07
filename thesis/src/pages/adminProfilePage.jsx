@@ -443,10 +443,10 @@ export default function AdminProfilePage() {
                       <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="text"
+                        disabled
                         value={adminData.contact_number}
-                        onChange={(e) => setAdminData({ ...adminData, contact_number: e.target.value })}
                         placeholder="+63 900 000 0000"
-                        className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
+                        className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -456,10 +456,10 @@ export default function AdminProfilePage() {
                       <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="email"
+                        disabled
                         value={adminData.email}
-                        onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
                         placeholder="admin@aksyon.online"
-                        className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 font-medium focus:outline-none focus:border-[#b32d2d] focus:bg-white"
+                        className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -476,7 +476,7 @@ export default function AdminProfilePage() {
                       className="w-full pl-9 pr-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 font-medium cursor-not-allowed"
                     />
                   </div>
-                  <span className="text-[10px] text-gray-400 mt-1 block">Barangay jurisdiction can only be modified by the System Superadmin.</span>
+                  <span className="text-[10px] text-gray-400 mt-1 block">Officer identity details and barangay jurisdiction can only be modified by the System Superadmin.</span>
                 </div>
               </div>
 
