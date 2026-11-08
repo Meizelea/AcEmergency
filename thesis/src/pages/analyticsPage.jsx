@@ -81,7 +81,6 @@ export default function AnalyticsPage() {
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Default to '7days' (This Week)
   const [timeRange, setTimeRange] = useState('7days');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -143,6 +142,7 @@ export default function AnalyticsPage() {
     });
   }, [rawReports, assignedBarangay]);
 
+  // FIXED: Safe data fetch workflow that always resolves isSyncing state
   const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
@@ -153,32 +153,40 @@ export default function AnalyticsPage() {
 
       let fetchedReports = [];
       for (const useBearer of [false, true]) {
-        const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
-          method: 'GET', 
-          headers: getAuthHeaders(useBearer) 
-        });
+        try {
+          const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
+            method: 'GET', 
+            headers: getAuthHeaders(useBearer) 
+          });
 
-        if (reportsRes.ok) {
-          const data = await reportsRes.json();
-          fetchedReports = Array.isArray(data) ? data : (data?.results || []);
-          setRawReports(fetchedReports);
-          sessionStorage.setItem(CACHE_KEY_ANALYTICS_REPORTS, JSON.stringify(fetchedReports));
-          break;
+          if (reportsRes.ok) {
+            const data = await reportsRes.json();
+            fetchedReports = Array.isArray(data) ? data : (data?.results || []);
+            setRawReports(fetchedReports);
+            sessionStorage.setItem(CACHE_KEY_ANALYTICS_REPORTS, JSON.stringify(fetchedReports));
+            break;
+          }
+        } catch (err) {
+          console.warn("Reports fetch attempt failed:", err);
         }
       }
 
       for (const useBearer of [false, true]) {
-        const usersRes = await fetch(`${API_BASE_URL}/api/users/admin/`, { 
-          method: 'GET', 
-          headers: getAuthHeaders(useBearer) 
-        });
+        try {
+          const usersRes = await fetch(`${API_BASE_URL}/api/users/admin/`, { 
+            method: 'GET', 
+            headers: getAuthHeaders(useBearer) 
+          });
 
-        if (usersRes.ok) {
-          const uData = await usersRes.json();
-          const uList = Array.isArray(uData) ? uData : (uData?.results || []);
-          setUsersCount(uList.length);
-          sessionStorage.setItem(CACHE_KEY_ANALYTICS_USERS, JSON.stringify(uList.length));
-          break;
+          if (usersRes.ok) {
+            const uData = await usersRes.json();
+            const uList = Array.isArray(uData) ? uData : (uData?.results || []);
+            setUsersCount(uList.length);
+            sessionStorage.setItem(CACHE_KEY_ANALYTICS_USERS, JSON.stringify(uList.length));
+            break;
+          }
+        } catch (err) {
+          console.warn("Users fetch attempt failed:", err);
         }
       }
 
@@ -229,7 +237,6 @@ export default function AnalyticsPage() {
     return rawCategory || 'Other';
   };
 
-  // Filter reports strictly by chosen time range or custom date range
   const timeFilteredReports = useMemo(() => {
     const now = new Date();
 
@@ -266,7 +273,7 @@ export default function AnalyticsPage() {
       return reports.filter(r => r.created_at && new Date(r.created_at) >= oneYearAgo);
     }
 
-    return reports; // 'all'
+    return reports;
   }, [reports, timeRange, fromDate, toDate]);
 
   const todayStr = new Date().toDateString();
@@ -289,7 +296,6 @@ export default function AnalyticsPage() {
     return s === 'resolved';
   }).length;
 
-  // Trend Chart Data
   const trendData = useMemo(() => {
     if (timeRange === 'today') {
       const hours = ['12 AM', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM'];
@@ -432,20 +438,24 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  // HIGH-QUALITY PDF GENERATION HANDLER
+  // FIXED: PDF generation method with SVG/Recharts stabilization handling
   const handleDownloadPDF = async () => {
     if (!pdfContainerRef.current) return;
     setIsExportingPdf(true);
 
     try {
+      // Brief delay to allow Recharts components to complete SVG layout cycles
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       const element = pdfContainerRef.current;
       
-      // Capture dashboard section as canvas
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
+        allowTaint: true,
         logging: false,
-        backgroundColor: '#f4f6f8'
+        backgroundColor: '#f4f6f8',
+        ignoreElements: (el) => el.getAttribute('data-html2canvas-ignore') === 'true'
       });
 
       const imgData = canvas.toDataURL('image/png');
@@ -454,17 +464,16 @@ export default function AnalyticsPage() {
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       
-      const imgWidth = pdfWidth - 20; // 10mm margins on left/right
+      const imgWidth = pdfWidth - 20;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-      // Add Executive Header Banner to PDF
-      pdf.setFillColor(179, 45, 45); // #b32d2d Brand Accent
+      pdf.setFillColor(179, 45, 45);
       pdf.rect(0, 0, pdfWidth, 22, 'F');
 
       pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(14);
-      pdf.text('Aksyon', 10, 11);
+      pdf.text('ACEmergency Command Center', 10, 11);
 
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(9);
@@ -477,12 +486,11 @@ export default function AnalyticsPage() {
       pdf.text(`Generated: ${timestampStr}`, pdfWidth - 10, 14, { align: 'right' });
 
       let heightLeft = imgHeight;
-      let position = 28; // Start below top header banner
+      let position = 28;
 
       pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
       heightLeft -= (pdfHeight - position - 10);
 
-      // Handle extra pages cleanly if content spans multiple pages
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
@@ -494,6 +502,7 @@ export default function AnalyticsPage() {
       pdf.save(`ACEmergency_Analytics_Report_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
       console.error("Failed to generate PDF report:", err);
+      alert("Failed to render PDF. Please try again in a moment.");
     } finally {
       setIsExportingPdf(false);
     }
@@ -612,7 +621,6 @@ export default function AnalyticsPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2" data-html2canvas-ignore="true">
-                {/* TIME RANGE HORIZON DROPDOWN */}
                 <select 
                   value={timeRange} 
                   onChange={(e) => {
@@ -633,7 +641,6 @@ export default function AnalyticsPage() {
                   <option value="all">All Time</option>
                 </select>
 
-                {/* DUAL DATE PICKER FOR CUSTOM TIME WINDOW */}
                 <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
                   <CalendarDays size={14} className="text-gray-400 shrink-0" />
                   
