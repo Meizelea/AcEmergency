@@ -1,16 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  RefreshCw, TrendingUp, AlertCircle, 
-  Clock, CheckCircle2, Users, FileText, Shield, CalendarDays, X, Download, Loader2
+  RefreshCw, TrendingUp, Download
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, PieChart, Pie, Cell, CartesianGrid, BarChart, Bar 
 } from 'recharts';
-
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 import AdminLayout from '../components/header';
 
@@ -45,8 +41,6 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
-  const pdfRef = useRef(null);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
@@ -436,46 +430,78 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  // DIRECT PDF DOWNLOAD WITHOUT BROWSER PRINT DIALOG
-  const handleDownloadPDF = async () => {
-    if (!pdfRef.current) return;
-    setIsExportingPdf(true);
-
-    try {
-      const element = pdfRef.current;
-      
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff'
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-
-      // STRETCH EDGE-TO-EDGE ON A4 (0 MARGINS)
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-
-      const brgyTag = assignedBarangay ? assignedBarangay.replace(/\s+/g, '_') : 'General';
-      pdf.save(`Aksyon_Analytics_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
-    } catch (err) {
-      console.error("PDF generation error:", err);
-      alert("Failed to build PDF. Please try again.");
-    } finally {
-      setIsExportingPdf(false);
-    }
+  const handleDownloadPDF = () => {
+    window.print();
   };
 
   return (
     <AdminLayout>
+      {/* PERFECT ZERO-MARGIN EDGE-TO-EDGE FULL PAGE PRINT CSS */}
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+          html, body {
+            background-color: #ffffff !important;
+            color: #111827 !important;
+            font-size: 11px !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+          }
+
+          /* Hide Web Nav Bar & Buttons */
+          header, nav, sidebar, .no-print, button, select, input, ::-webkit-scrollbar {
+            display: none !important;
+          }
+
+          /* Stretch wrapper edge-to-edge on paper */
+          .aksyon-pdf-root {
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 24px !important;
+            box-sizing: border-box !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+          }
+
+          .grid-3-cols {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 16px !important;
+          }
+
+          /* SVGs auto-fit container without cutoffs */
+          .recharts-responsive-container {
+            width: 100% !important;
+            height: 100% !important;
+          }
+
+          .chart-trends-print {
+            height: 250px !important;
+          }
+
+          .chart-donut-print {
+            height: 180px !important;
+          }
+        }
+      `}</style>
+
       <div className="p-4 sm:p-6 bg-[#f4f6f8] min-h-screen">
         
-        {/* TOP CONTROLS */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        {/* WEB TOP CONTROLS */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 no-print">
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
             <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
@@ -490,20 +516,11 @@ export default function AnalyticsPage() {
 
             <button
               onClick={handleDownloadPDF}
-              disabled={isExportingPdf || isLoading}
+              disabled={isLoading}
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              {isExportingPdf ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  <span>Generating PDF...</span>
-                </>
-              ) : (
-                <>
-                  <Download size={14} />
-                  <span>Download PDF</span>
-                </>
-              )}
+              <Download size={14} />
+              <span>Download PDF</span>
             </button>
 
             <button 
@@ -522,8 +539,8 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* PRINTABLE CONTAINER (CANVAS CAPTURE FOR EXACT A4 PDF FIT) */}
-        <div ref={pdfRef} className="bg-white p-8 rounded-xl border border-gray-200 shadow-xs max-w-7xl mx-auto space-y-6">
+        {/* FULL PAGE CONTAINER */}
+        <div className="aksyon-pdf-root bg-white p-6 rounded-xl border border-gray-200 shadow-xs max-w-7xl mx-auto space-y-5">
           
           {/* AKSYON HEADER BANNER */}
           <div className="bg-[#b32d2d] text-white p-5 rounded-lg flex items-center justify-between">
@@ -538,7 +555,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* ROW 1: STAT CARDS */}
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-3-cols gap-5">
             <div className="bg-gray-50 p-5 rounded-lg border border-gray-200 flex flex-col justify-between">
               <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">Total System Users</span>
               <div className="text-4xl font-black text-gray-900 my-2">{usersCount}</div>
@@ -559,7 +576,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* ROW 2: TODAY STATUS CARDS */}
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-3-cols gap-5">
             <div className="bg-[#059669] text-white p-5 rounded-lg flex flex-col justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
               <div className="text-4xl font-black my-2">{resolvedToday}</div>
@@ -583,7 +600,7 @@ export default function AnalyticsPage() {
           <div className="bg-gray-50 p-5 rounded-lg border border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 no-print">
                 <select 
                   value={timeRange} 
                   onChange={(e) => {
@@ -606,15 +623,9 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="h-72 w-full">
+            <div className="h-64 chart-trends-print w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
-                  <defs>
-                    <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                   <XAxis 
                     dataKey="time" 
@@ -624,19 +635,19 @@ export default function AnalyticsPage() {
                   />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
-                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
+                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fill="#0d9488" fillOpacity={0.15} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
           {/* ROW 4: 3 BREAKDOWN CARDS */}
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-3-cols gap-5">
             
             {/* Box 1: Status Donut Chart */}
             <div className="bg-gray-50 p-5 rounded-lg border border-gray-200 flex flex-col justify-between">
               <h4 className="font-bold text-xs text-gray-900 mb-2">Report Status</h4>
-              <div className="h-48 w-full flex items-center justify-center relative">
+              <div className="h-48 chart-donut-print w-full flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={62} paddingAngle={4}>
@@ -662,7 +673,7 @@ export default function AnalyticsPage() {
             {/* Box 2: Emergency Categories Donut Chart */}
             <div className="bg-gray-50 p-5 rounded-lg border border-gray-200 flex flex-col justify-between">
               <h4 className="font-bold text-xs text-gray-900 mb-2">Emergency Categories</h4>
-              <div className="h-48 w-full flex items-center justify-center relative">
+              <div className="h-48 chart-donut-print w-full flex items-center justify-center relative">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-xs font-bold text-gray-400">No records</span>
                 ) : (
@@ -695,7 +706,7 @@ export default function AnalyticsPage() {
             {/* Box 3: Peak Incident Hours Bar Chart */}
             <div className="bg-gray-50 p-5 rounded-lg border border-gray-200 flex flex-col justify-between">
               <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
-              <div className="h-48 w-full">
+              <div className="h-48 chart-donut-print w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 15 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
