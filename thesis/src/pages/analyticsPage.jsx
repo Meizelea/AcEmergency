@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, AlertCircle, 
-  Clock, CheckCircle2, Users, FileText, Shield, CalendarDays, X
+  Clock, CheckCircle2, Users, FileText, Shield, CalendarDays, X, Download, Loader2
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, PieChart, Pie, Cell, CartesianGrid, BarChart, Bar 
 } from 'recharts';
+
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 import AdminLayout from '../components/header';
 
@@ -42,6 +45,8 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
+  const pdfContainerRef = useRef(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
@@ -76,7 +81,7 @@ export default function AnalyticsPage() {
   const [isLoading, setIsLoading] = useState(() => rawReports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Default to '7days' (This Week) instead of 'all'
+  // Default to '7days' (This Week)
   const [timeRange, setTimeRange] = useState('7days');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -427,6 +432,73 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
+  // HIGH-QUALITY PDF GENERATION HANDLER
+  const handleDownloadPDF = async () => {
+    if (!pdfContainerRef.current) return;
+    setIsExportingPdf(true);
+
+    try {
+      const element = pdfContainerRef.current;
+      
+      // Capture dashboard section as canvas
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#f4f6f8'
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = pdfWidth - 20; // 10mm margins on left/right
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      // Add Executive Header Banner to PDF
+      pdf.setFillColor(179, 45, 45); // #b32d2d Brand Accent
+      pdf.rect(0, 0, pdfWidth, 22, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(14);
+      pdf.text('Aksyon', 10, 11);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.text('Executive Analytics & Insights Report', 10, 17);
+
+      const timestampStr = new Date().toLocaleString('en-US', {
+        month: 'short', day: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+      pdf.text(`Generated: ${timestampStr}`, pdfWidth - 10, 14, { align: 'right' });
+
+      let heightLeft = imgHeight;
+      let position = 28; // Start below top header banner
+
+      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - position - 10);
+
+      // Handle extra pages cleanly if content spans multiple pages
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 10, position + 10, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const brgyTag = assignedBarangay ? assignedBarangay.replace(/\s+/g, '_') : 'General';
+      pdf.save(`ACEmergency_Analytics_Report_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (err) {
+      console.error("Failed to generate PDF report:", err);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f4f6f8]">
@@ -445,6 +517,26 @@ export default function AnalyticsPage() {
               Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
             </div>
 
+            {/* DOWNLOAD PDF BUTTON */}
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isExportingPdf || isLoading}
+              className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              title="Export Presentable Analytics PDF"
+            >
+              {isExportingPdf ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Generating PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={14} />
+                  <span>Download PDF</span>
+                </>
+              )}
+            </button>
+
             <button 
               onClick={() => {
                 sessionStorage.removeItem(CACHE_KEY_ANALYTICS_REPORTS);
@@ -461,229 +553,234 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* OVERALL COUNTS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <span className="text-xs font-bold text-gray-500 block">Total System Users</span>
-            <div className="text-2xl font-black text-gray-900 mt-1">{usersCount}</div>
-            <span className="text-[11px] text-gray-400 font-medium">Registered resident & admin accounts</span>
-          </div>
-
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <span className="text-xs font-bold text-gray-500 block">System Reports</span>
-            <div className="text-2xl font-black text-gray-900 mt-1">{reports.length}</div>
-            <span className="text-[11px] text-gray-400 font-medium">
-              Submissions in Brgy. {assignedBarangay || 'Unassigned'}
-            </span>
-          </div>
-
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <span className="text-xs font-bold text-gray-500 block">Covered Jurisdiction</span>
-            <div className="text-2xl font-black text-gray-900 mt-1">
-              {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
-            </div>
-            <span className="text-[11px] text-gray-400 font-medium">
-              Assigned Station Jurisdiction
-            </span>
-          </div>
-        </div>
-
-        {/* TODAY CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs">
-            <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-            <div className="text-4xl font-black mt-2">{pendingToday}</div>
-            <span className="text-xs text-red-100 mt-1 block font-medium">Pending Reports</span>
-          </div>
-
-          <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs">
-            <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-            <div className="text-4xl font-black mt-2">{inProgressToday}</div>
-            <span className="text-xs text-blue-100 mt-1 block font-medium">Active Emergency Units</span>
-          </div>
-
-          <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-            <div className="text-4xl font-black mt-2">{resolvedToday}</div>
-            <span className="text-xs text-emerald-100 mt-1 block font-medium">Completed Dispatches</span>
-          </div>
-        </div>
-
-        {/* MAIN CENTER: REPORT TREND LINE CHART */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs mb-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-            <div>
-              <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
+        {/* CONTAINER FOR PDF EXPORT CAPTURE */}
+        <div ref={pdfContainerRef} className="space-y-6">
+          
+          {/* OVERALL COUNTS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
+              <span className="text-xs font-bold text-gray-500 block">Total System Users</span>
+              <div className="text-2xl font-black text-gray-900 mt-1">{usersCount}</div>
+              <span className="text-[11px] text-gray-400 font-medium">Registered resident & admin accounts</span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {/* TIME RANGE HORIZON DROPDOWN */}
-              <select 
-                value={timeRange} 
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setTimeRange(val);
-                  if (val !== 'custom') {
-                    setFromDate('');
-                    setToDate('');
-                  }
-                }}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
-              >
-                <option value="7days">This Week (7 Days)</option>
-                <option value="today">Today</option>
-                <option value="month">Past Month</option>
-                <option value="year">Past Year</option>
-                <option value="custom">Custom Date Range...</option>
-                <option value="all">All Time</option>
-              </select>
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
+              <span className="text-xs font-bold text-gray-500 block">System Reports</span>
+              <div className="text-2xl font-black text-gray-900 mt-1">{reports.length}</div>
+              <span className="text-[11px] text-gray-400 font-medium">
+                Submissions in Brgy. {assignedBarangay || 'Unassigned'}
+              </span>
+            </div>
 
-              {/* DUAL DATE PICKER FOR CUSTOM TIME WINDOW */}
-              <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
-                <CalendarDays size={14} className="text-gray-400 shrink-0" />
-                
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-gray-400 uppercase">From</span>
-                  <input 
-                    type="date" 
-                    value={fromDate} 
-                    onChange={(e) => {
-                      setFromDate(e.target.value);
-                      setTimeRange('custom');
-                    }} 
-                    className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                  />
-                </div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
+              <span className="text-xs font-bold text-gray-500 block">Covered Jurisdiction</span>
+              <div className="text-2xl font-black text-gray-900 mt-1">
+                {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
+              </div>
+              <span className="text-[11px] text-gray-400 font-medium">
+                Assigned Station Jurisdiction
+              </span>
+            </div>
+          </div>
 
-                <span className="text-gray-300">•</span>
+          {/* TODAY CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
+              <div className="text-4xl font-black mt-2">{pendingToday}</div>
+              <span className="text-xs text-red-100 mt-1 block font-medium">Pending Reports</span>
+            </div>
 
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-gray-400 uppercase">To</span>
-                  <input 
-                    type="date" 
-                    value={toDate} 
-                    onChange={(e) => {
-                      setToDate(e.target.value);
-                      setTimeRange('custom');
-                    }} 
-                    className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                  />
-                </div>
+            <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
+              <div className="text-4xl font-black mt-2">{inProgressToday}</div>
+              <span className="text-xs text-blue-100 mt-1 block font-medium">Active Emergency Units</span>
+            </div>
 
-                {(fromDate || toDate) && (
-                  <X 
-                    size={14} 
-                    className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
-                    onClick={() => {
+            <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
+              <div className="text-4xl font-black mt-2">{resolvedToday}</div>
+              <span className="text-xs text-emerald-100 mt-1 block font-medium">Completed Dispatches</span>
+            </div>
+          </div>
+
+          {/* MAIN CENTER: REPORT TREND LINE CHART */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+              <div>
+                <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2" data-html2canvas-ignore="true">
+                {/* TIME RANGE HORIZON DROPDOWN */}
+                <select 
+                  value={timeRange} 
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTimeRange(val);
+                    if (val !== 'custom') {
                       setFromDate('');
                       setToDate('');
-                      setTimeRange('7days');
-                    }} 
-                    title="Clear Custom Dates"
-                  />
-                )}
+                    }
+                  }}
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
+                >
+                  <option value="7days">This Week (7 Days)</option>
+                  <option value="today">Today</option>
+                  <option value="month">Past Month</option>
+                  <option value="year">Past Year</option>
+                  <option value="custom">Custom Date Range...</option>
+                  <option value="all">All Time</option>
+                </select>
+
+                {/* DUAL DATE PICKER FOR CUSTOM TIME WINDOW */}
+                <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
+                  <CalendarDays size={14} className="text-gray-400 shrink-0" />
+                  
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-gray-400 uppercase">From</span>
+                    <input 
+                      type="date" 
+                      value={fromDate} 
+                      onChange={(e) => {
+                        setFromDate(e.target.value);
+                        setTimeRange('custom');
+                      }} 
+                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                    />
+                  </div>
+
+                  <span className="text-gray-300">•</span>
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-gray-400 uppercase">To</span>
+                    <input 
+                      type="date" 
+                      value={toDate} 
+                      onChange={(e) => {
+                        setToDate(e.target.value);
+                        setTimeRange('custom');
+                      }} 
+                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
+                    />
+                  </div>
+
+                  {(fromDate || toDate) && (
+                    <X 
+                      size={14} 
+                      className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
+                      onClick={() => {
+                        setFromDate('');
+                        setToDate('');
+                        setTimeRange('7days');
+                      }} 
+                      title="Clear Custom Dates"
+                    />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="h-64 w-full min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* BREAKDOWN GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          
-          {/* Card 1: Status Distribution Donut */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
-            <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Report Status</h4>
-            <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
+            <div className="h-64 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
-                    {statusPieData.map((entry, idx) => (
-                      <Cell key={`cell-${idx}`} fill={entry.color} />
-                    ))}
-                  </Pie>
+                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                </PieChart>
+                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
+                </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xl font-black text-gray-900">{timeFilteredReports.length}</span>
-                <span className="text-[10px] uppercase font-bold text-gray-400">Total</span>
-              </div>
-            </div>
-            <div className="w-full flex justify-around text-[11px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
             </div>
           </div>
 
-          {/* Card 2: Dynamic Category Donut */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
-            <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Emergency Categories</h4>
-            <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
-              {incidentTypeData.length === 0 ? (
-                <span className="text-xs font-bold text-gray-400">No category records</span>
-              ) : (
+          {/* BREAKDOWN GRID */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            {/* Card 1: Status Distribution Donut */}
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
+              <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Report Status</h4>
+              <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
-                      {incidentTypeData.map((entry, idx) => (
-                        <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
+                      {statusPieData.map((entry, idx) => (
+                        <Cell key={`cell-${idx}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
                   </PieChart>
                 </ResponsiveContainer>
-              )}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xl font-black text-gray-900">{incidentTypeData.length}</span>
-                <span className="text-[10px] uppercase font-bold text-gray-400">Categories</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xl font-black text-gray-900">{timeFilteredReports.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Total</span>
+                </div>
+              </div>
+              <div className="w-full flex justify-around text-[11px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
               </div>
             </div>
-            <div className="w-full flex flex-wrap justify-center gap-2 text-[10px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
-              {incidentTypeData.map((item, idx) => (
-                <span key={item.name} className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
-                  {item.name}
-                </span>
-              ))}
-            </div>
-          </div>
 
-          {/* Card 3: Sector Peak Incident Hours */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col col-span-1 md:col-span-2">
-            <h4 className="font-bold text-sm text-gray-900 mb-4">Peak Incident Hours</h4>
-            <div className="h-44 w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                  <Bar dataKey="count" fill="#b32d2d" radius={[4, 4, 0, 0]} maxBarSize={36} />
-                </BarChart>
-              </ResponsiveContainer>
+            {/* Card 2: Dynamic Category Donut */}
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center">
+              <h4 className="font-bold text-sm text-gray-900 self-start mb-4">Emergency Categories</h4>
+              <div className="h-44 w-full min-w-0 flex items-center justify-center relative">
+                {incidentTypeData.length === 0 ? (
+                  <span className="text-xs font-bold text-gray-400">No category records</span>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={68} paddingAngle={4}>
+                        {incidentTypeData.map((entry, idx) => (
+                          <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xl font-black text-gray-900">{incidentTypeData.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Categories</span>
+                </div>
+              </div>
+              <div className="w-full flex flex-wrap justify-center gap-2 text-[10px] font-bold text-gray-500 mt-2 border-t border-gray-100 pt-3">
+                {incidentTypeData.map((item, idx) => (
+                  <span key={item.name} className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
+                    {item.name}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="text-[11px] text-gray-400 font-medium mt-2 border-t border-gray-100 pt-2 text-right">
-              Dispatch call density grouped by time of day
+
+            {/* Card 3: Sector Peak Incident Hours */}
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col col-span-1 md:col-span-2">
+              <h4 className="font-bold text-sm text-gray-900 mb-4">Peak Incident Hours</h4>
+              <div className="h-44 w-full min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    <Bar dataKey="count" fill="#b32d2d" radius={[4, 4, 0, 0]} maxBarSize={36} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="text-[11px] text-gray-400 font-medium mt-2 border-t border-gray-100 pt-2 text-right">
+                Dispatch call density grouped by time of day
+              </div>
             </div>
+
           </div>
 
         </div>
