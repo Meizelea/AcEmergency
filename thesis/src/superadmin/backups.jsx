@@ -1,19 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
 import {
   Database,
   CloudUpload,
   HardDrive,
-  ShieldCheck,
   AlertCircle,
   CheckCircle,
   Loader2,
   FileSpreadsheet,
-  Clock,
   Download,
-  Upload,
-  FileJson,
   Trash2,
   AlertTriangle,
   RotateCcw,
@@ -25,7 +21,6 @@ const CACHE_KEY_BACKUPS = 'cache_admin_backups_history_v3';
 
 export default function BackupsPage() {
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
 
   const [backupHistory, setBackupHistory] = useState(() => {
     const cached = localStorage.getItem(CACHE_KEY_BACKUPS);
@@ -39,11 +34,6 @@ export default function BackupsPage() {
   const [feedback, setFeedback] = useState({ error: '', success: '' });
 
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-  
-  // JSON Client State
-  const [jsonRestoreModalOpen, setJsonRestoreModalOpen] = useState(false);
-  const [selectedJsonFile, setSelectedJsonFile] = useState(null);
-  const [parsedJsonPayload, setParsedJsonPayload] = useState(null);
 
   // PostgreSQL Dump Server Restore State
   const [dumpRestoreModalOpen, setDumpRestoreModalOpen] = useState(false);
@@ -86,13 +76,8 @@ export default function BackupsPage() {
         format: 'DUMP'
       }));
 
-      setBackupHistory((prev) => {
-        const localJsons = prev.filter(item => item.format === 'JSON' || item.filename?.endsWith('.json'));
-        const combined = [...serverBackups, ...localJsons];
-        const uniqueList = Array.from(new Map(combined.map(item => [item.filename, item])).values());
-        localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(uniqueList));
-        return uniqueList;
-      });
+      setBackupHistory(serverBackups);
+      localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(serverBackups));
     } catch (err) {
       console.warn("Server backup listing error:", err);
     } finally {
@@ -251,108 +236,6 @@ export default function BackupsPage() {
     }
   };
 
-  const handleExportJson = async () => {
-    setIsCreating(true);
-    setFeedback({ error: '', success: '' });
-
-    try {
-      const [reportsRes, unitsRes, announcementsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/reports/admin/`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/api/emergency-units/`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/api/announcements/admin/`, { headers: getAuthHeaders() })
-      ]);
-
-      const reports = reportsRes.ok ? await reportsRes.json() : [];
-      const units = unitsRes.ok ? await unitsRes.json() : [];
-      const announcements = announcementsRes.ok ? await announcementsRes.json() : [];
-
-      const jsonPayload = {
-        export_version: '1.0',
-        timestamp: new Date().toISOString(),
-        data: {
-          reports,
-          emergency_units: units,
-          announcements
-        }
-      };
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `aksyon-db-export-${timestamp}.json`;
-
-      const blob = new Blob([JSON.stringify(jsonPayload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      const newBackup = {
-        filename,
-        size_bytes: blob.size,
-        created_at: new Date().toLocaleString(),
-        format: 'JSON'
-      };
-
-      const updatedHistory = [newBackup, ...backupHistory];
-      setBackupHistory(updatedHistory);
-      localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(updatedHistory));
-
-      setFeedback({ error: '', success: `JSON database export saved to your downloads: ${filename}` });
-    } catch (err) {
-      setFeedback({ error: err.message || 'JSON export failed.', success: '' });
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (!file.name.endsWith('.json')) {
-      setFeedback({ error: 'Please select a valid .json database backup file.', success: '' });
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target.result);
-        setSelectedJsonFile(file);
-        setParsedJsonPayload(parsed);
-        setJsonRestoreModalOpen(true);
-      } catch (err) {
-        setFeedback({ error: 'Invalid or corrupt JSON structure.', success: '' });
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleExecuteJsonRestore = async () => {
-    if (!parsedJsonPayload) return;
-
-    setIsRestoring(true);
-    setFeedback({ error: '', success: '' });
-
-    try {
-      sessionStorage.clear();
-      setFeedback({
-        error: '',
-        success: 'Local snapshot verified! Cache cleared and active views re-synchronized.',
-      });
-      setJsonRestoreModalOpen(false);
-      setSelectedJsonFile(null);
-      setParsedJsonPayload(null);
-    } catch (err) {
-      setFeedback({ error: err.message || 'Database restore failed.', success: '' });
-    } finally {
-      setIsRestoring(false);
-    }
-  };
-
   const removeItemFromHistory = (indexToRemove) => {
     const updated = backupHistory.filter((_, idx) => idx !== indexToRemove);
     setBackupHistory(updated);
@@ -379,19 +262,11 @@ export default function BackupsPage() {
               SYSTEM DATABASE BACKUPS & RESTORE
             </h1>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Create PostgreSQL dumps, export/import JSON snapshots, or restore server database state.
+              Create PostgreSQL dumps or restore server database state.
             </p>
           </div>
 
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".json"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={fetchServerBackups}
@@ -400,25 +275,6 @@ export default function BackupsPage() {
               title="Refresh Server Backups List"
             >
               <RefreshCw size={15} className={`text-gray-600 ${isFetchingList ? 'animate-spin' : ''}`} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
-            >
-              <Upload size={15} className="text-blue-600" />
-              Import & Restore JSON
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportJson}
-              disabled={isCreating}
-              className="bg-gray-800 hover:bg-black text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              <FileJson size={15} className="text-emerald-400" />
-              Export JSON
             </button>
 
             <button
@@ -456,7 +312,7 @@ export default function BackupsPage() {
         )}
 
         {/* STATUS CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="w-full">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
             <div className="p-3 bg-red-50 text-[#b32d2d] rounded-xl shrink-0">
               <HardDrive size={24} />
@@ -464,29 +320,7 @@ export default function BackupsPage() {
             <div>
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Maximum File Size</span>
               <span className="text-base font-black text-gray-900">49.00 MB Capacity</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Optimized compressed dump & JSON format</p>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl shrink-0">
-              <ShieldCheck size={24} />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Backup Quality Check</span>
-              <span className="text-base font-black text-gray-900">Automated Health Check</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Verifies contents are complete & readable</p>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl shrink-0">
-              <Clock size={24} />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Cloud Storage</span>
-              <span className="text-base font-black text-gray-900">Secure Supabase Storage</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Safely saved to encrypted system storage</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Optimized compressed dump format</p>
             </div>
           </div>
         </div>
@@ -520,80 +354,65 @@ export default function BackupsPage() {
                   <tr>
                     <td colSpan="6" className="py-12 text-center text-gray-400 font-medium">
                       <Database className="mx-auto mb-2 opacity-30" size={32} />
-                      No backup snapshots generated yet. Click "Create Dump Backup" or "Export JSON" to start.
+                      No backup snapshots generated yet. Click "Create Dump Backup" to start.
                     </td>
                   </tr>
                 ) : (
-                  backupHistory.map((item, index) => {
-                    const isDump = item.format === 'DUMP' || item.filename?.endsWith('.dump');
+                  backupHistory.map((item, index) => (
+                    <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
+                        <Database size={15} className="text-[#b32d2d]" />
+                        {item.filename}
+                      </td>
+                      <td className="py-4 px-6 font-bold">
+                        <span className="px-2 py-0.5 rounded text-[10px] uppercase bg-red-50 text-red-700 border border-red-200">
+                          {item.format || 'DUMP'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 font-bold text-gray-700">
+                        {formatBytes(item.size_bytes)}
+                      </td>
+                      <td className="py-4 px-6 font-medium text-gray-500">
+                        {item.created_at || 'N/A'}
+                      </td>
+                      <td className="py-4 px-6 text-center">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
+                          <CheckCircle size={12} /> Verified & Saved
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedDumpFilename(item.filename);
+                              setDumpRestoreModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                            title="Restore PostgreSQL Database from this dump"
+                          >
+                            <RotateCcw size={13} /> Restore
+                          </button>
 
-                    return (
-                      <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
-                          {isDump ? (
-                            <Database size={15} className="text-[#b32d2d]" />
-                          ) : (
-                            <FileJson size={15} className="text-emerald-600" />
-                          )}
-                          {item.filename}
-                        </td>
-                        <td className="py-4 px-6 font-bold">
-                          <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
-                            isDump
-                              ? 'bg-red-50 text-red-700 border border-red-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}>
-                            {item.format || (isDump ? 'DUMP' : 'JSON')}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 font-bold text-gray-700">
-                          {formatBytes(item.size_bytes)}
-                        </td>
-                        <td className="py-4 px-6 font-medium text-gray-500">
-                          {item.created_at || 'N/A'}
-                        </td>
-                        <td className="py-4 px-6 text-center">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-black uppercase">
-                            <CheckCircle size={12} /> Verified & Saved
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {/* Dump Restore Action Button */}
-                            {isDump && (
-                              <button
-                                onClick={() => {
-                                  setSelectedDumpFilename(item.filename);
-                                  setDumpRestoreModalOpen(true);
-                                }}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
-                                title="Restore PostgreSQL Database from this dump"
-                              >
-                                <RotateCcw size={13} /> Restore
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => handleDownloadDump(item.filename)}
-                              disabled={downloadingFile === item.filename}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-                            >
-                              {downloadingFile === item.filename ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                              Download
-                            </button>
-                            
-                            <button
-                              onClick={() => removeItemFromHistory(index)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
-                              title="Remove log entry"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                          <button
+                            onClick={() => handleDownloadDump(item.filename)}
+                            disabled={downloadingFile === item.filename}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
+                          >
+                            {downloadingFile === item.filename ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                            Download
+                          </button>
+                          
+                          <button
+                            onClick={() => removeItemFromHistory(index)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            title="Remove log entry"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -647,53 +466,6 @@ export default function BackupsPage() {
               >
                 {isRestoring ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                 Execute Restore
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CONFIRM JSON RESTORE MODAL */}
-      {jsonRestoreModalOpen && selectedJsonFile && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-full mb-4">
-              <AlertTriangle size={28} />
-            </div>
-
-            <h3 className="font-extrabold text-base text-gray-900 mb-1">
-              Verify JSON Database Snapshot?
-            </h3>
-
-            <p className="text-xs text-gray-600 font-medium mb-4 leading-relaxed">
-              You are about to verify local JSON snapshot <strong className="text-gray-900">{selectedJsonFile.name}</strong>.
-            </p>
-
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] font-semibold text-left mb-6 w-full">
-              ⚠️ Note: This will verify the JSON structure and reset active session states across modules.
-            </div>
-
-            <div className="flex items-center gap-2 w-full">
-              <button
-                type="button"
-                onClick={() => {
-                  setJsonRestoreModalOpen(false);
-                  setSelectedJsonFile(null);
-                  setParsedJsonPayload(null);
-                }}
-                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExecuteJsonRestore}
-                disabled={isRestoring}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-              >
-                {isRestoring ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Confirm Restore
               </button>
             </div>
           </div>
