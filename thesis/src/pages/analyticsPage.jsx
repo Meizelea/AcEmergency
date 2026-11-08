@@ -45,7 +45,7 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
-  const pdfContainerRef = useRef(null);
+  const pdfRef = useRef(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
@@ -436,83 +436,48 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  const handleDownloadPDF = () => {
-    window.print();
+  // HIGH-RESOLUTION CANVAS PDF DOWNLOAD
+  const handleDownloadPDF = async () => {
+    if (!pdfRef.current) return;
+    setIsExportingPdf(true);
+
+    try {
+      const element = pdfRef.current;
+      
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = pdfWidth - 16;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 8, 8, imgWidth, Math.min(imgHeight, pdfHeight - 16));
+
+      const brgyTag = assignedBarangay ? assignedBarangay.replace(/\s+/g, '_') : 'General';
+      pdf.save(`Aksyon_Analytics_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (err) {
+      console.error("PDF capture error:", err);
+      alert("Export failed. Please try again.");
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   return (
     <AdminLayout>
-      {/* RESPONSIVE 1080P DESKTOP AND CLEAN A4 PRINT STYLES */}
-      <style>{`
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 8mm;
-          }
-          html, body {
-            background-color: #ffffff !important;
-            color: #111827 !important;
-            font-size: 11px !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-          header, nav, sidebar, .no-print, button, select, input {
-            display: none !important;
-          }
-          .print-header-banner {
-            display: flex !important;
-            align-items: center;
-            justify-content: space-between;
-            background-color: #b32d2d !important;
-            color: #ffffff !important;
-            padding: 12px 18px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-          }
-          .print-container {
-            padding: 0 !important;
-            margin: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            background: transparent !important;
-          }
-          .grid-print-3 {
-            display: grid !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 14px !important;
-          }
-          .recharts-responsive-container {
-            width: 100% !important;
-            height: 100% !important;
-            min-height: 160px !important;
-          }
-          .chart-print-container {
-            height: 220px !important;
-          }
-          .donut-print-container {
-            height: 160px !important;
-          }
-        }
-      `}</style>
-
-      <div className="p-4 sm:p-6 lg:p-8 min-h-screen bg-[#f4f6f8] print-container max-w-7xl mx-auto">
+      <div className="p-4 sm:p-6 bg-[#f4f6f8] min-h-screen">
         
-        {/* PRINT EXECUTIVE HEADER */}
-        <div className="hidden print-header-banner">
-          <div>
-            <h1 className="text-lg font-black tracking-tight text-white">ACEmergency Command Center</h1>
-            <p className="text-xs text-red-100 font-medium">Executive Analytics & System Insights Report</p>
-          </div>
-          <div className="text-right text-xs text-white font-bold">
-            <div>Jurisdiction: Brgy. {assignedBarangay || 'Central Command'}</div>
-            <div className="text-[10px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
-          </div>
-        </div>
-
-        {/* WEB INTERFACE HEADER (HIDDEN ON PRINT) */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 no-print">
+        {/* TOP CONTROLS */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
             <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
@@ -525,15 +490,22 @@ export default function AnalyticsPage() {
               Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
             </div>
 
-            {/* DOWNLOAD PDF / PRINT BUTTON */}
             <button
               onClick={handleDownloadPDF}
-              disabled={isLoading}
+              disabled={isExportingPdf || isLoading}
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Export Presentable Analytics PDF"
             >
-              <Download size={14} />
-              <span>Download PDF</span>
+              {isExportingPdf ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Generating PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={14} />
+                  <span>Download PDF</span>
+                </>
+              )}
             </button>
 
             <button 
@@ -552,65 +524,68 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* MAIN DASHBOARD CONTAINER */}
-        <div className="space-y-5">
+        {/* PRINTABLE & CAPTURABLE WRAPPER */}
+        <div ref={pdfRef} className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs max-w-7xl mx-auto space-y-6">
           
-          {/* ROW 1: 3 STAT CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">Total System Users</span>
-              <div className="text-3xl sm:text-4xl font-black text-gray-900 my-1">{usersCount}</div>
-              <span className="text-[11px] text-gray-400 font-medium">Registered resident & admin accounts</span>
+          {/* HEADER BANNER */}
+          <div className="bg-[#b32d2d] text-white p-4 rounded-lg flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black uppercase tracking-tight">Aksyon</h2>
+              <p className="text-xs text-red-100 font-medium">Executive Analytics & System Insights Report</p>
             </div>
-
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">System Reports</span>
-              <div className="text-3xl sm:text-4xl font-black text-gray-900 my-1">{reports.length}</div>
-              <span className="text-[11px] text-gray-400 font-medium">
-                Submissions in Brgy. {assignedBarangay || 'Unassigned'}
-              </span>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">Covered Jurisdiction</span>
-              <div className="text-2xl sm:text-3xl font-black text-gray-900 my-1">
-                {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
-              </div>
-              <span className="text-[11px] text-gray-400 font-medium">
-                Assigned Station Jurisdiction
-              </span>
+            <div className="text-right text-xs font-bold">
+              <div>Jurisdiction: Brgy. {assignedBarangay || 'Central Command'}</div>
+              <div className="text-[10px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
             </div>
           </div>
 
-          {/* ROW 2: 3 STATUS CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
-            <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+          {/* ROW 1: STAT CARDS */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <span className="text-xs font-bold text-gray-500 block uppercase">Total System Users</span>
+              <div className="text-3xl font-black text-gray-900 mt-1">{usersCount}</div>
+              <span className="text-[10px] text-gray-400 font-medium">Registered resident & admin accounts</span>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <span className="text-xs font-bold text-gray-500 block uppercase">System Reports</span>
+              <div className="text-3xl font-black text-gray-900 mt-1">{reports.length}</div>
+              <span className="text-[10px] text-gray-400 font-medium">Submissions in Brgy. {assignedBarangay || 'Unassigned'}</span>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <span className="text-xs font-bold text-gray-500 block uppercase">Covered Jurisdiction</span>
+              <div className="text-xl font-black text-gray-900 mt-1">{assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}</div>
+              <span className="text-[10px] text-gray-400 font-medium">Assigned Station Jurisdiction</span>
+            </div>
+          </div>
+
+          {/* ROW 2: STATUS CARDS */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-[#059669] text-white p-4 rounded-lg">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-              <div className="text-3xl sm:text-4xl font-black my-1">{resolvedToday}</div>
-              <span className="text-[11px] text-emerald-100 font-medium">Completed Dispatches</span>
+              <div className="text-3xl font-black mt-1">{resolvedToday}</div>
+              <span className="text-[10px] text-emerald-100 font-medium block">Completed Dispatches</span>
             </div>
 
-            <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+            <div className="bg-[#109EEF] text-white p-4 rounded-lg">
               <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-              <div className="text-3xl sm:text-4xl font-black my-1">{inProgressToday}</div>
-              <span className="text-[11px] text-blue-100 font-medium">Active Emergency Units</span>
+              <div className="text-3xl font-black mt-1">{inProgressToday}</div>
+              <span className="text-[10px] text-blue-100 font-medium block">Active Emergency Units</span>
             </div>
 
-            <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+            <div className="bg-[#dc2626] text-white p-4 rounded-lg">
               <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-              <div className="text-3xl sm:text-4xl font-black my-1">{pendingToday}</div>
-              <span className="text-[11px] text-red-100 font-medium">Pending Reports</span>
+              <div className="text-3xl font-black mt-1">{pendingToday}</div>
+              <span className="text-[10px] text-red-100 font-medium block">Pending Reports</span>
             </div>
           </div>
 
-          {/* ROW 3: REPORT TRENDS LINE CHART WITH ADAPTIVE TICKS */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-              <div>
-                <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 no-print">
+          {/* ROW 3: REPORT TRENDS LINE CHART */}
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
+              <div className="flex items-center gap-2">
                 <select 
                   value={timeRange} 
                   onChange={(e) => {
@@ -621,7 +596,7 @@ export default function AnalyticsPage() {
                       setToDate('');
                     }
                   }}
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
+                  className="border border-gray-300 rounded-md px-2 py-1 text-xs font-bold bg-white text-gray-700"
                 >
                   <option value="7days">This Week (7 Days)</option>
                   <option value="today">Today</option>
@@ -630,101 +605,56 @@ export default function AnalyticsPage() {
                   <option value="custom">Custom Date Range...</option>
                   <option value="all">All Time</option>
                 </select>
-
-                <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
-                  <CalendarDays size={14} className="text-gray-400 shrink-0" />
-                  
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 uppercase">From</span>
-                    <input 
-                      type="date" 
-                      value={fromDate} 
-                      onChange={(e) => {
-                        setFromDate(e.target.value);
-                        setTimeRange('custom');
-                      }} 
-                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                    />
-                  </div>
-
-                  <span className="text-gray-300">•</span>
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 uppercase">To</span>
-                    <input 
-                      type="date" 
-                      value={toDate} 
-                      onChange={(e) => {
-                        setToDate(e.target.value);
-                        setTimeRange('custom');
-                      }} 
-                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                    />
-                  </div>
-
-                  {(fromDate || toDate) && (
-                    <X 
-                      size={14} 
-                      className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
-                      onClick={() => {
-                        setFromDate('');
-                        setToDate('');
-                        setTimeRange('7days');
-                      }} 
-                      title="Clear Custom Dates"
-                    />
-                  )}
-                </div>
               </div>
             </div>
 
-            <div className="h-64 sm:h-72 w-full min-w-0 chart-print-container">
+            <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData} margin={{ top: 10, right: 15, left: -20, bottom: 20 }}>
+                <AreaChart data={trendData} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
                   <defs>
                     <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                   <XAxis 
                     dataKey="time" 
-                    interval={timeRange === 'month' ? 3 : 'preserveStartEnd'}
-                    tick={{ fontSize: 11, fill: '#6b7280' }} 
-                    dy={8}
+                    interval={timeRange === 'month' ? 4 : 'preserveStartEnd'}
+                    tick={{ fontSize: 10, fill: '#6b7280' }} 
+                    dy={5}
                   />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#6b7280' }} />
+                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
+                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#colorReports)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* ROW 4: 3-COLUMN BREAKDOWN GRID */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
+          {/* ROW 4: 3 BREAKDOWN CARDS */}
+          <div className="grid grid-cols-3 gap-4">
             
             {/* Box 1: Status Donut Chart */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-sm text-gray-900 self-start mb-3">Report Status</h4>
-              <div className="h-44 w-full min-w-0 flex items-center justify-center relative donut-print-container">
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex flex-col justify-between">
+              <h4 className="font-bold text-xs text-gray-900 mb-2">Report Status</h4>
+              <div className="h-40 w-full flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={4}>
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={52} paddingAngle={4}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`cell-${idx}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xl font-black text-gray-900">{timeFilteredReports.length}</span>
-                  <span className="text-[10px] uppercase font-bold text-gray-400">Total</span>
+                  <span className="text-base font-black text-gray-900">{timeFilteredReports.length}</span>
+                  <span className="text-[8px] uppercase font-bold text-gray-400">Total</span>
                 </div>
               </div>
-              <div className="w-full flex justify-around text-[10px] font-bold text-gray-500 border-t border-gray-100 pt-3 mt-2">
+              <div className="w-full flex justify-around text-[9px] font-bold text-gray-500 border-t border-gray-200 pt-2">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
@@ -732,29 +662,29 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Box 2: Emergency Categories Donut Chart */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-sm text-gray-900 self-start mb-3">Emergency Categories</h4>
-              <div className="h-44 w-full min-w-0 flex items-center justify-center relative donut-print-container">
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex flex-col justify-between">
+              <h4 className="font-bold text-xs text-gray-900 mb-2">Emergency Categories</h4>
+              <div className="h-40 w-full flex items-center justify-center relative">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-xs font-bold text-gray-400">No records</span>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={4}>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={52} paddingAngle={4}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 )}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xl font-black text-gray-900">{incidentTypeData.length}</span>
-                  <span className="text-[10px] uppercase font-bold text-gray-400">Categories</span>
+                  <span className="text-base font-black text-gray-900">{incidentTypeData.length}</span>
+                  <span className="text-[8px] uppercase font-bold text-gray-400">Categories</span>
                 </div>
               </div>
-              <div className="w-full flex flex-wrap justify-center gap-2 text-[10px] font-bold text-gray-500 border-t border-gray-100 pt-3 mt-2">
+              <div className="w-full flex flex-wrap justify-center gap-1 text-[9px] font-bold text-gray-500 border-t border-gray-200 pt-2">
                 {incidentTypeData.map((item, idx) => (
                   <span key={item.name} className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
@@ -765,20 +695,20 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Box 3: Peak Incident Hours Bar Chart */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <h4 className="font-bold text-sm text-gray-900 mb-3">Peak Incident Hours</h4>
-              <div className="h-44 w-full min-w-0 donut-print-container">
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex flex-col justify-between">
+              <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
+              <div className="h-40 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} dy={5} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                    <Bar dataKey="count" fill="#b32d2d" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} dy={5} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '6px', border: 'none', color: '#fff', fontSize: '11px' }} />
+                    <Bar dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={28} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="text-[10px] text-gray-400 font-medium border-t border-gray-100 pt-3 mt-2 text-right">
+              <div className="text-[9px] text-gray-400 font-medium border-t border-gray-200 pt-2 text-right">
                 Dispatch call density by time of day
               </div>
             </div>
