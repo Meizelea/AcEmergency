@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, AlertCircle, 
@@ -8,9 +8,6 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, PieChart, Pie, Cell, CartesianGrid, BarChart, Bar 
 } from 'recharts';
-
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 import AdminLayout from '../components/header';
 
@@ -45,8 +42,6 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
-  const pdfContainerRef = useRef(null);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
@@ -142,7 +137,6 @@ export default function AnalyticsPage() {
     });
   }, [rawReports, assignedBarangay]);
 
-  // SAFE FETCH: Guarantees resetting isSyncing state even on endpoint rejection
   const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
@@ -437,95 +431,66 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  // ROBUST PDF GENERATOR: Inline SVG cloning & explicit inline dimension calculation
-  const handleDownloadPDF = async () => {
-    if (!pdfContainerRef.current) return;
-    setIsExportingPdf(true);
-
-    try {
-      const targetElement = pdfContainerRef.current;
-
-      // Inline explicit pixel dimensions for Recharts SVGs to prevent html2canvas 0x0 errors
-      const svgElements = targetElement.querySelectorAll('svg');
-      svgElements.forEach((svg) => {
-        const bbox = svg.getBoundingClientRect();
-        if (bbox.width && bbox.height) {
-          svg.setAttribute('width', `${bbox.width}px`);
-          svg.setAttribute('height', `${bbox.height}px`);
-        }
-      });
-
-      const canvas = await html2canvas(targetElement, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#f4f6f8',
-        onclone: (clonedDoc) => {
-          // Remove interactive controls from PDF print output
-          const controls = clonedDoc.querySelectorAll('[data-html2canvas-ignore="true"]');
-          controls.forEach(c => c.remove());
-        }
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const imgWidth = pdfWidth - 20;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      // Top Red Header Banner
-      pdf.setFillColor(179, 45, 45);
-      pdf.rect(0, 0, pdfWidth, 22, 'F');
-
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(14);
-      pdf.text('ACEmergency Command Center', 10, 11);
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
-      pdf.text('Executive Analytics & Insights Report', 10, 17);
-
-      const timestampStr = new Date().toLocaleString('en-US', {
-        month: 'short', day: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      });
-      pdf.text(`Generated: ${timestampStr}`, pdfWidth - 10, 14, { align: 'right' });
-
-      let heightLeft = imgHeight;
-      let position = 28;
-
-      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
-      heightLeft -= (pdfHeight - position - 10);
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 10, position + 10, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-
-      const brgyTag = assignedBarangay ? assignedBarangay.replace(/\s+/g, '_') : 'General';
-      pdf.save(`ACEmergency_Analytics_Report_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
-    } catch (err) {
-      console.error("Failed to generate PDF report:", err);
-      // Clean print fallback if canvas generation is restricted by browser security
-      window.print();
-    } finally {
-      setIsExportingPdf(false);
-    }
+  const handleDownloadPDF = () => {
+    window.print();
   };
 
   return (
     <AdminLayout>
-      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f4f6f8]">
+      {/* PRINT-ONLY EXECUTIVE HEADER BANNER & STYLES */}
+      <style>{`
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 12mm;
+          }
+          body {
+            background-color: #ffffff !important;
+            color: #111827 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          /* Hide sidebar layout navigation, buttons, filters */
+          header, nav, sidebar, .no-print, button, select, input {
+            display: none !important;
+          }
+          .print-header-banner {
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #b32d2d !important;
+            color: #ffffff !important;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+          }
+          .print-container {
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+          }
+          .grid {
+            display: grid !important;
+          }
+        }
+      `}</style>
+
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f4f6f8] print-container">
         
-        {/* HEADER */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        {/* PRINT ONLY HEADER */}
+        <div className="hidden print-header-banner">
+          <div>
+            <h1 className="text-lg font-black tracking-tight text-white">Aksyon</h1>
+            <p className="text-xs text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+          </div>
+          <div className="text-right text-xs text-white font-bold">
+            <div>Jurisdiction: Brgy. {assignedBarangay || 'Central Command'}</div>
+            <div className="text-[10px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
+          </div>
+        </div>
+
+        {/* WEB INTERFACE HEADER (HIDDEN ON PRINT) */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 no-print">
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
             <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
@@ -538,24 +503,15 @@ export default function AnalyticsPage() {
               Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
             </div>
 
-            {/* DOWNLOAD PDF BUTTON */}
+            {/* DOWNLOAD PDF / PRINT BUTTON */}
             <button
               onClick={handleDownloadPDF}
-              disabled={isExportingPdf || isLoading}
+              disabled={isLoading}
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
               title="Export Presentable Analytics PDF"
             >
-              {isExportingPdf ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  <span>Generating PDF...</span>
-                </>
-              ) : (
-                <>
-                  <Download size={14} />
-                  <span>Download PDF</span>
-                </>
-              )}
+              <Download size={14} />
+              <span>Download PDF</span>
             </button>
 
             <button 
@@ -574,8 +530,8 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* CONTAINER FOR PDF EXPORT CAPTURE */}
-        <div ref={pdfContainerRef} className="space-y-6">
+        {/* ANALYTICS DASHBOARD CONTENT */}
+        <div className="space-y-6">
           
           {/* OVERALL COUNTS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -632,7 +588,7 @@ export default function AnalyticsPage() {
                 <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2" data-html2canvas-ignore="true">
+              <div className="flex flex-wrap items-center gap-2 no-print">
                 <select 
                   value={timeRange} 
                   onChange={(e) => {
