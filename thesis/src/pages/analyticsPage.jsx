@@ -142,7 +142,7 @@ export default function AnalyticsPage() {
     });
   }, [rawReports, assignedBarangay]);
 
-  // FIXED: Safe data fetch workflow that always resolves isSyncing state
+  // SAFE FETCH: Guarantees resetting isSyncing state even on endpoint rejection
   const fetchData = useCallback(async (silent = false) => {
     if (!token) return;
     if (!silent && rawReports.length === 0) setIsLoading(true);
@@ -151,7 +151,6 @@ export default function AnalyticsPage() {
     try {
       await loadAdminProfile();
 
-      let fetchedReports = [];
       for (const useBearer of [false, true]) {
         try {
           const reportsRes = await fetch(`${API_BASE_URL}/api/reports/admin/`, { 
@@ -161,7 +160,7 @@ export default function AnalyticsPage() {
 
           if (reportsRes.ok) {
             const data = await reportsRes.json();
-            fetchedReports = Array.isArray(data) ? data : (data?.results || []);
+            const fetchedReports = Array.isArray(data) ? data : (data?.results || []);
             setRawReports(fetchedReports);
             sessionStorage.setItem(CACHE_KEY_ANALYTICS_REPORTS, JSON.stringify(fetchedReports));
             break;
@@ -438,24 +437,35 @@ export default function AnalyticsPage() {
     })).filter(d => d.value > 0);
   }, [timeFilteredReports]);
 
-  // FIXED: PDF generation method with SVG/Recharts stabilization handling
+  // ROBUST PDF GENERATOR: Inline SVG cloning & explicit inline dimension calculation
   const handleDownloadPDF = async () => {
     if (!pdfContainerRef.current) return;
     setIsExportingPdf(true);
 
     try {
-      // Brief delay to allow Recharts components to complete SVG layout cycles
-      await new Promise(resolve => setTimeout(resolve, 300));
+      const targetElement = pdfContainerRef.current;
 
-      const element = pdfContainerRef.current;
-      
-      const canvas = await html2canvas(element, {
+      // Inline explicit pixel dimensions for Recharts SVGs to prevent html2canvas 0x0 errors
+      const svgElements = targetElement.querySelectorAll('svg');
+      svgElements.forEach((svg) => {
+        const bbox = svg.getBoundingClientRect();
+        if (bbox.width && bbox.height) {
+          svg.setAttribute('width', `${bbox.width}px`);
+          svg.setAttribute('height', `${bbox.height}px`);
+        }
+      });
+
+      const canvas = await html2canvas(targetElement, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         logging: false,
         backgroundColor: '#f4f6f8',
-        ignoreElements: (el) => el.getAttribute('data-html2canvas-ignore') === 'true'
+        onclone: (clonedDoc) => {
+          // Remove interactive controls from PDF print output
+          const controls = clonedDoc.querySelectorAll('[data-html2canvas-ignore="true"]');
+          controls.forEach(c => c.remove());
+        }
       });
 
       const imgData = canvas.toDataURL('image/png');
@@ -467,6 +477,7 @@ export default function AnalyticsPage() {
       const imgWidth = pdfWidth - 20;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
+      // Top Red Header Banner
       pdf.setFillColor(179, 45, 45);
       pdf.rect(0, 0, pdfWidth, 22, 'F');
 
@@ -502,7 +513,8 @@ export default function AnalyticsPage() {
       pdf.save(`ACEmergency_Analytics_Report_${brgyTag}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
       console.error("Failed to generate PDF report:", err);
-      alert("Failed to render PDF. Please try again in a moment.");
+      // Clean print fallback if canvas generation is restricted by browser security
+      window.print();
     } finally {
       setIsExportingPdf(false);
     }
