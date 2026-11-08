@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, CalendarDays, X, Download
@@ -437,207 +438,184 @@ export default function AnalyticsPage() {
   return (
     <AdminLayout>
       <style>{`
-        @media screen {
-          #aksyon-print-document {
-            display: none !important;
-          }
+        #aksyon-print-root {
+          position: fixed;
+          left: -10000px;
+          top: 0;
+          width: 210mm;
+          height: 296mm;
+          pointer-events: none;
         }
 
         @media print {
-          @page {
-            size: A4 portrait;
-            margin: 0;
+          @page { size: A4 portrait; margin: 0; }
+
+          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+
+          /* hide the whole app, keep only the print portal */
+          body > *:not(#aksyon-print-root) { display: none !important; }
+
+          #aksyon-print-root {
+            position: static !important;
+            left: auto !important;
+            width: 210mm !important;
+            height: 296mm !important;
+            overflow: hidden !important;
           }
 
-          body * {
-            visibility: hidden !important;
-          }
-
-          #aksyon-print-document, #aksyon-print-document * {
-            visibility: visible !important;
+          #aksyon-print-root, #aksyon-print-root * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-          }
-
-          #aksyon-print-document {
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: space-between !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 210mm !important;
-            height: 297mm !important;
-            padding: 10mm !important;
-            box-sizing: border-box !important;
-            background: #ffffff !important;
-          }
-
-          .print-card {
-            border: 1px solid #e5e7eb !important;
-            border-radius: 8px !important;
-            background: #ffffff !important;
           }
         }
       `}</style>
 
-      {/* PRINT-ONLY ISOLATED CONTAINER */}
-      <div id="aksyon-print-document">
-        <div className="flex flex-col h-full justify-between space-y-3">
-          
-          {/* TOP SECTION: HEADER BANNER + 6 CARDS */}
-          <div className="space-y-2">
-            <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
-                <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+      {/* PRINT-ONLY LAYOUT (rendered in a portal, fixed-size charts) */}
+      {createPortal(
+        <div id="aksyon-print-root">
+          <div className="bg-white box-border flex flex-col justify-between" style={{ width: '210mm', height: '296mm', padding: '10mm' }}>
+
+            {/* HEADER + CARDS */}
+            <div className="space-y-2">
+              <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
+                <div>
+                  <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
+                  <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+                </div>
+                <div className="text-right text-[10px] font-bold">
+                  <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                  <div className="text-[9px] text-red-100 font-normal">
+                    Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
+                  </div>
+                </div>
               </div>
-              <div className="text-right text-[10px] font-bold">
-                <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
-                <div className="text-[9px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
+                  <div className="text-xl font-black text-gray-900 my-0.5">{usersCount}</div>
+                  <span className="text-[8px] text-gray-400">Registered resident & admin accounts</span>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">System Reports</span>
+                  <div className="text-xl font-black text-gray-900 my-0.5">{reports.length}</div>
+                  <span className="text-[8px] text-gray-400">Submissions in Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
+                  <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                  <span className="text-[8px] text-gray-400">Assigned Station Jurisdiction</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
+                  <div className="text-xl font-black my-0.5">{pendingToday}</div>
+                  <span className="text-[8px] text-red-100">Pending Reports</span>
+                </div>
+                <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
+                  <div className="text-xl font-black my-0.5">{inProgressToday}</div>
+                  <span className="text-[8px] text-blue-100">Active Emergency Units</span>
+                </div>
+                <div className="bg-[#059669] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
+                  <div className="text-xl font-black my-0.5">{resolvedToday}</div>
+                  <span className="text-[8px] text-emerald-100">Completed Dispatches</span>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="print-card p-2.5">
-                <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
-                <div className="text-xl font-black text-gray-900 my-0.5">{usersCount}</div>
-                <span className="text-[8px] text-gray-400">Registered resident & admin accounts</span>
-              </div>
-
-              <div className="print-card p-2.5">
-                <span className="text-[9px] font-bold text-gray-500 uppercase block">System Reports</span>
-                <div className="text-xl font-black text-gray-900 my-0.5">{reports.length}</div>
-                <span className="text-[8px] text-gray-400">Submissions in Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
-              </div>
-
-              <div className="print-card p-2.5">
-                <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
-                <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
-                <span className="text-[8px] text-gray-400">Assigned Station Jurisdiction</span>
-              </div>
+            {/* REPORT TRENDS (fixed-size chart, ~190mm wide) */}
+            <div className="border border-gray-200 rounded-lg p-3">
+              <h3 className="font-bold text-xs text-gray-900 mb-1">Report Trends</h3>
+              <AreaChart width={690} height={210} data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#6b7280' }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                <Area isAnimationActive={false} type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#printColorReports)" />
+              </AreaChart>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-                <div className="text-xl font-black my-0.5">{pendingToday}</div>
-                <span className="text-[8px] text-red-100">Pending Reports</span>
-              </div>
-
-              <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-                <div className="text-xl font-black my-0.5">{inProgressToday}</div>
-                <span className="text-[8px] text-blue-100">Active Emergency Units</span>
-              </div>
-
-              <div className="bg-[#059669] text-white p-2.5 rounded-lg">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-                <div className="text-xl font-black my-0.5">{resolvedToday}</div>
-                <span className="text-[8px] text-emerald-100">Completed Dispatches</span>
-              </div>
-            </div>
-          </div>
-
-          {/* MIDDLE SECTION: REPORT TRENDS (FULL WIDTH) */}
-          <div className="print-card p-3">
-            <h3 className="font-bold text-xs text-gray-900 mb-1">Report Trends</h3>
-            <div className="h-[150px] w-full">
-              <ResponsiveContainer width="100%" height={150}>
-                <AreaChart data={trendData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 8, fill: '#6b7280' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 8, fill: '#6b7280' }} />
-                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#printColorReports)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* BOTTOM SECTION: 2 DONUTS SIDE-BY-SIDE */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="print-card p-2.5 flex flex-col justify-between">
-              <h4 className="font-bold text-[10px] text-gray-900">Report Status</h4>
-              <div className="h-[100px] w-full flex items-center justify-center relative">
-                <ResponsiveContainer width="100%" height={100}>
-                  <PieChart>
-                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
+            {/* DONUTS */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
+                <h4 className="font-bold text-[10px] text-gray-900 self-start">Report Status</h4>
+                <div className="relative" style={{ width: 320, height: 140 }}>
+                  <PieChart width={320} height={140}>
+                    <Pie isAnimationActive={false} data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`print-cell-${idx}`} fill={entry.color} />
                       ))}
                     </Pie>
                   </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-black text-gray-900">{timeFilteredReports.length}</span>
-                  <span className="text-[7px] uppercase font-bold text-gray-400">Total</span>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-sm font-black text-gray-900">{timeFilteredReports.length}</span>
+                    <span className="text-[7px] uppercase font-bold text-gray-400">Total</span>
+                  </div>
+                </div>
+                <div className="w-full flex justify-around text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Pending</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
                 </div>
               </div>
-              <div className="flex justify-around text-[7px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Pending</span>
-                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
-                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
-              </div>
-            </div>
 
-            <div className="print-card p-2.5 flex flex-col justify-between">
-              <h4 className="font-bold text-[10px] text-gray-900">Emergency Categories</h4>
-              <div className="h-[100px] w-full flex items-center justify-center relative">
-                {incidentTypeData.length === 0 ? (
-                  <span className="text-[10px] font-bold text-gray-400">No records</span>
-                ) : (
-                  <ResponsiveContainer width="100%" height={100}>
-                    <PieChart>
-                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
+              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
+                <h4 className="font-bold text-[10px] text-gray-900 self-start">Emergency Categories</h4>
+                <div className="relative" style={{ width: 320, height: 140 }}>
+                  {incidentTypeData.length === 0 ? (
+                    <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-400">No records</div>
+                  ) : (
+                    <PieChart width={320} height={140}>
+                      <Pie isAnimationActive={false} data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`print-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
                       </Pie>
                     </PieChart>
-                  </ResponsiveContainer>
-                )}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-black text-gray-900">{incidentTypeData.length}</span>
-                  <span className="text-[7px] uppercase font-bold text-gray-400">Categories</span>
+                  )}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-sm font-black text-gray-900">{incidentTypeData.length}</span>
+                    <span className="text-[7px] uppercase font-bold text-gray-400">Categories</span>
+                  </div>
+                </div>
+                <div className="w-full flex flex-wrap justify-center gap-1.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                  {incidentTypeData.map((item, idx) => (
+                    <span key={`print-cat-label-${item.name}`} className="flex items-center gap-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span>
+                      {item.name}
+                    </span>
+                  ))}
                 </div>
               </div>
-              <div className="flex flex-wrap justify-center gap-1 text-[7px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                {incidentTypeData.map((item, idx) => (
-                  <span key={`print-cat-label-${item.name}`} className="flex items-center gap-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
-                    {item.name}
-                  </span>
-                ))}
+            </div>
+
+            {/* PEAK INCIDENT HOURS */}
+            <div className="border border-gray-200 rounded-lg p-3">
+              <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
+              <BarChart width={690} height={140} data={hourlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                <Bar isAnimationActive={false} dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={30} />
+              </BarChart>
+              <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
+                Dispatch call density by time of day
               </div>
             </div>
-          </div>
 
-          {/* BOTTOM-MOST SECTION: PEAK INCIDENT HOURS (FULL WIDTH) */}
-          <div className="print-card p-3">
-            <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
-            <div className="h-[95px] w-full">
-              <ResponsiveContainer width="100%" height={95}>
-                <BarChart data={hourlyData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 8, fill: '#6b7280' }} />
-                  <Bar dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={22} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
-              Dispatch call density by time of day
-            </div>
           </div>
-
-        </div>
-      </div>
+        </div>,
+        document.body
+      )}
 
       {/* WEB DASHBOARD UI */}
       <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen">
