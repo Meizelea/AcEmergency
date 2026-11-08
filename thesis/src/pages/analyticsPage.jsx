@@ -436,115 +436,223 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      {/* PERFECTLY CENTERED & SQUISHED A4 PRINT CSS OVERRIDES */}
+      {/* PERFECTLY CENTERED & SQUISHED SINGLE-PAGE PRINT RULES */}
       <style>{`
+        @media screen {
+          #aksyon-print-document {
+            display: none !important;
+          }
+        }
+
         @media print {
           @page {
             size: A4 portrait;
             margin: 0;
           }
-          html, body {
-            background-color: #ffffff !important;
-            color: #111827 !important;
-            font-size: 10px !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            width: 100% !important;
-            height: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
+
+          body * {
+            visibility: hidden !important;
           }
 
-          /* Hide Web UI Header/Nav/Buttons */
-          header, nav, sidebar, .no-print, button, select, input, ::-webkit-scrollbar {
-            display: none !important;
+          #aksyon-print-document, #aksyon-print-document * {
+            visibility: visible !important;
           }
 
-          /* FORCE PERFECT SYMMETRIC CENTERING */
-          .aksyon-analytics-root {
-            width: 100vw !important;
-            height: 100vh !important;
-            margin: 0 auto !important;
-            padding: 12px 16px !important;
+          #aksyon-print-document {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            padding: 10mm !important;
             box-sizing: border-box !important;
-            background-color: #ffffff !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: space-between !important;
-            align-items: stretch !important;
+            background: #ffffff !important;
           }
 
-          .print-header-banner {
-            display: flex !important;
-            align-items: center;
-            justify-content: space-between;
-            background-color: #b32d2d !important;
-            color: #ffffff !important;
-            padding: 8px 12px !important;
-            border-radius: 6px !important;
-            margin-bottom: 6px !important;
-            width: 100% !important;
-          }
-
-          .grid-print-3 {
-            display: grid !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 8px !important;
-            width: 100% !important;
-          }
-
-          .grid-print-bottom {
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 8px !important;
-            width: 100% !important;
-          }
-
-          .print-full-width {
-            grid-column: span 2 / span 2 !important;
-          }
-
-          /* SQUISHED GRAPH HEIGHTS PREVENTING OVERFLOW AND OFF-PAGE DRIFT */
-          .chart-trends-print {
-            height: 140px !important;
-          }
-
-          .chart-donut-print {
-            height: 105px !important;
-          }
-
-          .chart-bar-print {
-            height: 95px !important;
+          .print-card {
+            border: 1px solid #e5e7eb !important;
+            border-radius: 8px !important;
+            background: #ffffff !important;
           }
 
           .recharts-responsive-container {
             width: 100% !important;
             height: 100% !important;
           }
-
-          .recharts-surface {
-            overflow: visible !important;
-          }
         }
       `}</style>
 
-      <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen aksyon-analytics-root">
-        
-        {/* PRINT EXECUTIVE HEADER BANNER */}
-        <div className="hidden print-header-banner">
-          <div>
-            <h1 className="text-base font-black tracking-tight text-white uppercase">Aksyon</h1>
-            <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
-          </div>
-          <div className="text-right text-xs text-white font-bold">
-            <div>Jurisdiction: Brgy. {assignedBarangay || 'Central Command'}</div>
-            <div className="text-[9px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
-          </div>
-        </div>
+      {/* PRINT-ONLY ISOLATED CONTAINER (EXACT MATCH TO YOUR SKETCH & HEADER SCREENSHOT) */}
+      <div id="aksyon-print-document">
+        <div className="flex flex-col h-full justify-between space-y-3">
+          
+          {/* TOP SECTION: HEADER BANNER + 6 CARDS */}
+          <div className="space-y-2">
+            {/* AKSYON RED BANNER */}
+            <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
+                <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+              </div>
+              <div className="text-right text-[10px] font-bold">
+                <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                <div className="text-[9px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
+              </div>
+            </div>
 
+            {/* TOP 3 STAT CARDS */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="print-card p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
+                <div className="text-xl font-black text-gray-900 my-0.5">{usersCount}</div>
+                <span className="text-[8px] text-gray-400">Registered resident & admin accounts</span>
+              </div>
+
+              <div className="print-card p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">System Reports</span>
+                <div className="text-xl font-black text-gray-900 my-0.5">{reports.length}</div>
+                <span className="text-[8px] text-gray-400">Submissions in Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
+              </div>
+
+              <div className="print-card p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
+                <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                <span className="text-[8px] text-gray-400">Assigned Station Jurisdiction</span>
+              </div>
+            </div>
+
+            {/* STATUS 3 CARDS */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
+                <div className="text-xl font-black my-0.5">{pendingToday}</div>
+                <span className="text-[8px] text-red-100">Pending Reports</span>
+              </div>
+
+              <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
+                <div className="text-xl font-black my-0.5">{inProgressToday}</div>
+                <span className="text-[8px] text-blue-100">Active Emergency Units</span>
+              </div>
+
+              <div className="bg-[#059669] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
+                <div className="text-xl font-black my-0.5">{resolvedToday}</div>
+                <span className="text-[8px] text-emerald-100">Completed Dispatches</span>
+              </div>
+            </div>
+          </div>
+
+          {/* MIDDLE SECTION: REPORT TRENDS (FULL WIDTH) */}
+          <div className="print-card p-3">
+            <h3 className="font-bold text-xs text-gray-900 mb-1">Report Trends</h3>
+            <div className="h-[150px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fontSize: 8, fill: '#6b7280' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 8, fill: '#6b7280' }} />
+                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#printColorReports)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* BOTTOM SECTION: 2 DONUTS SIDE-BY-SIDE */}
+          <div className="grid grid-cols-2 gap-2">
+            
+            {/* DONUT 1: REPORT STATUS */}
+            <div className="print-card p-2.5 flex flex-col justify-between">
+              <h4 className="font-bold text-[10px] text-gray-900">Report Status</h4>
+              <div className="h-[100px] w-full flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
+                      {statusPieData.map((entry, idx) => (
+                        <Cell key={`print-cell-${idx}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs font-black text-gray-900">{timeFilteredReports.length}</span>
+                  <span className="text-[7px] uppercase font-bold text-gray-400">Total</span>
+                </div>
+              </div>
+              <div className="flex justify-around text-[7px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Pending</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
+              </div>
+            </div>
+
+            {/* DONUT 2: EMERGENCY CATEGORIES */}
+            <div className="print-card p-2.5 flex flex-col justify-between">
+              <h4 className="font-bold text-[10px] text-gray-900">Emergency Categories</h4>
+              <div className="h-[100px] w-full flex items-center justify-center relative">
+                {incidentTypeData.length === 0 ? (
+                  <span className="text-[10px] font-bold text-gray-400">No records</span>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
+                        {incidentTypeData.map((entry, idx) => (
+                          <Cell key={`print-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs font-black text-gray-900">{incidentTypeData.length}</span>
+                  <span className="text-[7px] uppercase font-bold text-gray-400">Categories</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap justify-center gap-1 text-[7px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                {incidentTypeData.map((item, idx) => (
+                  <span key={`print-cat-label-${item.name}`} className="flex items-center gap-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
+                    {item.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* BOTTOM-MOST SECTION: PEAK INCIDENT HOURS (FULL WIDTH) */}
+          <div className="print-card p-3">
+            <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
+            <div className="h-[95px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hourlyData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 8, fill: '#6b7280' }} />
+                  <Bar dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={22} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
+              Dispatch call density by time of day
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* WEB DASHBOARD UI (STAYS VISIBLE ON SCREEN) */}
+      <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen">
+        
         {/* WEB TOP CONTROLS */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 no-print">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
             <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
@@ -583,27 +691,27 @@ export default function AnalyticsPage() {
         </div>
 
         {/* DASHBOARD GRID CONTENT */}
-        <div className="space-y-3.5">
+        <div className="space-y-4">
           
           {/* ROW 1: TOP STAT CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-3.5">
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Total System Users</span>
-              <div className="text-2xl font-black text-gray-900 my-0.5">{usersCount}</div>
+              <div className="text-3xl font-black text-gray-900 my-1">{usersCount}</div>
               <span className="text-[10px] text-gray-400 font-medium">Registered resident & admin accounts</span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">System Reports</span>
-              <div className="text-2xl font-black text-gray-900 my-0.5">{reports.length}</div>
+              <div className="text-3xl font-black text-gray-900 my-1">{reports.length}</div>
               <span className="text-[10px] text-gray-400 font-medium">
                 Submissions in Brgy. {assignedBarangay || 'Unassigned'}
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Covered Jurisdiction</span>
-              <div className="text-lg font-black text-gray-900 my-0.5">
+              <div className="text-xl font-black text-gray-900 my-1">
                 {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
               </div>
               <span className="text-[10px] text-gray-400 font-medium">
@@ -613,32 +721,32 @@ export default function AnalyticsPage() {
           </div>
 
           {/* ROW 2: TODAY STATUS CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-3.5">
-            <div className="bg-[#dc2626] text-white p-3.5 rounded-xl shadow-xs flex flex-col justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-              <div className="text-2xl font-black my-0.5">{pendingToday}</div>
+              <div className="text-3xl font-black my-1">{pendingToday}</div>
               <span className="text-[10px] text-red-100 font-medium">Pending Reports</span>
             </div>
 
-            <div className="bg-[#109EEF] text-white p-3.5 rounded-xl shadow-xs flex flex-col justify-between">
+            <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-              <div className="text-2xl font-black my-0.5">{inProgressToday}</div>
+              <div className="text-3xl font-black my-1">{inProgressToday}</div>
               <span className="text-[10px] text-blue-100 font-medium">Active Emergency Units</span>
             </div>
 
-            <div className="bg-[#059669] text-white p-3.5 rounded-xl shadow-xs flex flex-col justify-between">
+            <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-              <div className="text-2xl font-black my-0.5">{resolvedToday}</div>
+              <div className="text-3xl font-black my-1">{resolvedToday}</div>
               <span className="text-[10px] text-emerald-100 font-medium">Completed Dispatches</span>
             </div>
           </div>
 
           {/* ROW 3: REPORT TRENDS LINE CHART */}
-          <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-2">
-              <h3 className="font-bold text-xs text-gray-900">Report Trends</h3>
+          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+              <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
 
-              <div className="flex flex-wrap items-center gap-2 no-print">
+              <div className="flex flex-wrap items-center gap-2">
                 <select 
                   value={timeRange} 
                   onChange={(e) => {
@@ -706,66 +814,66 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="h-52 sm:h-60 chart-trends-print w-full min-w-0">
+            <div className="h-56 sm:h-64 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="webColorReports" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9ca3af' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#colorReports)" />
+                  <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#webColorReports)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* ROW 4: BREAKDOWN CHARTS (2 DONUTS TOP ROW, BAR CHART FULL BOTTOM ROW IN PRINT) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-bottom gap-3.5">
+          {/* ROW 4: 3 BREAKDOWN CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
-            {/* Donut Chart 1: Status Breakdown */}
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-xs text-gray-900 self-start mb-1">Report Status</h4>
-              <div className="h-32 chart-donut-print w-full min-w-0 flex items-center justify-center relative">
+            {/* Box 1: Status Donut Chart */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
+              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
+              <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={30} outerRadius={44} paddingAngle={4}>
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={50} paddingAngle={4}>
                       {statusPieData.map((entry, idx) => (
-                        <Cell key={`cell-${idx}`} fill={entry.color} />
+                        <Cell key={`web-cell-${idx}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-sm font-black text-gray-900">{timeFilteredReports.length}</span>
+                  <span className="text-base font-black text-gray-900">{timeFilteredReports.length}</span>
                   <span className="text-[8px] uppercase font-bold text-gray-400">Total</span>
                 </div>
               </div>
-              <div className="w-full flex justify-around text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1.5">
+              <div className="w-full flex justify-around text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
               </div>
             </div>
 
-            {/* Donut Chart 2: Categories Breakdown */}
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-xs text-gray-900 self-start mb-1">Emergency Categories</h4>
-              <div className="h-32 chart-donut-print w-full min-w-0 flex items-center justify-center relative">
+            {/* Box 2: Emergency Categories Donut Chart */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
+              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Emergency Categories</h4>
+              <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-xs font-bold text-gray-400">No records</span>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={30} outerRadius={44} paddingAngle={4}>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={50} paddingAngle={4}>
                         {incidentTypeData.map((entry, idx) => (
-                          <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
+                          <Cell key={`web-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
                       </Pie>
                       <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
@@ -773,13 +881,13 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 )}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-sm font-black text-gray-900">{incidentTypeData.length}</span>
+                  <span className="text-base font-black text-gray-900">{incidentTypeData.length}</span>
                   <span className="text-[8px] uppercase font-bold text-gray-400">Categories</span>
                 </div>
               </div>
-              <div className="w-full flex flex-wrap justify-center gap-1 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1.5">
+              <div className="w-full flex flex-wrap justify-center gap-1.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-2">
                 {incidentTypeData.map((item, idx) => (
-                  <span key={item.name} className="flex items-center gap-1">
+                  <span key={`web-cat-label-${item.name}`} className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
                     {item.name}
                   </span>
@@ -787,21 +895,21 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Bar Chart: Peak Incident Hours (Full width on PDF) */}
-            <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between print-full-width">
-              <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
-              <div className="h-32 chart-bar-print w-full min-w-0">
+            {/* Box 3: Peak Incident Hours Bar Chart */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
+              <div className="h-36 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                     <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 8, fill: '#9ca3af' }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                    <Bar dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={24} />
+                    <Bar dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={28} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="text-[8px] text-gray-400 font-medium border-t border-gray-100 pt-1.5 text-right">
+              <div className="text-[9px] text-gray-400 font-medium border-t border-gray-100 pt-2 text-right">
                 Dispatch call density by time of day
               </div>
             </div>
