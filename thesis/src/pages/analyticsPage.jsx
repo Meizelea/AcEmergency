@@ -437,22 +437,22 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      {/* PERFECT A4 PORTRAIT PRINT LAYOUT STYLES matching the EXACT Wireframe sketch */}
+      {/* EXECUTIVE PRINT STYLES - BALANCED FULL-PAGE A4 PORTRAIT FIT */}
       <style>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 10mm;
+            margin: 6mm 10mm;
           }
           html, body {
             background-color: #ffffff !important;
             color: #111827 !important;
-            font-size: 10px !important;
+            font-size: 11px !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            overflow: visible !important;
+            height: 100% !important;
+            overflow: hidden !important;
           }
-          /* Hide non-printable web UI components */
           header, nav, sidebar, .no-print, button, select, input {
             display: none !important;
           }
@@ -462,9 +462,9 @@ export default function AnalyticsPage() {
             justify-content: space-between;
             background-color: #b32d2d !important;
             color: #ffffff !important;
-            padding: 10px 16px;
-            border-radius: 6px;
-            margin-bottom: 12px;
+            padding: 12px 18px;
+            border-radius: 8px;
+            margin-bottom: 16px;
           }
           .print-container {
             padding: 0 !important;
@@ -472,17 +472,20 @@ export default function AnalyticsPage() {
             width: 100% !important;
             background: transparent !important;
           }
-          /* Force strict 3-Column Grid for cards in Print Preview */
           .grid-print-3 {
             display: grid !important;
             grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 12px !important;
+            gap: 16px !important;
+          }
+          .recharts-responsive-container {
+            width: 100% !important;
+            height: 100% !important;
           }
           .chart-print-container {
-            height: 180px !important;
+            height: 230px !important;
           }
           .donut-print-container {
-            height: 120px !important;
+            height: 170px !important;
           }
         }
       `}</style>
@@ -492,12 +495,12 @@ export default function AnalyticsPage() {
         {/* PRINT EXECUTIVE HEADER */}
         <div className="hidden print-header-banner">
           <div>
-            <h1 className="text-base font-black tracking-tight text-white">Aksyon</h1>
-            <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+            <h1 className="text-lg font-black tracking-tight text-white">Aksyon</h1>
+            <p className="text-xs text-red-100 font-medium">Executive Analytics & System Insights Report</p>
           </div>
           <div className="text-right text-xs text-white font-bold">
             <div>Jurisdiction: Brgy. {assignedBarangay || 'Central Command'}</div>
-            <div className="text-[9px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
+            <div className="text-[10px] text-red-100 font-normal">Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</div>
           </div>
         </div>
 
@@ -542,62 +545,62 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* MAIN DASHBOARD CONTAINER MATCHING WIREFRAME SKETCH */}
-        <div className="space-y-4">
+        {/* MAIN DASHBOARD CONTAINER */}
+        <div className="space-y-5">
           
-          {/* ROW 1: 3 STAT CARDS (System Users, System Reports, Covered Jurisdiction) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 block">Total System Users</span>
-              <div className="text-3xl font-black text-gray-900 my-1">{usersCount}</div>
-              <span className="text-[10px] text-gray-400 font-medium">Registered resident & admin accounts</span>
+          {/* ROW 1: 3 STAT CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">Total System Users</span>
+              <div className="text-3xl sm:text-4xl font-black text-gray-900 my-1">{usersCount}</div>
+              <span className="text-[11px] text-gray-400 font-medium">Registered resident & admin accounts</span>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 block">System Reports</span>
-              <div className="text-3xl font-black text-gray-900 my-1">{reports.length}</div>
-              <span className="text-[10px] text-gray-400 font-medium">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">System Reports</span>
+              <div className="text-3xl sm:text-4xl font-black text-gray-900 my-1">{reports.length}</div>
+              <span className="text-[11px] text-gray-400 font-medium">
                 Submissions in Brgy. {assignedBarangay || 'Unassigned'}
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 block">Covered Jurisdiction</span>
-              <div className="text-xl font-black text-gray-900 my-1">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">Covered Jurisdiction</span>
+              <div className="text-2xl sm:text-3xl font-black text-gray-900 my-1">
                 {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
               </div>
-              <span className="text-[10px] text-gray-400 font-medium">
+              <span className="text-[11px] text-gray-400 font-medium">
                 Assigned Station Jurisdiction
               </span>
             </div>
           </div>
 
-          {/* ROW 2: 3 STATUS CARDS (Resolved Today, Ongoing Today, Pending Today) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
-            <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-              <div className="text-3xl font-black my-1">{resolvedToday}</div>
-              <span className="text-[10px] text-emerald-100 font-medium">Completed Dispatches</span>
+          {/* ROW 2: 3 STATUS CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
+            <div className="bg-[#059669] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
+              <div className="text-3xl sm:text-4xl font-black my-1">{resolvedToday}</div>
+              <span className="text-[11px] text-emerald-100 font-medium">Completed Dispatches</span>
             </div>
 
-            <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-              <div className="text-3xl font-black my-1">{inProgressToday}</div>
-              <span className="text-[10px] text-blue-100 font-medium">Active Emergency Units</span>
+            <div className="bg-[#109EEF] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Ongoing Today</span>
+              <div className="text-3xl sm:text-4xl font-black my-1">{inProgressToday}</div>
+              <span className="text-[11px] text-blue-100 font-medium">Active Emergency Units</span>
             </div>
 
-            <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-              <div className="text-3xl font-black my-1">{pendingToday}</div>
-              <span className="text-[10px] text-red-100 font-medium">Pending Reports</span>
+            <div className="bg-[#dc2626] text-white p-5 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-100">Pending Today</span>
+              <div className="text-3xl sm:text-4xl font-black my-1">{pendingToday}</div>
+              <span className="text-[11px] text-red-100 font-medium">Pending Reports</span>
             </div>
           </div>
 
-          {/* ROW 3: FULL-WIDTH REPORT TRENDS LINE CHART */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+          {/* ROW 3: REPORT TRENDS LINE CHART */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
               <div>
-                <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
+                <h3 className="font-bold text-base text-gray-900">Report Trends</h3>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 no-print">
@@ -668,7 +671,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="h-56 w-full min-w-0 chart-print-container">
+            <div className="h-64 w-full min-w-0 chart-print-container">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
@@ -678,8 +681,8 @@ export default function AnalyticsPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
                   <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
                 </AreaChart>
@@ -687,16 +690,16 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 4: 3-COLUMN BREAKDOWN GRID (Donut 1, Donut 2, Bar Chart) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
+          {/* ROW 4: 3-COLUMN BREAKDOWN GRID */}
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-5">
             
             {/* Box 1: Status Donut Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
-              <div className="h-36 w-full min-w-0 flex items-center justify-center relative donut-print-container">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
+              <h4 className="font-bold text-sm text-gray-900 self-start mb-3">Report Status</h4>
+              <div className="h-44 w-full min-w-0 flex items-center justify-center relative donut-print-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={56} paddingAngle={4}>
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={62} paddingAngle={4}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`cell-${idx}`} fill={entry.color} />
                       ))}
@@ -705,11 +708,11 @@ export default function AnalyticsPage() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-lg font-black text-gray-900">{timeFilteredReports.length}</span>
-                  <span className="text-[9px] uppercase font-bold text-gray-400">Total</span>
+                  <span className="text-xl font-black text-gray-900">{timeFilteredReports.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Total</span>
                 </div>
               </div>
-              <div className="w-full flex justify-around text-[10px] font-bold text-gray-500 border-t border-gray-100 pt-2">
+              <div className="w-full flex justify-around text-[10px] font-bold text-gray-500 border-t border-gray-100 pt-3 mt-2">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
@@ -717,15 +720,15 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Box 2: Emergency Categories Donut Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Emergency Categories</h4>
-              <div className="h-36 w-full min-w-0 flex items-center justify-center relative donut-print-container">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
+              <h4 className="font-bold text-sm text-gray-900 self-start mb-3">Emergency Categories</h4>
+              <div className="h-44 w-full min-w-0 flex items-center justify-center relative donut-print-container">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-xs font-bold text-gray-400">No records</span>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={56} paddingAngle={4}>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={62} paddingAngle={4}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
@@ -735,11 +738,11 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 )}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-lg font-black text-gray-900">{incidentTypeData.length}</span>
-                  <span className="text-[9px] uppercase font-bold text-gray-400">Categories</span>
+                  <span className="text-xl font-black text-gray-900">{incidentTypeData.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Categories</span>
                 </div>
               </div>
-              <div className="w-full flex flex-wrap justify-center gap-2 text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
+              <div className="w-full flex flex-wrap justify-center gap-2 text-[10px] font-bold text-gray-500 border-t border-gray-100 pt-3 mt-2">
                 {incidentTypeData.map((item, idx) => (
                   <span key={item.name} className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span> 
@@ -750,20 +753,20 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Box 3: Peak Incident Hours Bar Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
-              <div className="h-36 w-full min-w-0 donut-print-container">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <h4 className="font-bold text-sm text-gray-900 mb-3">Peak Incident Hours</h4>
+              <div className="h-44 w-full min-w-0 donut-print-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                    <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                    <Bar dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                    <Bar dataKey="count" fill="#b32d2d" radius={[4, 4, 0, 0]} maxBarSize={32} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="text-[9px] text-gray-400 font-medium border-t border-gray-100 pt-2 text-right">
+              <div className="text-[10px] text-gray-400 font-medium border-t border-gray-100 pt-3 mt-2 text-right">
                 Dispatch call density by time of day
               </div>
             </div>
