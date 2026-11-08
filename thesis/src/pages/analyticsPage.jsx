@@ -436,12 +436,12 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      {/* SQUISHED PDF COMPACT PRINT RULES + RESPONSIVE WEB STYLES */}
+      {/* MEDIA PRINT STYLES FOR EXACT WIREFRAME SKETCH MATCHING */}
       <style>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 4mm 6mm;
+            margin: 0;
           }
           html, body {
             background-color: #ffffff !important;
@@ -449,16 +449,29 @@ export default function AnalyticsPage() {
             font-size: 10px !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            width: 100% !important;
-            height: 100% !important;
+            width: 100vw !important;
+            height: 100vh !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: hidden !important;
           }
 
-          /* Hide Web Nav, Header Buttons, Scrollbars */
+          /* Hide Web UI Chrome */
           header, nav, sidebar, .no-print, button, select, input, ::-webkit-scrollbar {
             display: none !important;
+          }
+
+          /* Force Web Dashboard Wrapper to Fill Printable Page */
+          .aksyon-analytics-root {
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 16px 20px !important;
+            box-sizing: border-box !important;
+            background-color: #ffffff !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
           }
 
           .print-header-banner {
@@ -467,37 +480,39 @@ export default function AnalyticsPage() {
             justify-content: space-between;
             background-color: #b32d2d !important;
             color: #ffffff !important;
-            padding: 8px 12px !important;
+            padding: 8px 14px !important;
             border-radius: 6px !important;
             margin-bottom: 8px !important;
-          }
-
-          .aksyon-container {
-            padding: 0 !important;
-            margin: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            background: transparent !important;
           }
 
           .grid-print-3 {
             display: grid !important;
             grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 8px !important;
+            gap: 10px !important;
           }
 
-          .card-compact {
-            padding: 8px 10px !important;
-            margin-bottom: 0 !important;
+          /* Convert Bottom Grid to 2-Column + 1 Full Width Bar Chart as Sketched */
+          .grid-print-bottom {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 10px !important;
           }
 
-          /* SQUISHED GRAPH HEIGHTS FOR CLEAN 1-PAGE A4 FIT */
-          .chart-trends-squish {
-            height: 155px !important;
+          .print-full-width {
+            grid-column: span 2 / span 2 !important;
           }
 
-          .chart-donut-squish {
-            height: 120px !important;
+          /* EXPLICIT HEIGHTS PREVENTING SVG OVERFLOW */
+          .chart-trends-print {
+            height: 210px !important;
+          }
+
+          .chart-donut-print {
+            height: 125px !important;
+          }
+
+          .chart-bar-print {
+            height: 110px !important;
           }
 
           .recharts-responsive-container {
@@ -511,9 +526,9 @@ export default function AnalyticsPage() {
         }
       `}</style>
 
-      <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen aksyon-container">
+      <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen aksyon-analytics-root">
         
-        {/* PRINT EXECUTIVE HEADER */}
+        {/* PRINT EXECUTIVE HEADER BANNER */}
         <div className="hidden print-header-banner">
           <div>
             <h1 className="text-base font-black tracking-tight text-white uppercase">Aksyon</h1>
@@ -525,7 +540,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* WEB INTERFACE HEADER (HIDDEN ON PRINT) */}
+        {/* WEB TOP CONTROLS */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 no-print">
           <div className="flex items-center gap-2">
             <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
@@ -564,18 +579,18 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* MAIN DASHBOARD CONTENT */}
+        {/* DASHBOARD GRID CONTENT */}
         <div className="space-y-4">
           
-          {/* ROW 1: STAT CARDS */}
+          {/* ROW 1: TOP STAT CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Total System Users</span>
               <div className="text-3xl font-black text-gray-900 my-1">{usersCount}</div>
               <span className="text-[10px] text-gray-400 font-medium">Registered resident & admin accounts</span>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">System Reports</span>
               <div className="text-3xl font-black text-gray-900 my-1">{reports.length}</div>
               <span className="text-[10px] text-gray-400 font-medium">
@@ -583,7 +598,7 @@ export default function AnalyticsPage() {
               </span>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Covered Jurisdiction</span>
               <div className="text-xl font-black text-gray-900 my-1">
                 {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
@@ -596,19 +611,19 @@ export default function AnalyticsPage() {
 
           {/* ROW 2: TODAY STATUS CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
-            <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
               <div className="text-3xl font-black my-1">{pendingToday}</div>
               <span className="text-[10px] text-red-100 font-medium">Pending Reports</span>
             </div>
 
-            <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
               <div className="text-3xl font-black my-1">{inProgressToday}</div>
               <span className="text-[10px] text-blue-100 font-medium">Active Emergency Units</span>
             </div>
 
-            <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs card-compact flex flex-col justify-between">
+            <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
               <div className="text-3xl font-black my-1">{resolvedToday}</div>
               <span className="text-[10px] text-emerald-100 font-medium">Completed Dispatches</span>
@@ -616,7 +631,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* ROW 3: REPORT TRENDS LINE CHART */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs card-compact">
+          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
               <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
 
@@ -688,7 +703,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="h-56 sm:h-64 chart-trends-squish w-full min-w-0">
+            <div className="h-56 sm:h-64 chart-trends-print w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
@@ -707,13 +722,13 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 4: 3 BREAKDOWN CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-3 gap-4">
+          {/* ROW 4: BREAKDOWN CHARTS (2 DONUTS TOP ROW, BAR CHART FULL BOTTOM ROW IN PRINT) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-print-bottom gap-4">
             
-            {/* Box 1: Status Donut Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col items-center justify-between">
+            {/* Donut Chart 1: Status Breakdown */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
-              <div className="h-36 chart-donut-squish w-full min-w-0 flex items-center justify-center relative">
+              <div className="h-36 chart-donut-print w-full min-w-0 flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={50} paddingAngle={4}>
@@ -736,10 +751,10 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Box 2: Emergency Categories Donut Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col items-center justify-between">
+            {/* Donut Chart 2: Categories Breakdown */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Emergency Categories</h4>
-              <div className="h-36 chart-donut-squish w-full min-w-0 flex items-center justify-center relative">
+              <div className="h-36 chart-donut-print w-full min-w-0 flex items-center justify-center relative">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-xs font-bold text-gray-400">No records</span>
                 ) : (
@@ -769,10 +784,10 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Box 3: Peak Incident Hours Bar Chart */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs card-compact flex flex-col justify-between">
+            {/* Bar Chart: Peak Incident Hours (Full width on PDF) */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between print-full-width">
               <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
-              <div className="h-36 chart-donut-squish w-full min-w-0">
+              <div className="h-36 chart-bar-print w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
