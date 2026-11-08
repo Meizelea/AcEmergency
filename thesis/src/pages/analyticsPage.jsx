@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, TrendingUp, AlertCircle, 
@@ -8,6 +8,9 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, PieChart, Pie, Cell, CartesianGrid, BarChart, Bar 
 } from 'recharts';
+
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 import AdminLayout from '../components/header';
 
@@ -42,6 +45,8 @@ const CACHE_KEY_ADMIN_PROFILE = 'cache_admin_profile_v5';
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
+  const pdfContainerRef = useRef(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [assignedBarangay, setAssignedBarangay] = useState(() => {
     try {
@@ -437,12 +442,12 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      {/* EXECUTIVE PRINT STYLES - BALANCED FULL-PAGE A4 PORTRAIT FIT */}
+      {/* RESPONSIVE 1080P DESKTOP AND CLEAN A4 PRINT STYLES */}
       <style>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 6mm 10mm;
+            margin: 8mm;
           }
           html, body {
             background-color: #ffffff !important;
@@ -450,8 +455,8 @@ export default function AnalyticsPage() {
             font-size: 11px !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            height: 100% !important;
-            overflow: hidden !important;
+            height: auto !important;
+            overflow: visible !important;
           }
           header, nav, sidebar, .no-print, button, select, input {
             display: none !important;
@@ -470,32 +475,34 @@ export default function AnalyticsPage() {
             padding: 0 !important;
             margin: 0 !important;
             width: 100% !important;
+            max-width: 100% !important;
             background: transparent !important;
           }
           .grid-print-3 {
             display: grid !important;
             grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 16px !important;
+            gap: 14px !important;
           }
           .recharts-responsive-container {
             width: 100% !important;
             height: 100% !important;
+            min-height: 160px !important;
           }
           .chart-print-container {
-            height: 230px !important;
+            height: 220px !important;
           }
           .donut-print-container {
-            height: 170px !important;
+            height: 160px !important;
           }
         }
       `}</style>
 
-      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f4f6f8] print-container">
+      <div className="p-4 sm:p-6 lg:p-8 min-h-screen bg-[#f4f6f8] print-container max-w-7xl mx-auto">
         
         {/* PRINT EXECUTIVE HEADER */}
         <div className="hidden print-header-banner">
           <div>
-            <h1 className="text-lg font-black tracking-tight text-white">Aksyon</h1>
+            <h1 className="text-lg font-black tracking-tight text-white">ACEmergency Command Center</h1>
             <p className="text-xs text-red-100 font-medium">Executive Analytics & System Insights Report</p>
           </div>
           <div className="text-right text-xs text-white font-bold">
@@ -596,7 +603,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 3: REPORT TRENDS LINE CHART */}
+          {/* ROW 3: REPORT TRENDS LINE CHART WITH ADAPTIVE TICKS */}
           <div className="bg-white p-6 rounded-xl border border-gray-200/80 shadow-xs">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
               <div>
@@ -671,9 +678,9 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="h-64 w-full min-w-0 chart-print-container">
+            <div className="h-64 sm:h-72 w-full min-w-0 chart-print-container">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={trendData} margin={{ top: 10, right: 15, left: -20, bottom: 20 }}>
                   <defs>
                     <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
@@ -681,8 +688,13 @@ export default function AnalyticsPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                  <XAxis 
+                    dataKey="time" 
+                    interval={timeRange === 'month' ? 3 : 'preserveStartEnd'}
+                    tick={{ fontSize: 11, fill: '#6b7280' }} 
+                    dy={8}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
                   <Area type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#colorReports)" />
                 </AreaChart>
@@ -699,7 +711,7 @@ export default function AnalyticsPage() {
               <div className="h-44 w-full min-w-0 flex items-center justify-center relative donut-print-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={62} paddingAngle={4}>
+                    <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={4}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`cell-${idx}`} fill={entry.color} />
                       ))}
@@ -728,7 +740,7 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={62} paddingAngle={4}>
+                      <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={4}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`cell-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
@@ -757,9 +769,9 @@ export default function AnalyticsPage() {
               <h4 className="font-bold text-sm text-gray-900 mb-3">Peak Incident Hours</h4>
               <div className="h-44 w-full min-w-0 donut-print-container">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                  <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -25, bottom: 15 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
+                    <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} dy={5} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
                     <Bar dataKey="count" fill="#b32d2d" radius={[4, 4, 0, 0]} maxBarSize={32} />
