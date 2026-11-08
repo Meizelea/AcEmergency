@@ -436,7 +436,6 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      {/* PERFECTLY CENTERED & SQUISHED SINGLE-PAGE PRINT RULES */}
       <style>{`
         @media screen {
           #aksyon-print-document {
@@ -456,10 +455,14 @@ export default function AnalyticsPage() {
 
           #aksyon-print-document, #aksyon-print-document * {
             visibility: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
           #aksyon-print-document {
-            display: block !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -475,21 +478,15 @@ export default function AnalyticsPage() {
             border-radius: 8px !important;
             background: #ffffff !important;
           }
-
-          .recharts-responsive-container {
-            width: 100% !important;
-            height: 100% !important;
-          }
         }
       `}</style>
 
-      {/* PRINT-ONLY ISOLATED CONTAINER (EXACT MATCH TO YOUR SKETCH & HEADER SCREENSHOT) */}
+      {/* PRINT-ONLY ISOLATED CONTAINER */}
       <div id="aksyon-print-document">
         <div className="flex flex-col h-full justify-between space-y-3">
           
           {/* TOP SECTION: HEADER BANNER + 6 CARDS */}
           <div className="space-y-2">
-            {/* AKSYON RED BANNER */}
             <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
@@ -501,7 +498,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* TOP 3 STAT CARDS */}
             <div className="grid grid-cols-3 gap-2">
               <div className="print-card p-2.5">
                 <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
@@ -522,7 +518,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* STATUS 3 CARDS */}
             <div className="grid grid-cols-3 gap-2">
               <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
@@ -548,7 +543,7 @@ export default function AnalyticsPage() {
           <div className="print-card p-3">
             <h3 className="font-bold text-xs text-gray-900 mb-1">Report Trends</h3>
             <div className="h-[150px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={150}>
                 <AreaChart data={trendData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
                   <defs>
                     <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
@@ -567,12 +562,10 @@ export default function AnalyticsPage() {
 
           {/* BOTTOM SECTION: 2 DONUTS SIDE-BY-SIDE */}
           <div className="grid grid-cols-2 gap-2">
-            
-            {/* DONUT 1: REPORT STATUS */}
             <div className="print-card p-2.5 flex flex-col justify-between">
               <h4 className="font-bold text-[10px] text-gray-900">Report Status</h4>
               <div className="h-[100px] w-full flex items-center justify-center relative">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={100}>
                   <PieChart>
                     <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
                       {statusPieData.map((entry, idx) => (
@@ -593,14 +586,13 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* DONUT 2: EMERGENCY CATEGORIES */}
             <div className="print-card p-2.5 flex flex-col justify-between">
               <h4 className="font-bold text-[10px] text-gray-900">Emergency Categories</h4>
               <div className="h-[100px] w-full flex items-center justify-center relative">
                 {incidentTypeData.length === 0 ? (
                   <span className="text-[10px] font-bold text-gray-400">No records</span>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={100}>
                     <PieChart>
                       <Pie data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={24} outerRadius={38} paddingAngle={3}>
                         {incidentTypeData.map((entry, idx) => (
@@ -624,14 +616,13 @@ export default function AnalyticsPage() {
                 ))}
               </div>
             </div>
-
           </div>
 
           {/* BOTTOM-MOST SECTION: PEAK INCIDENT HOURS (FULL WIDTH) */}
           <div className="print-card p-3">
             <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
             <div className="h-[95px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={95}>
                 <BarChart data={hourlyData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                   <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
@@ -648,7 +639,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* WEB DASHBOARD UI (STAYS VISIBLE ON SCREEN) */}
+      {/* WEB DASHBOARD UI */}
       <div className="p-4 sm:p-6 lg:p-8 bg-[#f4f6f8] min-h-screen">
         
         {/* WEB TOP CONTROLS */}
@@ -835,8 +826,6 @@ export default function AnalyticsPage() {
 
           {/* ROW 4: 3 BREAKDOWN CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
-            {/* Box 1: Status Donut Chart */}
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
               <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
@@ -862,7 +851,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Box 2: Emergency Categories Donut Chart */}
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Emergency Categories</h4>
               <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
@@ -895,7 +883,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Box 3: Peak Incident Hours Bar Chart */}
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
               <div className="h-36 w-full min-w-0">
@@ -913,7 +900,6 @@ export default function AnalyticsPage() {
                 Dispatch call density by time of day
               </div>
             </div>
-
           </div>
 
         </div>
