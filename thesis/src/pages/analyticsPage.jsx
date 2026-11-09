@@ -41,6 +41,9 @@ const CLUSTER_COLORS = ['#dc2626', '#0284c7', '#16a34a', '#f59e0b', '#8b5cf6', '
 const NOISE_COLOR = '#9ca3af';
 const ANGELES_CENTER = [15.145, 120.5887];
 
+// How many cluster rows fit in the PDF's DBSCAN page table
+const PRINT_MAX_CLUSTER_ROWS = 14;
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -55,6 +58,11 @@ const parseDateKey = (s) => {
 
 const clusterColor = (label) => (label === -1 ? NOISE_COLOR : CLUSTER_COLORS[label % CLUSTER_COLORS.length]);
 const clusterName = (label) => (label === -1 ? 'Noise (unclustered)' : `Cluster ${label + 1}`);
+
+const formatReportIds = (points, max = 12) => {
+  const ids = points.slice(0, max).map((p) => `#${p.id}`).join(', ');
+  return points.length > max ? `${ids} +${points.length - max} more` : ids;
+};
 
 const haversineMeters = (lat1, lon1, lat2, lon2) => {
   const R = 6371008.8;
@@ -185,17 +193,17 @@ function buildTrendSeries(trend) {
 
 /* ------------------------------- DBSCAN map UI -------------------------------- */
 
-function FitBounds({ points }) {
+function FitBounds({ points, animate = true }) {
   const map = useMap();
 
   useEffect(() => {
     if (!points.length) return;
     if (points.length === 1) {
-      map.setView(points[0], 17);
+      map.setView(points[0], 17, { animate });
       return;
     }
-    map.fitBounds(points, { padding: [30, 30], maxZoom: 18 });
-  }, [map, points]);
+    map.fitBounds(points, { padding: [30, 30], maxZoom: 18, animate });
+  }, [map, points, animate]);
 
   return null;
 }
@@ -248,6 +256,59 @@ function ClusterMap({ groups, selectedCluster, showNoise }) {
                   </div>
                 </Popup>
               </CircleMarker>
+            ))}
+          </React.Fragment>
+        );
+      })}
+    </MapContainer>
+  );
+}
+
+// Static copy of the cluster map used only by the PDF page (all clusters + noise, no
+// animations or popups so the tiles are fully drawn when the browser prints).
+function PrintClusterMap({ groups }) {
+  const fitPoints = useMemo(
+    () => groups.flatMap((g) => g.points.map((p) => [p.lat, p.lng])),
+    [groups]
+  );
+
+  return (
+    <MapContainer
+      center={ANGELES_CENTER}
+      zoom={14}
+      zoomControl={false}
+      scrollWheelZoom={false}
+      dragging={false}
+      zoomAnimation={false}
+      fadeAnimation={false}
+      markerZoomAnimation={false}
+      style={{ height: '100%', width: '100%' }}
+    >
+      <TileLayer
+        attribution="© OpenStreetMap contributors"
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <FitBounds points={fitPoints} animate={false} />
+
+      {groups.map((group) => {
+        const color = clusterColor(group.label);
+        return (
+          <React.Fragment key={`print-${group.label}`}>
+            {!group.isNoise && (
+              <Circle
+                center={group.center}
+                radius={group.radius}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.12, weight: 2 }}
+              />
+            )}
+
+            {group.points.map((p) => (
+              <CircleMarker
+                key={`print-${group.label}-${p.id}`}
+                center={[p.lat, p.lng]}
+                radius={group.isNoise ? 4 : 7}
+                pathOptions={{ color: '#ffffff', weight: 1.5, fillColor: color, fillOpacity: 0.95 }}
+              />
             ))}
           </React.Fragment>
         );
@@ -373,10 +434,12 @@ export default function AnalyticsPage() {
   const totalReports = dashboard?.totals?.total_reports ?? 0;
 
   const todayStatuses = dashboard?.today_statuses || {};
-  const pendingToday = todayStatuses.pending ?? 0;
   const inProgressToday = todayStatuses.ongoing ?? 0;
   const resolvedToday = todayStatuses.resolved ?? 0;
   const dismissedToday = todayStatuses.dismissed ?? 0;
+
+  // Pending Overall = every pending report (same source as the Report Status donut), not just today's
+  const pendingOverall = dashboard?.total_statuses?.pending ?? 0;
 
   const trendData = useMemo(() => buildTrendSeries(dashboard?.report_trend), [dashboard]);
 
@@ -450,6 +513,10 @@ export default function AnalyticsPage() {
 
   const hasNoise = clusterGroups.some((g) => g.isNoise);
 
+  // PDF page 2: rows for the cluster summary table
+  const printClusterRows = clusterGroups.slice(0, PRINT_MAX_CLUSTER_ROWS);
+  const hiddenClusterCount = Math.max(0, clusterGroups.length - PRINT_MAX_CLUSTER_ROWS);
+
   const handleDownloadPDF = () => {
     window.print();
   };
@@ -462,7 +529,6 @@ export default function AnalyticsPage() {
           left: -10000px;
           top: 0;
           width: 210mm;
-          height: 296mm;
           pointer-events: none;
         }
 
@@ -478,8 +544,18 @@ export default function AnalyticsPage() {
             position: static !important;
             left: auto !important;
             width: 210mm !important;
-            height: 296mm !important;
-            overflow: hidden !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          /* each .aksyon-print-page is one A4 sheet */
+          .aksyon-print-page {
+            break-after: page;
+            page-break-after: always;
+          }
+          .aksyon-print-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
           }
 
           #aksyon-print-root, #aksyon-print-root * {
@@ -492,7 +568,9 @@ export default function AnalyticsPage() {
       {/* PRINT-ONLY LAYOUT (rendered in a portal, fixed-size charts) */}
       {createPortal(
         <div id="aksyon-print-root">
-          <div className="bg-white box-border flex flex-col justify-between" style={{ width: '210mm', height: '296mm', padding: '10mm' }}>
+
+          {/* ------------------------------ PAGE 1: ANALYTICS ------------------------------ */}
+          <div className="aksyon-print-page bg-white box-border flex flex-col justify-between" style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden' }}>
 
             {/* HEADER + CARDS */}
             <div className="space-y-2">
@@ -529,8 +607,8 @@ export default function AnalyticsPage() {
 
               <div className="grid grid-cols-4 gap-2">
                 <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-                  <div className="text-xl font-black my-0.5">{pendingToday}</div>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Overall</span>
+                  <div className="text-xl font-black my-0.5">{pendingOverall}</div>
                   <span className="text-[8px] text-red-100">Pending Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
@@ -638,6 +716,113 @@ export default function AnalyticsPage() {
             </div>
 
           </div>
+
+          {/* ------------------------------ PAGE 2: DBSCAN (only after DBSCAN has been run) ------------------------------ */}
+          {dbscan && (
+            <div className="aksyon-print-page bg-white box-border flex flex-col gap-2" style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden' }}>
+
+              {/* HEADER */}
+              <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
+                <div>
+                  <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
+                  <p className="text-[10px] text-red-100 font-medium">DBSCAN Incident Cluster Report</p>
+                </div>
+                <div className="text-right text-[10px] font-bold">
+                  <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                  <div className="text-[9px] text-red-100 font-normal">
+                    Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
+                    {dbscanRanAt && ` • DBSCAN run: ${dbscanRanAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* SUMMARY CARDS */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Clusters Detected</span>
+                  <div className="text-xl font-black text-gray-900 my-0.5">{dbscan.summary?.total_clusters ?? 0}</div>
+                  <span className="text-[8px] text-gray-400">Geographic hotspots found</span>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Clustered Reports</span>
+                  <div className="text-xl font-black text-gray-900 my-0.5">{dbscan.summary?.total_clustered_reports ?? 0}</div>
+                  <span className="text-[8px] text-gray-400">Reports that belong to a cluster</span>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-2.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Noise Reports</span>
+                  <div className="text-xl font-black text-gray-900 my-0.5">{dbscan.summary?.total_noise_reports ?? 0}</div>
+                  <span className="text-[8px] text-gray-400">Isolated reports (unclustered)</span>
+                </div>
+              </div>
+
+              {/* CLUSTER MAP */}
+              <div className="border border-gray-200 rounded-lg p-3">
+                <h3 className="font-bold text-xs text-gray-900 mb-1 flex items-center gap-1">
+                  <MapPin size={12} className="text-[#b32d2d]" />
+                  Incident Cluster Map
+                </h3>
+                {clusterGroups.length === 0 ? (
+                  <div
+                    className="rounded-lg border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] font-bold text-gray-400"
+                    style={{ width: 690, height: 120 }}
+                  >
+                    Not enough geotagged reports to form clusters.
+                  </div>
+                ) : (
+                  <div className="relative isolate rounded-lg overflow-hidden border border-gray-200" style={{ width: 690, height: 380 }}>
+                    <PrintClusterMap groups={clusterGroups} />
+                  </div>
+                )}
+                <div className="text-[8px] text-gray-400 font-medium mt-1">
+                  Groups nearby reports (within 500 m, at least 2 reports) into geographic hotspots.
+                </div>
+              </div>
+
+              {/* CLUSTER SUMMARY TABLE */}
+              {clusterGroups.length > 0 && (
+                <div className="border border-gray-200 rounded-lg overflow-hidden flex-1 min-h-0">
+                  <div className="px-3 py-1.5 bg-gray-50 text-[9px] font-black uppercase tracking-wider text-gray-500">
+                    Cluster Summary
+                  </div>
+                  <table className="w-full text-[9px]">
+                    <thead>
+                      <tr className="text-left text-gray-400">
+                        <th className="px-3 py-1 font-bold">Cluster</th>
+                        <th className="px-3 py-1 font-bold">Reports</th>
+                        <th className="px-3 py-1 font-bold">Center (Lat, Lng)</th>
+                        <th className="px-3 py-1 font-bold">Report IDs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {printClusterRows.map((g) => (
+                        <tr key={`print-row-${g.label}`} className="border-t border-gray-100 text-gray-700 font-medium align-top">
+                          <td className="px-3 py-1 whitespace-nowrap">
+                            <span
+                              className="inline-block w-2 h-2 rounded-full mr-1.5"
+                              style={{ backgroundColor: clusterColor(g.label) }}
+                            ></span>
+                            {clusterName(g.label)}
+                          </td>
+                          <td className="px-3 py-1">{g.points.length}</td>
+                          <td className="px-3 py-1 whitespace-nowrap">
+                            {g.isNoise ? '—' : `${g.center[0].toFixed(6)}, ${g.center[1].toFixed(6)}`}
+                          </td>
+                          <td className="px-3 py-1">{formatReportIds(g.points)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {hiddenClusterCount > 0 && (
+                    <div className="px-3 py-1 text-[8px] text-gray-400 border-t border-gray-100">
+                      +{hiddenClusterCount} more cluster{hiddenClusterCount > 1 ? 's' : ''} not shown (see the dashboard)
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+
         </div>,
         document.body
       )}
@@ -664,6 +849,7 @@ export default function AnalyticsPage() {
             <button
               onClick={handleDownloadPDF}
               disabled={isLoading || !dashboard}
+              title={dbscan ? 'Includes the DBSCAN clusters on page 2' : 'Run DBSCAN first to include the clusters on page 2'}
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <Download size={14} />
@@ -718,11 +904,11 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 2: TODAY STATUS CARDS */}
+          {/* ROW 2: STATUS CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Today</span>
-              <div className="text-3xl font-black my-1">{pendingToday}</div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Overall</span>
+              <div className="text-3xl font-black my-1">{pendingOverall}</div>
               <span className="text-[10px] text-red-100 font-medium">Pending Reports</span>
             </div>
 

@@ -998,7 +998,6 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase flex items-center gap-1">
-                        <Phone size={12} className="text-gray-400" />
                         Contact Number
                       </span>
                       <span className="font-bold text-gray-800">{getReporterPhone(selectedReport)}</span>
