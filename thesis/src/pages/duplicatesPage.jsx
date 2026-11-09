@@ -286,7 +286,6 @@ export default function DuplicatesPage() {
                   {/* SIDE BY SIDE COMPARISON */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
-                    {/* ORIGINAL (EARLIER) REPORT */}
                     <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
                       <div className="text-[10px] uppercase font-black tracking-wider text-gray-400 mb-1">
                         Primary Report #{primary.id || 'N/A'}
