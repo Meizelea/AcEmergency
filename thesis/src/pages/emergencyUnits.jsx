@@ -125,7 +125,7 @@ export default function EmergencyUnitsPage() {
 
     const interval = setInterval(() => {
       synchronizeData(true);
-    }, 15000);
+    }, 60000);
 
     const handleFocus = () => synchronizeData(true);
     window.addEventListener('focus', handleFocus);

@@ -150,7 +150,7 @@ export default function UsersPage() {
 
     const interval = setInterval(() => {
       fetchUsers(true);
-    }, 15000);
+    }, 60000);
 
     const handleFocus = () => fetchUsers(true);
     window.addEventListener('focus', handleFocus);

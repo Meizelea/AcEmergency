@@ -180,7 +180,7 @@ export default function DuplicatesPage() {
 
     const interval = setInterval(() => {
       fetchDuplicates(true);
-    }, 15000);
+    }, 60000);
 
     const handleFocus = () => fetchDuplicates(true);
     window.addEventListener('focus', handleFocus);

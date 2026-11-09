@@ -361,7 +361,7 @@ export default function ReportsPage() {
 
     const interval = setInterval(() => {
       fetchReports(true);
-    }, 15000);
+    }, 60000);
 
     const handleFocus = () => fetchReports(true);
     window.addEventListener('focus', handleFocus);

@@ -115,7 +115,7 @@ export default function AnnouncementPage() {
 
     const interval = setInterval(() => {
       fetchAnnouncements(true);
-    }, 15000);
+    }, 60000);
 
     const handleFocus = () => fetchAnnouncements(true);
     window.addEventListener('focus', handleFocus);
