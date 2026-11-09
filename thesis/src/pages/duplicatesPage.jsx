@@ -50,7 +50,8 @@ export default function DuplicatesPage() {
     const cached = sessionStorage.getItem(CACHE_KEY_DUPLICATES);
     return cached ? JSON.parse(cached) : [];
   });
-  const [isLoading, setIsLoading] = useState(() => duplicateGroups.length === 0);
+  // Only show the full-page spinner when nothing has ever been cached (an empty cached list is still a valid cache)
+  const [isLoading, setIsLoading] = useState(() => sessionStorage.getItem(CACHE_KEY_DUPLICATES) === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
@@ -70,10 +71,18 @@ export default function DuplicatesPage() {
     const results = [];
     const seenPairs = new Set();
 
-    for (let i = 0; i < reports.length; i++) {
-      for (let j = i + 1; j < reports.length; j++) {
-        const reportA = reports[i];
-        const reportB = reports[j];
+    // Sort oldest -> newest so only reports inside the time window get compared (near-linear instead of n^2)
+    const getTime = (r) => new Date(r.created_at || Date.now()).getTime();
+    const sorted = [...reports].sort((a, b) => getTime(a) - getTime(b));
+    const windowMs = MAX_TIME_DIFF_MINUTES * 60 * 1000;
+
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const reportA = sorted[i];
+        const reportB = sorted[j];
+
+        // Sorted by time: once the gap exceeds the window, no later report can match reportA
+        if (getTime(reportB) - getTime(reportA) > windowMs) break;
 
         // Skip if same report ID or pair already evaluated
         if (reportA.id === reportB.id) continue;
@@ -139,7 +148,7 @@ export default function DuplicatesPage() {
   // FETCH REPORTS FROM WORKING ADMIN API AND DETECT DUPLICATES
   const fetchDuplicates = useCallback(async (isManual = false) => {
     if (isManual) setIsRefreshing(true);
-    else if (duplicateGroups.length === 0) setIsLoading(true);
+    else if (sessionStorage.getItem(CACHE_KEY_DUPLICATES) === null) setIsLoading(true);
 
     for (const useBearer of [false, true]) {
       try {
@@ -167,7 +176,7 @@ export default function DuplicatesPage() {
     setLastRefreshed(new Date());
     setIsLoading(false);
     setIsRefreshing(false);
-  }, [getAuthHeaders, detectDuplicatesFromReports, duplicateGroups.length]);
+  }, [getAuthHeaders, detectDuplicatesFromReports]);
 
   // LOAD ONCE ON MOUNT (no auto-refresh; use the "Refresh List" button to reload)
   useEffect(() => {
