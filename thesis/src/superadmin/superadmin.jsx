@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, UserPlus, Search, Edit3, Trash2, 
@@ -19,16 +19,92 @@ export const ANGELES_BARANGAYS = [
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 const CACHE_KEY_ADMINS = 'cache_super_admins_v1';
 
+/* ---------------------------------- helpers ---------------------------------- */
+
+const readCachedAdmins = () => {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY_ADMINS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseJsonSafe = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
+// Turns a Django REST Framework error body into a readable sentence.
+// {"detail": "..."}                      -> "..."
+// {"username": ["Already exists."]}      -> "username: Already exists."
+function formatApiError(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (data.detail) return String(data.detail);
+
+  const parts = Object.entries(data).map(([field, messages]) => {
+    const text = Array.isArray(messages)
+      ? messages.join(' ')
+      : typeof messages === 'object'
+        ? JSON.stringify(messages)
+        : String(messages);
+    const label = field === 'non_field_errors' ? '' : `${field.replace(/_/g, ' ')}: `;
+    return `${label}${text}`;
+  });
+
+  return parts.length ? parts.join(' | ') : fallback;
+}
+
+// Sends the request with a "Token" header first. It only retries with "Bearer" when the
+// server says the credentials were not recognized (401, or 403 "credentials were not provided").
+// Any other error (400 validation, 404, 500...) is returned as-is, so the real reason is never hidden.
+async function authFetch(url, options = {}) {
+  const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
+  if (!cleanToken) return null;
+
+  let res = null;
+
+  for (const prefix of ['Token', 'Bearer']) {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `${prefix} ${cleanToken}`,
+        ...(options.headers || {})
+      }
+    });
+
+    if (res.status === 401) continue;
+
+    if (res.status === 403) {
+      const body = await parseJsonSafe(res.clone());
+      const detail = String(body?.detail || '').toLowerCase();
+      if (detail.includes('credentials were not provided')) continue;
+    }
+
+    return res;
+  }
+
+  return res;
+}
+
+/* ---------------------------------- page ---------------------------------- */
+
 export default function SuperAdminPage() {
   const navigate = useNavigate();
 
-  const [admins, setAdmins] = useState(() => {
-    const cached = localStorage.getItem(CACHE_KEY_ADMINS);
-    return cached ? JSON.parse(cached) : [];
-  });
-  const [isLoading, setIsLoading] = useState(() => admins.length === 0);
+  const [admins, setAdmins] = useState(readCachedAdmins);
+  const [isLoading, setIsLoading] = useState(() => readCachedAdmins().length === 0);
   const [searchQuery, setSearchQuery] = useState('');
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [pageError, setPageError] = useState('');
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  const hasDataRef = useRef(admins.length > 0);
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -63,58 +139,58 @@ export default function SuperAdminPage() {
     return admin?.contact_number || admin?.phone_number || null;
   };
 
-  // Token & Header extraction supporting both Token and Bearer headers
-  const getAuthHeaders = useCallback((useBearer = false) => {
-    const rawToken = localStorage.getItem('ac_token') || '';
-    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    if (!cleanToken) return {};
-    const authPrefix = useBearer ? 'Bearer' : 'Token';
-    return { 'Authorization': `${authPrefix} ${cleanToken}`, 'Content-Type': 'application/json' };
+  // The roster used to be cached in localStorage (it outlives logout). Clear that old copy once.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(CACHE_KEY_ADMINS);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Shows a readable page-level error for a failed request.
+  const reportFailure = useCallback(async (response, fallback) => {
+    if (!response || response.status === 401) {
+      setSessionExpired(true);
+      setPageError('Your session has expired. Please log in again.');
+      return;
+    }
+
+    const data = await parseJsonSafe(response);
+    setPageError(formatApiError(data, `${fallback} (${response.status}).`));
   }, []);
 
   // 1. Fetch Administrators List
   const fetchAdmins = useCallback(async () => {
-    const rawToken = localStorage.getItem('ac_token') || '';
-    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
+    const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
     if (!cleanToken) {
       navigate('/login');
       return;
     }
 
-    if (admins.length === 0) setIsLoading(true);
+    if (!hasDataRef.current) setIsLoading(true);
     setPermissionDenied(false);
+    setPageError('');
+    setSessionExpired(false);
 
     try {
-      let res = null;
-      let data = null;
+      let res = await authFetch(`${API_BASE}/api/users/privileged-admin/`);
 
-      for (const useBearer of [false, true]) {
-        res = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
-          headers: getAuthHeaders(useBearer),
-        });
+      if (res && res.status === 404) {
+        res = await authFetch(`${API_BASE}/api/users/admin/`);
+      }
 
-        if (res.status === 404) {
-          res = await fetch(`${API_BASE}/api/users/admin/`, {
-            headers: getAuthHeaders(useBearer),
-          });
-        }
-
-        if (res.status === 403) {
-          setPermissionDenied(true);
-          setIsLoading(false);
-          return;
-        }
-
-        if (res.ok) {
-          data = await res.json();
-          break;
-        }
+      if (res && res.status === 403) {
+        setPermissionDenied(true);
+        return;
       }
 
       if (!res || !res.ok) {
-        throw new Error(`Server returned ${res?.status || 'Unknown error'}`);
+        await reportFailure(res, 'Failed to load the admin roster');
+        return;
       }
 
+      const data = await res.json();
       const userList = Array.isArray(data) ? data : (data?.results || []);
 
       const barangayAdmins = userList.filter((u) => {
@@ -127,13 +203,19 @@ export default function SuperAdminPage() {
       });
 
       setAdmins(barangayAdmins);
-      localStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(barangayAdmins));
+      hasDataRef.current = true;
+      try {
+        sessionStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(barangayAdmins));
+      } catch {
+        /* storage unavailable - ignore */
+      }
     } catch (error) {
       console.error("Failed to load admin roster:", error);
+      setPageError('Could not reach the server. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [navigate, getAuthHeaders, admins.length]);
+  }, [navigate, reportFailure]);
 
   useEffect(() => {
     fetchAdmins();
@@ -201,43 +283,48 @@ export default function SuperAdminPage() {
         payload.password = formData.password;
       }
 
-      let response = null;
-      for (const useBearer of [false, true]) {
-        const endpoint = isEdit 
-          ? `${API_BASE}/api/users/privileged-admin/${selectedAdmin.id}/` 
-          : `${API_BASE}/api/users/privileged-admin/register/`;
+      const primaryUrl = isEdit
+        ? `${API_BASE}/api/users/privileged-admin/${selectedAdmin.id}/`
+        : `${API_BASE}/api/users/privileged-admin/register/`;
 
-        response = await fetch(endpoint, {
-          method: isEdit ? 'PATCH' : 'POST',
-          headers: getAuthHeaders(useBearer),
-          body: JSON.stringify(payload)
-        });
+      const fallbackUrl = isEdit
+        ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/`
+        : `${API_BASE}/api/users/admin/`;
 
-        if (response.status === 404) {
-          const fallbackEndpoint = isEdit 
-            ? `${API_BASE}/api/users/admin/${selectedAdmin.id}/` 
-            : `${API_BASE}/api/users/admin/`;
+      const options = {
+        method: isEdit ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      };
 
-          response = await fetch(fallbackEndpoint, {
-            method: isEdit ? 'PATCH' : 'POST',
-            headers: getAuthHeaders(useBearer),
-            body: JSON.stringify(payload)
-          });
-        }
+      let response = await authFetch(primaryUrl, options);
 
-        if (response.ok) break;
+      if (response && response.status === 404) {
+        response = await authFetch(fallbackUrl, options);
       }
 
-      if (!response || !response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(JSON.stringify(errorData) || 'Failed to save admin record');
+      if (!response) {
+        setFormError('You are not logged in. Please log in again.');
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await parseJsonSafe(response);
+
+        if (response.status === 401) {
+          setFormError('Your session has expired. Please log in again, then retry.');
+        } else if (response.status === 403) {
+          setFormError(formatApiError(errorData, 'You do not have permission to do this.'));
+        } else {
+          setFormError(formatApiError(errorData, `Request failed (${response.status}).`));
+        }
+        return;
       }
 
       setIsModalOpen(false);
       fetchAdmins();
     } catch (err) {
       console.error(err);
-      setFormError(err.message || 'Operation failed. Verify field requirements.');
+      setFormError('Could not reach the server. Check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -252,33 +339,39 @@ export default function SuperAdminPage() {
       return;
     }
 
+    setPageError('');
+    setSessionExpired(false);
+
     try {
-      let response = null;
-      for (const useBearer of [false, true]) {
-        response = await fetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, {
-          method: 'PATCH',
-          headers: getAuthHeaders(useBearer),
-          body: JSON.stringify({ is_active: !currentActiveState })
-        });
+      const options = {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: !currentActiveState })
+      };
 
-        if (response.status === 404) {
-          response = await fetch(`${API_BASE}/api/users/admin/${admin.id}/`, {
-            method: 'PATCH',
-            headers: getAuthHeaders(useBearer),
-            body: JSON.stringify({ is_active: !currentActiveState })
-          });
-        }
+      let response = await authFetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, options);
 
-        if (response.ok) break;
+      if (response && response.status === 404) {
+        response = await authFetch(`${API_BASE}/api/users/admin/${admin.id}/`, options);
       }
 
       if (response && response.ok) {
-        const updatedAdmins = admins.map(a => a.id === admin.id ? { ...a, is_active: !currentActiveState } : a);
-        setAdmins(updatedAdmins);
-        localStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(updatedAdmins));
+        setAdmins((prev) => {
+          const updatedAdmins = prev.map((a) =>
+            a.id === admin.id ? { ...a, is_active: !currentActiveState } : a
+          );
+          try {
+            sessionStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(updatedAdmins));
+          } catch {
+            /* ignore */
+          }
+          return updatedAdmins;
+        });
+      } else {
+        await reportFailure(response, 'Could not update the admin status');
       }
     } catch (error) {
       console.error("Status update error:", error);
+      setPageError('Could not reach the server. Check your connection and try again.');
     }
   };
 
@@ -310,6 +403,24 @@ export default function SuperAdminPage() {
           </div>
         )}
 
+        {/* Page-level error banner (load failures, expired session, failed status change) */}
+        {pageError && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-3 text-xs font-semibold text-red-700">
+              <AlertCircle size={18} className="shrink-0" />
+              <span>{pageError}</span>
+            </div>
+            {sessionExpired && (
+              <button
+                onClick={() => navigate('/login')}
+                className="shrink-0 bg-[#b32d2d] hover:bg-[#8b2323] text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
+              >
+                Log in again
+              </button>
+            )}
+          </div>
+        )}
+
         {/* HEADER TOOLBAR */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="relative w-full sm:w-80">
@@ -326,7 +437,7 @@ export default function SuperAdminPage() {
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button 
-              onClick={fetchAdmins}
+              onClick={() => fetchAdmins()}
               disabled={isLoading || permissionDenied}
               className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
@@ -475,7 +586,7 @@ export default function SuperAdminPage() {
 
               {formError && (
                 <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2 shrink-0">
-                  <AlertCircle size={16} /> {formError}
+                  <AlertCircle size={16} className="shrink-0" /> {formError}
                 </div>
               )}
 

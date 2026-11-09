@@ -6,177 +6,95 @@ import AdminLayout from '../components/header';
 const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE_URL = 'https://api.aksyon.online';
 //const API_BASE_URL = `http://${targetHostname}:8000`;
-const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v3'; // bumped: old cache had pairs in the wrong order
 
-// DUPLICATE DETECTION METRICS (MATCHING Django duplicate_detection.py)
-const MAX_TIME_DIFF_MINUTES = 10;
-const MAX_DISTANCE_KM = 0.3; // 300 meters
+// Backend endpoints (reports/urls.py)
+//   GET   /api/reports/admin/potential-duplicates/        -> list (barangay-scoped)
+//   PATCH /api/reports/admin/potential-duplicates/<id>/   -> body: { status: "confirmed" | "dismissed" }
+const DUPLICATES_URL = '/api/reports/admin/potential-duplicates/';
 
-const DISTANCE_WEIGHT = 0.40;
-const TIME_WEIGHT = 0.35;
-const JACCARD_WEIGHT = 0.25;
-const POTENTIAL_DUPLICATE_THRESHOLD = 0.70;
+const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v4';
 
-// HAVERSINE DISTANCE IN KM
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Earth radius in km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
-// JACCARD SIMILARITY FOR TEXT
-function jaccardSimilarity(str1, str2) {
-  if (!str1 || !str2) return 0;
-  const setA = new Set(String(str1).toLowerCase().split(/\s+/));
-  const setB = new Set(String(str2).toLowerCase().split(/\s+/));
-  
-  const intersection = new Set([...setA].filter(x => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  
-  return union.size === 0 ? 0 : intersection.size / union.size;
+const readCachedDuplicates = () => {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY_DUPLICATES);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+// Tries "Token" auth first, then "Bearer" (only retries on 401).
+async function authFetch(url, token, options = {}) {
+  const cleanToken = String(token || '').replace(/^(Token|Bearer)\s+/i, '').trim();
+  if (!cleanToken) return null;
+
+  let lastResponse = null;
+  for (const prefix of ['Token', 'Bearer']) {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `${prefix} ${cleanToken}`,
+        ...(options.headers || {})
+      }
+    });
+    if (res.status !== 401) return res;
+    lastResponse = res;
+  }
+  return lastResponse;
 }
 
 export default function DuplicatesPage() {
   const navigate = useNavigate();
   const token = localStorage.getItem('ac_token');
 
-  const [duplicateGroups, setDuplicateGroups] = useState(() => {
-    const cached = sessionStorage.getItem(CACHE_KEY_DUPLICATES);
-    return cached ? JSON.parse(cached) : [];
-  });
+  const [duplicateGroups, setDuplicateGroups] = useState(readCachedDuplicates);
   // Only show the full-page spinner when nothing has ever been cached (an empty cached list is still a valid cache)
   const [isLoading, setIsLoading] = useState(() => sessionStorage.getItem(CACHE_KEY_DUPLICATES) === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const [busyIds, setBusyIds] = useState([]); // pair ids with a request in flight
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  const getAuthHeaders = useCallback((useBearer = false) => {
-    const rawToken = token || '';
-    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    if (!cleanToken) return {};
-    const authPrefix = useBearer ? 'Bearer' : 'Token';
-    return {
-      'Authorization': `${authPrefix} ${cleanToken}`,
-      'Content-Type': 'application/json'
-    };
-  }, [token]);
-
-  // CLIENT-SIDE DUPLICATE DETECTION ALGORITHM MATCHING PYTHON BACKEND
-  const detectDuplicatesFromReports = useCallback((reports) => {
-    const results = [];
-    const seenPairs = new Set();
-
-    // Sort oldest -> newest so only reports inside the time window get compared (near-linear instead of n^2)
-    const getTime = (r) => new Date(r.created_at || Date.now()).getTime();
-    const sorted = [...reports].sort((a, b) => getTime(a) - getTime(b));
-    const windowMs = MAX_TIME_DIFF_MINUTES * 60 * 1000;
-
-    for (let i = 0; i < sorted.length; i++) {
-      for (let j = i + 1; j < sorted.length; j++) {
-        const reportA = sorted[i];
-        const reportB = sorted[j];
-
-        // Sorted by time: once the gap exceeds the window, no later report can match reportA
-        if (getTime(reportB) - getTime(reportA) > windowMs) break;
-
-        // Skip if same report ID or pair already evaluated
-        if (reportA.id === reportB.id) continue;
-        const pairKey = [reportA.id, reportB.id].sort().join('-');
-        if (seenPairs.has(pairKey)) continue;
-        seenPairs.add(pairKey);
-
-        // 1. Barangay Match Check
-        const brgy1 = String(reportA.barangay || reportA.location || '').toLowerCase();
-        const brgy2 = String(reportB.barangay || reportB.location || '').toLowerCase();
-        if (brgy1 && brgy2 && brgy1 !== brgy2) continue;
-
-        // 2. Spatial Check (Haversine)
-        const lat1 = parseFloat(reportA.latitude);
-        const lon1 = parseFloat(reportA.longitude);
-        const lat2 = parseFloat(reportB.latitude);
-        const lon2 = parseFloat(reportB.longitude);
-
-        let distanceKm = 0.1; // Fallback if lat/lng is missing
-        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
-          distanceKm = haversine(lat1, lon1, lat2, lon2);
-        }
-
-        if (distanceKm > MAX_DISTANCE_KM) continue;
-
-        // 3. Temporal Check (Time Diff)
-        const timeA = new Date(reportA.created_at || Date.now()).getTime();
-        const timeB = new Date(reportB.created_at || Date.now()).getTime();
-        const timeDiffSeconds = Math.abs(timeA - timeB) / 1000;
-        const timeDiffMinutes = timeDiffSeconds / 60;
-
-        if (timeDiffMinutes > MAX_TIME_DIFF_MINUTES) continue;
-
-        // 4. Calculate Scores
-        const distanceScore = 1 - (distanceKm / MAX_DISTANCE_KM);
-        const timeScore = 1 - (timeDiffMinutes / MAX_TIME_DIFF_MINUTES);
-        const text1 = reportA.description || reportA.short_message || '';
-        const text2 = reportB.description || reportB.short_message || '';
-        const jaccardScore = jaccardSimilarity(text1, text2);
-
-        const overallScore = (distanceScore * DISTANCE_WEIGHT) + (timeScore * TIME_WEIGHT) + (jaccardScore * JACCARD_WEIGHT);
-
-        if (overallScore >= POTENTIAL_DUPLICATE_THRESHOLD) {
-          // The EARLIER report is the original (primary).
-          // The LATER report is the potential duplicate (candidate).
-          const [original, duplicate] = timeA <= timeB ? [reportA, reportB] : [reportB, reportA];
-
-          results.push({
-            id: pairKey,
-            report: original,
-            potential_duplicate: duplicate,
-            distance_meters: distanceKm * 1000,
-            time_difference_seconds: timeDiffSeconds,
-            description_similarity: jaccardScore,
-            similarity_score: overallScore
-          });
-        }
-      }
-    }
-    return results;
-  }, []);
-
-  // FETCH REPORTS FROM WORKING ADMIN API AND DETECT DUPLICATES
+  // LOAD SAVED POTENTIAL DUPLICATES (detected by the backend when each report is created)
   const fetchDuplicates = useCallback(async (isManual = false) => {
+    if (!token) return;
+
     if (isManual) setIsRefreshing(true);
     else if (sessionStorage.getItem(CACHE_KEY_DUPLICATES) === null) setIsLoading(true);
 
-    for (const useBearer of [false, true]) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
-          headers: getAuthHeaders(useBearer)
-        });
+    try {
+      const res = await authFetch(`${API_BASE_URL}${DUPLICATES_URL}?status=pending`, token);
 
-        if (response.status === 401) continue;
+      if (res && res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.results || []);
+        // Also filter here, so this works even if the backend ignores ?status=
+        const pending = list.filter((item) => item.status === 'pending');
 
-        if (response.ok) {
-          const data = await response.json();
-          const reportsList = Array.isArray(data) ? data : (data.results || []);
-          
-          const flaggedDuplicates = detectDuplicatesFromReports(reportsList);
-          
-          setDuplicateGroups(flaggedDuplicates);
-          sessionStorage.setItem(CACHE_KEY_DUPLICATES, JSON.stringify(flaggedDuplicates));
-          break;
+        setDuplicateGroups(pending);
+        setError('');
+        setLastRefreshed(new Date());
+        try {
+          sessionStorage.setItem(CACHE_KEY_DUPLICATES, JSON.stringify(pending));
+        } catch {
+          /* storage unavailable - ignore */
         }
-      } catch (err) {
-        console.warn('Failed to fetch reports for duplicate calculation:', err);
+      } else if (res) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.detail || `Failed to load potential duplicates (${res.status}).`);
       }
+    } catch (err) {
+      console.warn('Failed to fetch potential duplicates:', err);
+      setError('Could not reach the server.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-
-    setLastRefreshed(new Date());
-    setIsLoading(false);
-    setIsRefreshing(false);
-  }, [getAuthHeaders, detectDuplicatesFromReports]);
+  }, [token]);
 
   // LOAD ONCE ON MOUNT (no auto-refresh; use the "Refresh List" button to reload)
   useEffect(() => {
@@ -184,15 +102,64 @@ export default function DuplicatesPage() {
       navigate('/login');
       return;
     }
-
     fetchDuplicates(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, navigate]);
+  }, [token, navigate, fetchDuplicates]);
 
-  const handleResolveDuplicate = async (duplicateId, action) => {
-    const updatedGroups = duplicateGroups.filter(item => item.id !== duplicateId);
-    setDuplicateGroups(updatedGroups);
-    sessionStorage.setItem(CACHE_KEY_DUPLICATES, JSON.stringify(updatedGroups));
+  // action: 'dismissed'  -> not a duplicate, both reports stay untouched
+  //         'confirmed'  -> confirmed duplicate; the backend resolves the later report and notifies its owner
+  const handleResolveDuplicate = async (dup, action) => {
+    if (busyIds.includes(dup.id)) return;
+
+    const original = dup.potential_duplicate || {};
+    const later = dup.report || {};
+
+    if (action === 'confirmed') {
+      const ok = window.confirm(
+        `Mark Report #${later.id} as a duplicate of Report #${original.id}?\n\n` +
+        `This will resolve Report #${later.id} and notify its owner.`
+      );
+      if (!ok) return;
+    }
+
+    setBusyIds((ids) => [...ids, dup.id]);
+    setError('');
+    setNotice('');
+
+    try {
+      const res = await authFetch(`${API_BASE_URL}${DUPLICATES_URL}${dup.id}/`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: action })
+      });
+
+      if (res && res.ok) {
+        setDuplicateGroups((prev) => {
+          const updated = prev.filter((item) => item.id !== dup.id);
+          try {
+            sessionStorage.setItem(CACHE_KEY_DUPLICATES, JSON.stringify(updated));
+          } catch {
+            /* ignore */
+          }
+          return updated;
+        });
+        setNotice(
+          action === 'confirmed'
+            ? `Report #${later.id} was confirmed as a duplicate and marked resolved.`
+            : `Report #${later.id} was kept as a separate report (not a duplicate).`
+        );
+      } else {
+        const body = res ? await res.json().catch(() => ({})) : {};
+        const message =
+          body.detail ||
+          (Array.isArray(body.status) ? body.status[0] : '') ||
+          `Could not update this duplicate (${res ? res.status : 'no response'}).`;
+        setError(message);
+      }
+    } catch (err) {
+      console.warn('Failed to update potential duplicate:', err);
+      setError('Could not reach the server.');
+    } finally {
+      setBusyIds((ids) => ids.filter((id) => id !== dup.id));
+    }
   };
 
   if (!token) {
@@ -220,7 +187,10 @@ export default function DuplicatesPage() {
               Refreshed: {lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
             <button
-              onClick={() => fetchDuplicates(true)}
+              onClick={() => {
+                setNotice('');
+                fetchDuplicates(true);
+              }}
               disabled={isRefreshing}
               className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
             >
@@ -232,24 +202,39 @@ export default function DuplicatesPage() {
 
         {/* DUPLICATE PAIRS SCROLLABLE LIST */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {error && (
+            <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-xs font-bold text-red-700">
+              {error}
+            </div>
+          )}
+
+          {notice && (
+            <div className="px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-700">
+              {notice}
+            </div>
+          )}
+
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-400 font-bold text-sm">
               <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-2" />
-              Analyzing reports for potential duplicates...
+              Loading potential duplicates...
             </div>
           ) : duplicateGroups.length === 0 ? (
             <div className="bg-white rounded-2xl p-12 border border-gray-200 text-center max-w-md mx-auto my-12 shadow-2xs">
               <ShieldCheck className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
               <h3 className="text-base font-bold text-gray-800">No Duplicates Flagged</h3>
               <p className="text-xs text-gray-400 font-medium mt-1">
-                All submitted emergency reports are unique within the distance, time, and text similarity thresholds.
+                There are no pending potential duplicates for your barangay.
               </p>
             </div>
           ) : (
             duplicateGroups.map((dup) => {
-              const primary = dup.report || {};
-              const candidate = dup.potential_duplicate || {};
+              // In the backend, `report` is the NEWER report that triggered the flag,
+              // and `potential_duplicate` is the OLDER report it resembles.
+              const primary = dup.potential_duplicate || {};   // earlier = original
+              const candidate = dup.report || {};              // later = possible duplicate
               const matchScorePercent = Math.round((dup.similarity_score || 0) * 100);
+              const isBusy = busyIds.includes(dup.id);
 
               return (
                 <div key={dup.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-2xs transition-all hover:border-gray-300">
@@ -267,18 +252,22 @@ export default function DuplicatesPage() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleResolveDuplicate(dup.id, 'dismissed')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                        onClick={() => handleResolveDuplicate(dup, 'dismissed')}
+                        disabled={isBusy}
+                        title="Not a duplicate: keep both reports as they are"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <XCircle className="w-3.5 h-3.5" />
                         Dismiss
                       </button>
                       <button
-                        onClick={() => handleResolveDuplicate(dup.id, 'merged')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                        onClick={() => handleResolveDuplicate(dup, 'confirmed')}
+                        disabled={isBusy}
+                        title="Confirm duplicate: resolves the later report and notifies its owner"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Mark Duplicate
+                        {isBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        {isBusy ? 'Saving...' : 'Mark Duplicate'}
                       </button>
                     </div>
                   </div>
@@ -286,26 +275,37 @@ export default function DuplicatesPage() {
                   {/* SIDE BY SIDE COMPARISON */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
+                    {/* ORIGINAL (EARLIER) REPORT */}
                     <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
-                      <div className="text-[10px] uppercase font-black tracking-wider text-gray-400 mb-1">
-                        Primary Report #{primary.id || 'N/A'}
+                      <div className="text-[10px] uppercase font-black tracking-wider text-gray-400 mb-1 flex items-center justify-between">
+                        <span>Primary Report #{primary.id || 'N/A'}</span>
+                        {primary.status && (
+                          <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 normal-case tracking-normal font-bold">
+                            {capitalize(primary.status)}
+                          </span>
+                        )}
                       </div>
-                      <h4 className="font-bold text-gray-900 text-sm">{primary.short_message || primary.description || 'Report Summary'}</h4>
+                      <h4 className="font-bold text-gray-900 text-sm">{primary.description || 'Report Summary'}</h4>
                       <div className="mt-3 space-y-1 text-xs text-gray-500 font-medium">
                         <div className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-gray-400" /> {primary.created_at ? new Date(primary.created_at).toLocaleString() : 'Recent'}</div>
-                        <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-400" /> {primary.street ? `${primary.street}, ` : ''}Brgy. {primary.barangay || 'Angeles City'}</div>
+                        <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-400" /> Brgy. {primary.barangay || 'Angeles City'}</div>
                       </div>
                     </div>
 
                     {/* CANDIDATE DUPLICATE (LATER REPORT) */}
                     <div className="border border-amber-200 rounded-xl p-4 bg-amber-50/30">
-                      <div className="text-[10px] uppercase font-black tracking-wider text-amber-700 mb-1">
-                        Candidate Duplicate #{candidate.id || 'N/A'}
+                      <div className="text-[10px] uppercase font-black tracking-wider text-amber-700 mb-1 flex items-center justify-between">
+                        <span>Candidate Duplicate #{candidate.id || 'N/A'}</span>
+                        {candidate.status && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 normal-case tracking-normal font-bold">
+                            {capitalize(candidate.status)}
+                          </span>
+                        )}
                       </div>
-                      <h4 className="font-bold text-gray-900 text-sm">{candidate.short_message || candidate.description || 'Duplicate Report Summary'}</h4>
+                      <h4 className="font-bold text-gray-900 text-sm">{candidate.description || 'Duplicate Report Summary'}</h4>
                       <div className="mt-3 space-y-1 text-xs text-gray-500 font-medium">
                         <div className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-amber-500" /> {candidate.created_at ? new Date(candidate.created_at).toLocaleString() : 'Recent'}</div>
-                        <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-amber-500" /> {candidate.street ? `${candidate.street}, ` : ''}Brgy. {candidate.barangay || 'Angeles City'}</div>
+                        <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-amber-500" /> Brgy. {candidate.barangay || 'Angeles City'}</div>
                       </div>
                     </div>
 
