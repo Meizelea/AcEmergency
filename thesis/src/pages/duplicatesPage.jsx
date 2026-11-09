@@ -13,6 +13,7 @@ const API_BASE_URL = 'https://api.aksyon.online';
 const DUPLICATES_URL = '/api/reports/admin/potential-duplicates/';
 
 const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v4';
+const MAX_PAGES = 25; // safety limit when following paginated responses
 
 const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
@@ -58,6 +59,9 @@ export default function DuplicatesPage() {
   const [busyIds, setBusyIds] = useState([]); // pair ids with a request in flight
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [reviewedCount, setReviewedCount] = useState(0); // pairs already confirmed/dismissed (hidden from the list)
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   // LOAD SAVED POTENTIAL DUPLICATES (detected by the backend when each report is created)
   const fetchDuplicates = useCallback(async (isManual = false) => {
@@ -67,15 +71,50 @@ export default function DuplicatesPage() {
     else if (sessionStorage.getItem(CACHE_KEY_DUPLICATES) === null) setIsLoading(true);
 
     try {
-      const res = await authFetch(`${API_BASE_URL}${DUPLICATES_URL}?status=pending`, token);
+      let url = `${API_BASE_URL}${DUPLICATES_URL}?status=pending`;
+      const all = [];
+      let failed = null;
 
-      if (res && res.ok) {
+      // The backend returns every status, newest first, and may paginate. Follow all pages so a
+      // pending pair is never hidden behind newer confirmed/dismissed ones on page 2+.
+      for (let page = 0; url && page < MAX_PAGES; page++) {
+        const res = await authFetch(url, token);
+
+        if (!res) {
+          failed = { status: 'no response', body: {} };
+          break;
+        }
+
+        if (!res.ok) {
+          failed = { status: res.status, body: await res.json().catch(() => ({})) };
+          break;
+        }
+
         const data = await res.json();
-        const list = Array.isArray(data) ? data : (data.results || []);
-        // Also filter here, so this works even if the backend ignores ?status=
-        const pending = list.filter((item) => item.status === 'pending');
+
+        if (Array.isArray(data)) {
+          all.push(...data);
+          url = null;
+        } else {
+          all.push(...(data.results || []));
+          if (data.next) {
+            // Rebuild the "next" link on API_BASE_URL to avoid http/https host mismatches.
+            const next = new URL(data.next, API_BASE_URL);
+            url = `${API_BASE_URL}${next.pathname}${next.search}`;
+          } else {
+            url = null;
+          }
+        }
+      }
+
+      if (failed) {
+        setError(failed.body.detail || `Failed to load potential duplicates (${failed.status}).`);
+      } else {
+        // Filter here, so this works even though the backend ignores ?status=
+        const pending = all.filter((item) => item.status === 'pending');
 
         setDuplicateGroups(pending);
+        setReviewedCount(all.length - pending.length);
         setError('');
         setLastRefreshed(new Date());
         try {
@@ -83,9 +122,6 @@ export default function DuplicatesPage() {
         } catch {
           /* storage unavailable - ignore */
         }
-      } else if (res) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.detail || `Failed to load potential duplicates (${res.status}).`);
       }
     } catch (err) {
       console.warn('Failed to fetch potential duplicates:', err);
@@ -162,6 +198,53 @@ export default function DuplicatesPage() {
     }
   };
 
+  // Shows which account/server this page is using and what the API actually returns for it.
+  const runDiagnostics = async () => {
+    setDiagLoading(true);
+
+    try {
+      const meRes = await authFetch(`${API_BASE_URL}/api/users/me/`, token);
+      const me = meRes && meRes.ok ? await meRes.json().catch(() => null) : null;
+
+      const listRes = await authFetch(`${API_BASE_URL}${DUPLICATES_URL}`, token);
+      const listBody = listRes ? await listRes.json().catch(() => null) : null;
+      const rows = Array.isArray(listBody) ? listBody : (listBody?.results || []);
+
+      const rawBarangay = me?.assigned_barangay || me?.barangay || me?.residential_barangay;
+      const barangay =
+        rawBarangay && typeof rawBarangay === 'object'
+          ? (rawBarangay.name || rawBarangay.label)
+          : rawBarangay;
+
+      const pending = rows.filter((r) => r.status === 'pending').length;
+
+      setDiagnostics({
+        api: API_BASE_URL,
+        username: me?.username || '',
+        role: me?.role || '',
+        barangay: barangay || '',
+        listStatus: listRes ? listRes.status : 'no response',
+        total: Array.isArray(listBody) ? rows.length : (listBody?.count ?? rows.length),
+        pending,
+        reviewed: rows.length - pending
+      });
+    } catch (err) {
+      console.warn('Diagnostics failed:', err);
+      setDiagnostics({
+        api: API_BASE_URL,
+        username: '',
+        role: '',
+        barangay: '',
+        listStatus: 'network error',
+        total: 0,
+        pending: 0,
+        reviewed: 0
+      });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
   if (!token) {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
@@ -224,8 +307,42 @@ export default function DuplicatesPage() {
               <ShieldCheck className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
               <h3 className="text-base font-bold text-gray-800">No Duplicates Flagged</h3>
               <p className="text-xs text-gray-400 font-medium mt-1">
-                There are no pending potential duplicates for your barangay.
+                There are no pending potential duplicates for your assigned barangay.
               </p>
+              {reviewedCount > 0 && (
+                <p className="text-xs text-gray-400 font-medium mt-2">
+                  {reviewedCount} already-reviewed pair{reviewedCount === 1 ? '' : 's'} (confirmed or dismissed) hidden.
+                </p>
+              )}
+
+              <button
+                onClick={runDiagnostics}
+                disabled={diagLoading}
+                className="mt-4 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                {diagLoading ? 'Checking...' : "Why isn't my duplicate showing?"}
+              </button>
+
+              {diagnostics && (
+                <div className="mt-4 text-left text-[11px] text-gray-600 font-medium bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1">
+                  <div><span className="font-bold text-gray-800">API server:</span> {diagnostics.api}</div>
+                  <div>
+                    <span className="font-bold text-gray-800">Signed in as:</span>{' '}
+                    {diagnostics.username ? `@${diagnostics.username}` : 'unknown'}
+                    {diagnostics.role ? ` (${diagnostics.role})` : ''}
+                  </div>
+                  <div><span className="font-bold text-gray-800">Assigned barangay:</span> {diagnostics.barangay || 'none found'}</div>
+                  <div>
+                    <span className="font-bold text-gray-800">Server response:</span> HTTP {diagnostics.listStatus},{' '}
+                    {diagnostics.total} pair(s) ({diagnostics.pending} pending, {diagnostics.reviewed} reviewed)
+                  </div>
+                  <p className="pt-1 text-gray-500">
+                    {diagnostics.total === 0
+                      ? `The server returned no pairs for this account. Check that this account's assigned barangay exactly matches the newer report's barangay in the database, and that you checked the same database that ${diagnostics.api} uses.`
+                      : 'The server returned pairs, but none of them are pending (they were already confirmed or dismissed).'}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             duplicateGroups.map((dup) => {
