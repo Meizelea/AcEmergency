@@ -6,7 +6,7 @@ import AdminLayout from '../components/header';
 const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE_URL = 'https://api.aksyon.online';
 //const API_BASE_URL = `http://${targetHostname}:8000`;
-const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v2';
+const CACHE_KEY_DUPLICATES = 'cache_duplicates_reports_v3'; // bumped: old cache had pairs in the wrong order
 
 // DUPLICATE DETECTION METRICS (MATCHING Django duplicate_detection.py)
 const MAX_TIME_DIFF_MINUTES = 10;
@@ -72,25 +72,25 @@ export default function DuplicatesPage() {
 
     for (let i = 0; i < reports.length; i++) {
       for (let j = i + 1; j < reports.length; j++) {
-        const report = reports[i];
-        const candidate = reports[j];
+        const reportA = reports[i];
+        const reportB = reports[j];
 
         // Skip if same report ID or pair already evaluated
-        if (report.id === candidate.id) continue;
-        const pairKey = [report.id, candidate.id].sort().join('-');
+        if (reportA.id === reportB.id) continue;
+        const pairKey = [reportA.id, reportB.id].sort().join('-');
         if (seenPairs.has(pairKey)) continue;
         seenPairs.add(pairKey);
 
         // 1. Barangay Match Check
-        const brgy1 = String(report.barangay || report.location || '').toLowerCase();
-        const brgy2 = String(candidate.barangay || candidate.location || '').toLowerCase();
+        const brgy1 = String(reportA.barangay || reportA.location || '').toLowerCase();
+        const brgy2 = String(reportB.barangay || reportB.location || '').toLowerCase();
         if (brgy1 && brgy2 && brgy1 !== brgy2) continue;
 
         // 2. Spatial Check (Haversine)
-        const lat1 = parseFloat(report.latitude);
-        const lon1 = parseFloat(report.longitude);
-        const lat2 = parseFloat(candidate.latitude);
-        const lon2 = parseFloat(candidate.longitude);
+        const lat1 = parseFloat(reportA.latitude);
+        const lon1 = parseFloat(reportA.longitude);
+        const lat2 = parseFloat(reportB.latitude);
+        const lon2 = parseFloat(reportB.longitude);
 
         let distanceKm = 0.1; // Fallback if lat/lng is missing
         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
@@ -100,9 +100,9 @@ export default function DuplicatesPage() {
         if (distanceKm > MAX_DISTANCE_KM) continue;
 
         // 3. Temporal Check (Time Diff)
-        const time1 = new Date(report.created_at || Date.now()).getTime();
-        const time2 = new Date(candidate.created_at || Date.now()).getTime();
-        const timeDiffSeconds = Math.abs(time1 - time2) / 1000;
+        const timeA = new Date(reportA.created_at || Date.now()).getTime();
+        const timeB = new Date(reportB.created_at || Date.now()).getTime();
+        const timeDiffSeconds = Math.abs(timeA - timeB) / 1000;
         const timeDiffMinutes = timeDiffSeconds / 60;
 
         if (timeDiffMinutes > MAX_TIME_DIFF_MINUTES) continue;
@@ -110,17 +110,21 @@ export default function DuplicatesPage() {
         // 4. Calculate Scores
         const distanceScore = 1 - (distanceKm / MAX_DISTANCE_KM);
         const timeScore = 1 - (timeDiffMinutes / MAX_TIME_DIFF_MINUTES);
-        const text1 = report.description || report.short_message || '';
-        const text2 = candidate.description || candidate.short_message || '';
+        const text1 = reportA.description || reportA.short_message || '';
+        const text2 = reportB.description || reportB.short_message || '';
         const jaccardScore = jaccardSimilarity(text1, text2);
 
         const overallScore = (distanceScore * DISTANCE_WEIGHT) + (timeScore * TIME_WEIGHT) + (jaccardScore * JACCARD_WEIGHT);
 
         if (overallScore >= POTENTIAL_DUPLICATE_THRESHOLD) {
+          // The EARLIER report is the original (primary).
+          // The LATER report is the potential duplicate (candidate).
+          const [original, duplicate] = timeA <= timeB ? [reportA, reportB] : [reportB, reportA];
+
           results.push({
             id: pairKey,
-            report: report,
-            potential_duplicate: candidate,
+            report: original,
+            potential_duplicate: duplicate,
             distance_meters: distanceKm * 1000,
             time_difference_seconds: timeDiffSeconds,
             description_similarity: jaccardScore,
@@ -284,7 +288,7 @@ export default function DuplicatesPage() {
                   {/* SIDE BY SIDE COMPARISON */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
-                    {/* ORIGINAL REPORT */}
+                    {/* ORIGINAL (EARLIER) REPORT */}
                     <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
                       <div className="text-[10px] uppercase font-black tracking-wider text-gray-400 mb-1">
                         Primary Report #{primary.id || 'N/A'}
@@ -296,7 +300,7 @@ export default function DuplicatesPage() {
                       </div>
                     </div>
 
-                    {/* CANDIDATE DUPLICATE */}
+                    {/* CANDIDATE DUPLICATE (LATER REPORT) */}
                     <div className="border border-amber-200 rounded-xl p-4 bg-amber-50/30">
                       <div className="text-[10px] uppercase font-black tracking-wider text-amber-700 mb-1">
                         Candidate Duplicate #{candidate.id || 'N/A'}
