@@ -266,7 +266,7 @@ function ClusterMap({ groups, selectedCluster, showNoise }) {
 
 // Static copy of the cluster map used only by the PDF page (all clusters + noise, no
 // animations or popups so the tiles are fully drawn when the browser prints).
-function PrintClusterMap({ groups }) {
+function PrintClusterMap({ groups, onTilesLoading, onTilesLoaded }) {
   const fitPoints = useMemo(
     () => groups.flatMap((g) => g.points.map((p) => [p.lat, p.lng])),
     [groups]
@@ -287,6 +287,10 @@ function PrintClusterMap({ groups }) {
       <TileLayer
         attribution="© OpenStreetMap contributors"
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        eventHandlers={{
+          loading: () => onTilesLoading && onTilesLoading(),
+          load: () => onTilesLoaded && onTilesLoaded()
+        }}
       />
       <FitBounds points={fitPoints} animate={false} />
 
@@ -345,6 +349,10 @@ export default function AnalyticsPage() {
   const [dbscanRanAt, setDbscanRanAt] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null); // null = all clusters
   const [showNoise, setShowNoise] = useState(true);
+
+  // PDF export: runs DBSCAN automatically if needed and waits for the page-2 map tiles
+  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
+  const printTilesReadyRef = useRef(false);
 
   const todayKey = toDateKey(new Date());
 
@@ -517,8 +525,30 @@ export default function AnalyticsPage() {
   const printClusterRows = clusterGroups.slice(0, PRINT_MAX_CLUSTER_ROWS);
   const hiddenClusterCount = Math.max(0, clusterGroups.length - PRINT_MAX_CLUSTER_ROWS);
 
-  const handleDownloadPDF = () => {
-    window.print();
+  const handleDownloadPDF = async () => {
+    if (isPreparingPdf) return;
+    setIsPreparingPdf(true);
+
+    try {
+      // Page 2 needs the DBSCAN result, so run it now if it hasn't been run yet
+      if (!dbscan) {
+        printTilesReadyRef.current = false;
+        await runDbscan();
+      }
+
+      // Give React time to mount the page-2 map, then wait (max ~6s) for its tiles to finish loading
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const startedAt = Date.now();
+      while (!printTilesReadyRef.current && Date.now() - startedAt < 6000) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      // Small buffer so the last tiles are painted
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      window.print();
+    } finally {
+      setIsPreparingPdf(false);
+    }
   };
 
   return (
@@ -770,7 +800,11 @@ export default function AnalyticsPage() {
                   </div>
                 ) : (
                   <div className="relative isolate rounded-lg overflow-hidden border border-gray-200" style={{ width: 690, height: 380 }}>
-                    <PrintClusterMap groups={clusterGroups} />
+                    <PrintClusterMap
+                      groups={clusterGroups}
+                      onTilesLoading={() => { printTilesReadyRef.current = false; }}
+                      onTilesLoaded={() => { printTilesReadyRef.current = true; }}
+                    />
                   </div>
                 )}
                 <div className="text-[8px] text-gray-400 font-medium mt-1">
@@ -848,12 +882,12 @@ export default function AnalyticsPage() {
 
             <button
               onClick={handleDownloadPDF}
-              disabled={isLoading || !dashboard}
-              title={dbscan ? 'Includes the DBSCAN clusters on page 2' : 'Run DBSCAN first to include the clusters on page 2'}
+              disabled={isLoading || !dashboard || isPreparingPdf || dbscanLoading}
+              title="Page 1: analytics. Page 2: DBSCAN clusters (runs automatically if you haven't run it yet)"
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <Download size={14} />
-              <span>Download PDF</span>
+              {isPreparingPdf ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+              <span>{isPreparingPdf ? 'Preparing PDF...' : 'Download PDF'}</span>
             </button>
 
             <button
