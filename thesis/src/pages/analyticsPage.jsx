@@ -565,7 +565,18 @@ export default function AnalyticsPage() {
         @media print {
           @page { size: A4 portrait; margin: 0; }
 
-          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          html, body {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            /* app layouts often lock html/body to the viewport height with overflow hidden,
+               which makes the browser print only the first sheet */
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            display: block !important;
+          }
 
           /* hide the whole app, keep only the print portal */
           body > *:not(#aksyon-print-root) { display: none !important; }
@@ -575,7 +586,9 @@ export default function AnalyticsPage() {
             left: auto !important;
             width: 210mm !important;
             height: auto !important;
+            max-height: none !important;
             overflow: visible !important;
+            display: block !important;
           }
 
           /* each .aksyon-print-page is one A4 sheet */
