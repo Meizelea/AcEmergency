@@ -53,7 +53,7 @@ export default function AdminLayout({ children }) {
       case '/analytics': return 'Analytics';
       case '/reports': return 'Reports';
       case '/duplicates': return 'Duplicates';
-      case '/dashboard': return 'Dashboard';
+      //case '/dashboard': return 'Dashboard';
       case '/users': return 'Users';
       case '/emergency-units': return 'Emergency Units';
       case '/announcements': return 'Announcements';
@@ -72,7 +72,7 @@ export default function AdminLayout({ children }) {
         { path: '/analytics', label: 'Analytics', icon: <LayoutGrid size={22} /> },
         { path: '/reports', label: 'Reports', icon: <FileText size={22} /> },
         { path: '/duplicates', label: 'Duplicates', icon: <Copy size={22} /> },
-        { path: '/dashboard', label: 'Dashboard', icon: <BarChart3 size={22} /> },
+        //{ path: '/dashboard', label: 'Dashboard', icon: <BarChart3 size={22} /> },
         { path: '/users', label: 'Users', icon: <Users size={22} /> },
         { path: '/emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
         { path: '/announcements', label: 'Announcements', icon: <Megaphone size={22} /> },
