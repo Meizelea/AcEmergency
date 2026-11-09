@@ -169,7 +169,7 @@ export default function DuplicatesPage() {
     setIsRefreshing(false);
   }, [getAuthHeaders, detectDuplicatesFromReports, duplicateGroups.length]);
 
-  // AUTOMATIC BACKGROUND REFRESH (15s polling & window focus listener)
+  // LOAD ONCE ON MOUNT (no auto-refresh; use the "Refresh List" button to reload)
   useEffect(() => {
     if (!token) {
       navigate('/login');
@@ -177,19 +177,8 @@ export default function DuplicatesPage() {
     }
 
     fetchDuplicates(false);
-
-    const interval = setInterval(() => {
-      fetchDuplicates(true);
-    }, 60000);
-
-    const handleFocus = () => fetchDuplicates(true);
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [token, navigate, fetchDuplicates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, navigate]);
 
   const handleResolveDuplicate = async (duplicateId, action) => {
     const updatedGroups = duplicateGroups.filter(item => item.id !== duplicateId);

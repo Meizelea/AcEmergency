@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
 import { 
@@ -21,9 +21,7 @@ import {
   LogOut
 } from 'lucide-react';
 
-const targetHostname = window.location.hostname || '127.0.0.1';
 const API_BASE = 'https://api.aksyon.online';
-//const API_BASE = `http://${targetHostname}:8000`;
 const CACHE_KEY_PROFILE = 'cache_admin_profile_v2';
 
 // Robust check across all possible superuser / privileged admin indicators
@@ -114,13 +112,13 @@ export default function AdminProfilePage() {
   });
   const [passwordError, setPasswordError] = useState('');
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = useCallback(() => {
     const rawToken = localStorage.getItem('ac_token') || '';
     const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
     return cleanToken 
       ? { 'Authorization': `Token ${cleanToken}`, 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/json' };
-  };
+  }, []);
 
   // LOGOUT WORKFLOW FUNCTION
   const handleLogout = async () => {
@@ -131,7 +129,7 @@ export default function AdminProfilePage() {
         await fetch(`${API_BASE}/api/users/logout/`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-[#Type]': 'application/json',
             'Authorization': `Token ${cleanToken}`
           }
         });
@@ -152,7 +150,7 @@ export default function AdminProfilePage() {
     navigate('/login', { replace: true });
   };
 
-  const syncProfileState = (userObj) => {
+  const syncProfileState = useCallback((userObj) => {
     const isPriv = checkIsPrivileged(userObj);
     const resolvedRole = isPriv ? 'PRIVILEGED ADMIN' : 'ADMIN';
     const resolvedBarangay = userObj.assigned_barangay || userObj.residential_barangay || '';
@@ -174,10 +172,10 @@ export default function AdminProfilePage() {
     setProfile(userObj);
     sessionStorage.setItem(CACHE_KEY_PROFILE, JSON.stringify(userObj));
     localStorage.setItem('ac_user', JSON.stringify(userObj));
-  };
+  }, []);
 
-  // 1. Fetch Profile Data with Caching
-  const fetchAdminProfile = async (silent = false) => {
+  // 1. Fetch Profile Data strictly isolated to this page
+  const fetchAdminProfile = useCallback(async (silent = false) => {
     if (!silent && !profile) setLoading(true);
     setIsSyncing(true);
 
@@ -205,12 +203,28 @@ export default function AdminProfilePage() {
       setLoading(false);
       setIsSyncing(false);
     }
-  };
+  }, [profile, getAuthHeaders, syncProfileState]);
 
+  // Execute fetch on mount and tab re-focus
   useEffect(() => {
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_PROFILE));
     fetchAdminProfile(hasCache);
-  }, []);
+
+    const handleFocus = () => fetchAdminProfile(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [fetchAdminProfile]);
+
+  // Handle local isolated sync click
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_PROFILE);
+    fetchAdminProfile(false);
+  };
 
   // 2. Profile Update Workflow
   const handleProfileUpdate = async (e) => {
@@ -353,13 +367,12 @@ export default function AdminProfilePage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => {
-                sessionStorage.removeItem(CACHE_KEY_PROFILE);
-                fetchAdminProfile(false);
-              }}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+              type="button"
+              onClick={handleLocalSync}
+              disabled={isSyncing}
+              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> Sync Data
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> {isSyncing ? "Syncing..." : "Sync Data"}
             </button>
 
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold shadow-xs">

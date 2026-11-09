@@ -133,7 +133,7 @@ export default function ReportsPage() {
   // Search, Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All'); 
-  const [categoryFilter, setCategoryFilter] = useState('All'); // <-- NEW CATEGORY FILTER STATE
+  const [categoryFilter, setCategoryFilter] = useState('All');
   const [dateRangeFilter, setDateRangeFilter] = useState('all_time'); 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -350,27 +350,32 @@ export default function ReportsPage() {
     setIsSyncing(false);
   }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
+  // ON MOUNT AND WINDOW FOCUS SYNC (NO AUTOMATIC INTERVAL TIMER)
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
 
-    fetchReports(true);
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_REPORTS));
+    fetchReports(hasCache);
     fetchEmergencyUnits();
-
-    const interval = setInterval(() => {
-      fetchReports(true);
-    }, 60000);
 
     const handleFocus = () => fetchReports(true);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
   }, [token, navigate, fetchReports, fetchEmergencyUnits]);
+
+  // ISOLATED REFRESH BUTTON HANDLER
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_REPORTS);
+    fetchReports(false);
+  };
 
   const getNearestResponderText = (report) => {
     if (report?.nearest_responder) {
@@ -742,7 +747,8 @@ export default function ReportsPage() {
 
             {/* SYNC DATA BUTTON */}
             <button
-              onClick={() => fetchReports(false)}
+              type="button"
+              onClick={handleLocalSync}
               disabled={isSyncing}
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >

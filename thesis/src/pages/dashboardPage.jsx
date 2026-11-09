@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -115,6 +115,7 @@ export default function DashboardPage() {
   });
 
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
 
   // Synchronous extraction across all potential localStorage keys
@@ -281,9 +282,11 @@ export default function DashboardPage() {
     });
   }, [reports]);
 
-  const fetchDashboardData = useCallback(async () => {
+  // Isolated Dashboard Data Retrieval
+  const fetchDashboardData = useCallback(async (silent = false) => {
     if (!token) return;
-    if (reports.length === 0) setIsLoading(true);
+    if (!silent && reports.length === 0) setIsLoading(true);
+    setIsSyncing(true);
 
     try {
       await fetchUsersMap();
@@ -306,23 +309,43 @@ export default function DashboardPage() {
           setReports(rawList);
           sessionStorage.setItem(CACHE_KEY_DASHBOARD_REPORTS, JSON.stringify(rawList));
           setIsLoading(false);
+          setIsSyncing(false);
           return;
         }
       }
       setIsLoading(false);
+      setIsSyncing(false);
     } catch (error) {
       console.error("Failed to fetch dashboard metrics:", error);
       setIsLoading(false);
+      setIsSyncing(false);
     }
   }, [token, fetchUsersMap, getAuthHeaders, reports.length]);
 
+  // Fetch data on mount and tab re-focus (No Auto-Refresh Timer)
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
-    fetchDashboardData();
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_DASHBOARD_REPORTS));
+    fetchDashboardData(hasCache);
+
+    const handleFocus = () => fetchDashboardData(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [token, navigate, fetchDashboardData]);
+
+  // Isolated local refresh trigger
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_DASHBOARD_REPORTS);
+    fetchDashboardData(false);
+  };
 
   const executeStatusUpdate = async (reportId, newStatus) => {
     const rawTargetStatus = newStatus.toLowerCase().trim();
@@ -494,7 +517,21 @@ export default function DashboardPage() {
 
         {/* CHARTS OVERVIEW */}
         <section className="col-span-1 md:col-span-4 md:row-span-1 bg-white p-4 lg:p-5 flex flex-col min-h-[280px] md:min-h-0 h-full overflow-y-auto">
-          <h3 className="font-bold text-gray-800 text-base mb-2 shrink-0">Reports Overview</h3>
+          <div className="flex items-center justify-between mb-2 shrink-0">
+            <h3 className="font-bold text-gray-800 text-base">Reports Overview</h3>
+            
+            {/* ISOLATED SYNC BUTTON FOR DASHBOARD */}
+            <button
+              type="button"
+              onClick={handleLocalSync}
+              disabled={isSyncing}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} />
+              {isSyncing ? "Syncing..." : "Sync Data"}
+            </button>
+          </div>
+
           {isLoading ? (
             <div className="flex-1 flex items-center justify-center text-gray-400 font-bold text-xs">Loading charts...</div>
           ) : (

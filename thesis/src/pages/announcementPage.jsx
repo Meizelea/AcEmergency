@@ -103,7 +103,7 @@ export default function AnnouncementPage() {
     }
   }, [getAuthHeaders, announcements.length]);
 
-  // AUTOMATIC REFRESH AND POLLING (15s interval + Window Focus sync)
+  // ON MOUNT AND WINDOW FOCUS SYNC (NO POLLING INTERVAL)
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
     if (!token) {
@@ -111,20 +111,24 @@ export default function AnnouncementPage() {
       return;
     }
 
-    fetchAnnouncements(true);
-
-    const interval = setInterval(() => {
-      fetchAnnouncements(true);
-    }, 60000);
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_ANNOUNCEMENTS));
+    fetchAnnouncements(hasCache);
 
     const handleFocus = () => fetchAnnouncements(true);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
   }, [navigate, fetchAnnouncements]);
+
+  // ISOLATED REFRESH BUTTON HANDLER
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_ANNOUNCEMENTS);
+    fetchAnnouncements(false);
+  };
 
   const filteredAnnouncements = useMemo(() => {
     return announcements.filter((item) => {
@@ -382,7 +386,8 @@ export default function AnnouncementPage() {
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <button
-              onClick={() => fetchAnnouncements(false)}
+              type="button"
+              onClick={handleLocalSync}
               disabled={isSyncing}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
             >

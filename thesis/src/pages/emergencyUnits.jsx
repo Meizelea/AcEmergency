@@ -114,27 +114,31 @@ export default function EmergencyUnitsPage() {
     setIsLoading(false);
   }, [token, navigate, fetchEmergencyUnits, units.length]);
 
-  // Polling refresh (15s interval)
+  // FETCH ON MOUNT AND WINDOW FOCUS SYNC (NO AUTOMATIC INTERVAL TIMER)
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
 
-    synchronizeData(true);
-
-    const interval = setInterval(() => {
-      synchronizeData(true);
-    }, 60000);
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_UNITS));
+    synchronizeData(hasCache);
 
     const handleFocus = () => synchronizeData(true);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
   }, [token, navigate, synchronizeData]);
+
+  // ISOLATED REFRESH BUTTON HANDLER
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_UNITS);
+    synchronizeData(false);
+  };
 
   return (
     <AdminLayout>
@@ -158,7 +162,8 @@ export default function EmergencyUnitsPage() {
           </div>
 
           <button 
-            onClick={() => synchronizeData(false)}
+            type="button"
+            onClick={handleLocalSync}
             disabled={isLoading}
             className="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >

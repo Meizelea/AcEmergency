@@ -96,7 +96,7 @@ export default function UsersPage() {
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
   //const API_BASE_URL = `http://${targetHostname}:8000`;
 
-  // 1. FETCH USERS WITH AUTOMATIC REFRESH ON VISIT/REVISIT
+  // 1. FETCH USERS EXCLUSIVELY FOR THIS PAGE
   const fetchUsers = useCallback(async (silent = false) => {
     if (!token) {
       navigate('/login');
@@ -144,22 +144,26 @@ export default function UsersPage() {
     setIsSyncing(false);
   }, [token, navigate, API_BASE_URL, users.length]);
 
-  // AUTOMATIC REFRESH POLLING & FOCUS SYNC
+  // FETCH ON MOUNT AND FOCUS (NO AUTO-REFRESH INTERVAL)
   useEffect(() => {
-    fetchUsers(true);
-
-    const interval = setInterval(() => {
-      fetchUsers(true);
-    }, 60000);
+    const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_CITIZENS));
+    fetchUsers(hasCache);
 
     const handleFocus = () => fetchUsers(true);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
   }, [fetchUsers]);
+
+  // LOCAL REFRESH BUTTON HANDLER
+  const handleLocalSync = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    sessionStorage.removeItem(CACHE_KEY_CITIZENS);
+    fetchUsers(false);
+  };
 
   if (!token) {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
@@ -392,9 +396,10 @@ export default function UsersPage() {
               </select>
             </div>
 
-            {/* REFRESH / SYNC DATA BUTTON */}
+            {/* ISOLATED REFRESH / SYNC DATA BUTTON */}
             <button
-              onClick={() => fetchUsers(false)}
+              type="button"
+              onClick={handleLocalSync}
               disabled={isSyncing}
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
