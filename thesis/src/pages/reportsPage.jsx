@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Search, Filter, MapPin, X, 
   Image as ImageIcon, Video, Loader2,
-  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle, CalendarDays, Tag
+  Calendar, ArrowUpDown, User, Clock, CheckCircle2, RefreshCw, AlertTriangle, CalendarDays, Tag, Phone
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -63,6 +63,7 @@ const CATEGORY_MAP = {
   'road_accident': 'Road Accident',
   'fire': 'Fire',
   'natural_hazard': 'Flooding and Natural Hazards',
+  'flooding_and_natural_hazards': 'Flooding and Natural Hazards',
   'medical_emergency': 'Medical Emergency',
   'infrastructure_hazard': 'Infrastructure Hazard',
   'public_safety': 'Public Safety Incident',
@@ -70,12 +71,12 @@ const CATEGORY_MAP = {
 };
 
 const CATEGORY_UNIT_TYPES = {
-  'Road Accident': ['Police', 'Medical', 'Hospital', 'Traffic', 'Emergency', 'PNP'],
-  'Fire': ['Fire', 'BFP', 'Fire Station', 'Rescue'],
-  'Medical Emergency': ['Medical', 'Hospital', 'Ambulance', 'Health', 'ER'],
-  'Flooding and Natural Hazards': ['Disaster', 'DRRMO', 'CDRRMO', 'Rescue', 'Barangay'],
-  'Infrastructure Hazard': ['Barangay', 'Engineering', 'DRRMO', 'Public Works'],
-  'Public Safety Incident': ['Police', 'PNP', 'Barangay', 'Law Enforcement', 'Patrol'],
+  'Road Accident': ['police', 'medical', 'hospital', 'traffic', 'emergency', 'pnp', 'ambulance'],
+  'Fire': ['fire', 'bfp', 'fire station', 'rescue'],
+  'Medical Emergency': ['medical', 'hospital', 'ambulance', 'health', 'er', 'clinic', 'rhu'],
+  'Flooding and Natural Hazards': ['disaster', 'drrmo', 'cdrrmo', 'rescue', 'barangay'],
+  'Infrastructure Hazard': ['engineering', 'public works', 'drrmo', 'barangay'],
+  'Public Safety Incident': ['police', 'pnp', 'law enforcement', 'patrol', 'barangay'],
   'Other': []
 };
 
@@ -249,6 +250,26 @@ export default function ReportsPage() {
     return 'Anonymous Citizen';
   };
 
+  const getReporterPhone = (report) => {
+    if (!report) return 'N/A';
+
+    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
+    if (userObj) {
+      if (userObj.phone_number && userObj.phone_number.trim()) return userObj.phone_number.trim();
+      if (userObj.contact_number && userObj.contact_number.trim()) return userObj.contact_number.trim();
+      if (userObj.phone && userObj.phone.trim()) return userObj.phone.trim();
+      if (userObj.mobile && userObj.mobile.trim()) return userObj.mobile.trim();
+      if (userObj.contact && userObj.contact.trim()) return userObj.contact.trim();
+    }
+
+    if (report.phone_number && String(report.phone_number).trim()) return String(report.phone_number).trim();
+    if (report.contact_number && String(report.contact_number).trim()) return String(report.contact_number).trim();
+    if (report.phone && String(report.phone).trim()) return String(report.phone).trim();
+    if (report.mobile && String(report.mobile).trim()) return String(report.mobile).trim();
+
+    return 'N/A';
+  };
+
   const getExactAddressSubtitle = (report) => {
     if (!report) return 'Exact address not specified';
     if (report.exact_address && report.exact_address.trim() !== '') return report.exact_address;
@@ -396,8 +417,15 @@ export default function ReportsPage() {
       reportLng = fallback[1];
     }
 
-    const activeUnits = emergencyUnits.filter(u => u.is_active !== false);
-    const basePool = activeUnits.length > 0 ? activeUnits : emergencyUnits;
+    // Filter units with valid numeric coordinates
+    const validCoordsUnits = emergencyUnits.filter(u => {
+      const uLat = parseFloat(u.latitude);
+      const uLng = parseFloat(u.longitude);
+      return !isNaN(uLat) && !isNaN(uLng) && uLat !== 0 && uLng !== 0;
+    });
+
+    const activeUnits = validCoordsUnits.filter(u => u.is_active !== false);
+    const basePool = activeUnits.length > 0 ? activeUnits : validCoordsUnits;
 
     if (basePool.length === 0) return 'N/A';
 
@@ -407,8 +435,8 @@ export default function ReportsPage() {
     let categoryFilteredPool = basePool;
     if (allowedTypes.length > 0) {
       const matched = basePool.filter((unit) => {
-        const unitType = (unit.type || unit.unit_type || unit.category || '').toLowerCase();
-        const unitName = (unit.name || '').toLowerCase();
+        const unitType = String(unit.type || unit.unit_type || unit.category || '').toLowerCase();
+        const unitName = String(unit.name || '').toLowerCase();
         return allowedTypes.some((t) => 
           unitType.includes(t.toLowerCase()) || unitName.includes(t.toLowerCase())
         );
@@ -420,10 +448,20 @@ export default function ReportsPage() {
     }
 
     let nearestUnit = categoryFilteredPool[0];
-    let minDistance = calculateHaversineDistance(reportLat, reportLng, nearestUnit.latitude, nearestUnit.longitude);
+    let minDistance = calculateHaversineDistance(
+      reportLat, 
+      reportLng, 
+      parseFloat(nearestUnit.latitude), 
+      parseFloat(nearestUnit.longitude)
+    );
 
     categoryFilteredPool.forEach((unit) => {
-      const dist = calculateHaversineDistance(reportLat, reportLng, unit.latitude, unit.longitude);
+      const dist = calculateHaversineDistance(
+        reportLat, 
+        reportLng, 
+        parseFloat(unit.latitude), 
+        parseFloat(unit.longitude)
+      );
       if (dist < minDistance) {
         minDistance = dist;
         nearestUnit = unit;
@@ -547,9 +585,10 @@ export default function ReportsPage() {
     const categoryText = resolvedCatName.toLowerCase();
     const barangayText = (report.barangay || report.location || '').toLowerCase();
     const posterText = getReporterName(report).toLowerCase();
+    const phoneText = getReporterPhone(report).toLowerCase();
     const query = searchQuery.toLowerCase();
 
-    const matchedSearch = reportText.includes(query) || categoryText.includes(query) || barangayText.includes(query) || posterText.includes(query) || String(report.id).includes(query);
+    const matchedSearch = reportText.includes(query) || categoryText.includes(query) || barangayText.includes(query) || posterText.includes(query) || phoneText.includes(query) || String(report.id).includes(query);
     const currentStat = String(report.status).toLowerCase();
     
     let matchedStatus = true;
@@ -922,6 +961,13 @@ export default function ReportsPage() {
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Poster Name</span>
                       <span className="font-bold text-gray-800">{getReporterName(selectedReport)}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
+                      <span className="font-bold text-gray-400 uppercase flex items-center gap-1">
+                        <Phone size={12} className="text-gray-400" />
+                        Contact Number
+                      </span>
+                      <span className="font-bold text-gray-800">{getReporterPhone(selectedReport)}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase">Location Area</span>
