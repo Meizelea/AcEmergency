@@ -51,7 +51,7 @@ export const ANGELES_BARANGAYS = [
 function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const dLon = (lon1 - lon2) * Math.PI / 180;
   const a = 
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -253,17 +253,22 @@ export default function ReportsPage() {
   const getReporterPhone = (report) => {
     if (!report) return 'N/A';
 
-    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
-    if (userObj) {
-      if (userObj.phone_number && userObj.phone_number.trim()) return userObj.phone_number.trim();
-      if (userObj.contact_number && userObj.contact_number.trim()) return userObj.contact_number.trim();
-      if (userObj.phone && userObj.phone.trim()) return userObj.phone.trim();
-      if (userObj.mobile && userObj.mobile.trim()) return userObj.mobile.trim();
-      if (userObj.contact && userObj.contact.trim()) return userObj.contact.trim();
+    // Direct check for contact_number on report root
+    if (report.contact_number && String(report.contact_number).trim()) {
+      return String(report.contact_number).trim();
     }
 
+    // Check user/user_details/profile objects
+    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
+    if (userObj) {
+      if (userObj.contact_number && String(userObj.contact_number).trim()) return String(userObj.contact_number).trim();
+      if (userObj.phone_number && String(userObj.phone_number).trim()) return String(userObj.phone_number).trim();
+      if (userObj.phone && String(userObj.phone).trim()) return String(userObj.phone).trim();
+      if (userObj.mobile && String(userObj.mobile).trim()) return String(userObj.mobile).trim();
+    }
+
+    // Fallback checks on report root
     if (report.phone_number && String(report.phone_number).trim()) return String(report.phone_number).trim();
-    if (report.contact_number && String(report.contact_number).trim()) return String(report.contact_number).trim();
     if (report.phone && String(report.phone).trim()) return String(report.phone).trim();
     if (report.mobile && String(report.mobile).trim()) return String(report.mobile).trim();
 
@@ -371,7 +376,7 @@ export default function ReportsPage() {
     setIsSyncing(false);
   }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
 
-  // ON MOUNT AND WINDOW FOCUS SYNC (NO AUTOMATIC INTERVAL TIMER)
+  // ON MOUNT AND WINDOW FOCUS SYNC
   useEffect(() => {
     if (!token) {
       navigate('/login');
@@ -417,7 +422,6 @@ export default function ReportsPage() {
       reportLng = fallback[1];
     }
 
-    // Filter units with valid numeric coordinates
     const validCoordsUnits = emergencyUnits.filter(u => {
       const uLat = parseFloat(u.latitude);
       const uLng = parseFloat(u.longitude);
@@ -964,7 +968,6 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase flex items-center gap-1">
-                        <Phone size={12} className="text-gray-400" />
                         Contact Number
                       </span>
                       <span className="font-bold text-gray-800">{getReporterPhone(selectedReport)}</span>
