@@ -258,7 +258,6 @@ export default function ReportsPage() {
       return String(report.contact_number).trim();
     }
 
-    // Check user/user_details/profile objects
     const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
     if (userObj) {
       if (userObj.contact_number && String(userObj.contact_number).trim()) return String(userObj.contact_number).trim();
