@@ -24,6 +24,7 @@ const API_BASE_URL = getApiBaseUrl();
 const CACHE_KEY_REPORTS = 'cache_admin_reports_v12';
 const CACHE_KEY_UNITS = 'cache_admin_units_v2';
 const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v10';
+const CACHE_KEY_PHONES_MAP = 'cache_admin_phones_map_v1';
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -51,7 +52,7 @@ export const ANGELES_BARANGAYS = [
 function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon1 - lon2) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -70,13 +71,15 @@ const CATEGORY_MAP = {
   'other': 'Other'
 };
 
+// Must match EmergencyUnit.unit_type values on the backend: hospital | police | fire
 const CATEGORY_UNIT_TYPES = {
-  'Road Accident': ['police', 'medical', 'hospital', 'traffic', 'emergency', 'pnp', 'ambulance'],
-  'Fire': ['fire', 'bfp', 'fire station', 'rescue'],
-  'Medical Emergency': ['medical', 'hospital', 'ambulance', 'health', 'er', 'clinic', 'rhu'],
-  'Flooding and Natural Hazards': ['disaster', 'drrmo', 'cdrrmo', 'rescue', 'barangay'],
-  'Infrastructure Hazard': ['engineering', 'public works', 'drrmo', 'barangay'],
-  'Public Safety Incident': ['police', 'pnp', 'law enforcement', 'patrol', 'barangay'],
+  'Road Accident': ['hospital', 'police'],
+  'Fire': ['fire'],
+  'Medical Emergency': ['hospital'],
+  'Public Safety Incident': ['police'],
+  // No dedicated unit type exists for these, so the nearest active unit is used
+  'Flooding and Natural Hazards': [],
+  'Infrastructure Hazard': [],
   'Other': []
 };
 
@@ -127,6 +130,25 @@ export default function ReportsPage() {
     }
     return existingMap;
   });
+
+  // Maps user id -> contact number (the reports list only returns a bare user id)
+  const [phonesMap, setPhonesMap] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(CACHE_KEY_PHONES_MAP)) || {};
+    } catch {
+      return {};
+    }
+  });
+
+  const rememberPhones = useCallback((entries) => {
+    const valid = Object.entries(entries).filter(([, v]) => v && String(v).trim());
+    if (valid.length === 0) return;
+    setPhonesMap(prev => {
+      const updated = { ...prev, ...Object.fromEntries(valid) };
+      sessionStorage.setItem(CACHE_KEY_PHONES_MAP, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -258,6 +280,7 @@ export default function ReportsPage() {
       return String(report.contact_number).trim();
     }
 
+    // Check user/user_details/profile objects
     const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
     if (userObj) {
       if (userObj.contact_number && String(userObj.contact_number).trim()) return String(userObj.contact_number).trim();
@@ -270,6 +293,12 @@ export default function ReportsPage() {
     if (report.phone_number && String(report.phone_number).trim()) return String(report.phone_number).trim();
     if (report.phone && String(report.phone).trim()) return String(report.phone).trim();
     if (report.mobile && String(report.mobile).trim()) return String(report.mobile).trim();
+
+    // The list endpoint returns `user` as a bare id, so look the number up by user id
+    const rawUserId = typeof report.user === 'object' && report.user !== null
+      ? report.user.id
+      : (report.user ?? report.user_id);
+    if (rawUserId && phonesMap[rawUserId]) return phonesMap[rawUserId];
 
     return 'N/A';
   };
@@ -296,6 +325,13 @@ export default function ReportsPage() {
       if (res.ok) {
         const data = await res.json();
         const rawList = Array.isArray(data) ? data : (data?.results || []);
+
+        const phones = {};
+        rawList.forEach(u => {
+          if (u.contact_number) phones[u.id] = u.contact_number;
+        });
+        rememberPhones(phones);
+
         setUsersMap(prev => {
           const newMap = { ...prev };
           rawList.forEach(u => {
@@ -309,7 +345,7 @@ export default function ReportsPage() {
     } catch (err) {
       console.error("Bulk user fetch error:", err);
     }
-  }, [getAuthHeaders]);
+  }, [getAuthHeaders, rememberPhones]);
 
   const fetchEmergencyUnits = useCallback(async () => {
     try {
@@ -403,66 +439,46 @@ export default function ReportsPage() {
   };
 
   const getNearestResponderText = (report) => {
-    if (report?.nearest_responder) {
-      const responderName = typeof report.nearest_responder === 'object' 
-        ? (report.nearest_responder.name || report.nearest_responder.title || 'Emergency Unit')
-        : report.nearest_responder;
+    if (!report) return 'N/A';
 
-      const distStr = report.distance_km ? ` (${parseFloat(report.distance_km).toFixed(2)} km)` : '';
-      return `${responderName}${distStr}`;
-    }
-
-    let reportLat = parseFloat(report?.latitude);
-    let reportLng = parseFloat(report?.longitude);
+    // The backend's nearest_responder ignores the report category (it just picks the
+    // closest active unit), so the nearest responder is computed here instead.
+    let reportLat = parseFloat(report.latitude);
+    let reportLng = parseFloat(report.longitude);
 
     if (isNaN(reportLat) || isNaN(reportLng)) {
-      const fallback = barangayCoordsFallback[report?.barangay || report?.location] || [15.1320, 120.5950];
+      const fallback = barangayCoordsFallback[report.barangay || report.location] || [15.1320, 120.5950];
       reportLat = fallback[0];
       reportLng = fallback[1];
     }
 
-    const validCoordsUnits = emergencyUnits.filter(u => {
+    const pool = emergencyUnits.filter(u => {
       const uLat = parseFloat(u.latitude);
       const uLng = parseFloat(u.longitude);
-      return !isNaN(uLat) && !isNaN(uLng) && uLat !== 0 && uLng !== 0;
+      return u.is_active !== false && !isNaN(uLat) && !isNaN(uLng) && uLat !== 0 && uLng !== 0;
     });
 
-    const activeUnits = validCoordsUnits.filter(u => u.is_active !== false);
-    const basePool = activeUnits.length > 0 ? activeUnits : validCoordsUnits;
+    if (pool.length === 0) return 'N/A';
 
-    if (basePool.length === 0) return 'N/A';
+    const allowedTypes = CATEGORY_UNIT_TYPES[getCategoryName(report)] || [];
 
-    const categoryName = getCategoryName(report);
-    const allowedTypes = CATEGORY_UNIT_TYPES[categoryName] || [];
-
-    let categoryFilteredPool = basePool;
+    let candidates = pool;
     if (allowedTypes.length > 0) {
-      const matched = basePool.filter((unit) => {
-        const unitType = String(unit.type || unit.unit_type || unit.category || '').toLowerCase();
-        const unitName = String(unit.name || '').toLowerCase();
-        return allowedTypes.some((t) => 
-          unitType.includes(t.toLowerCase()) || unitName.includes(t.toLowerCase())
-        );
-      });
-
-      if (matched.length > 0) {
-        categoryFilteredPool = matched;
-      }
+      candidates = pool.filter(u =>
+        allowedTypes.includes(String(u.unit_type || u.type || '').toLowerCase())
+      );
+      // Don't silently fall back to the wrong kind of unit
+      if (candidates.length === 0) return 'No matching responder available';
     }
 
-    let nearestUnit = categoryFilteredPool[0];
-    let minDistance = calculateHaversineDistance(
-      reportLat, 
-      reportLng, 
-      parseFloat(nearestUnit.latitude), 
-      parseFloat(nearestUnit.longitude)
-    );
+    let nearestUnit = null;
+    let minDistance = Infinity;
 
-    categoryFilteredPool.forEach((unit) => {
+    candidates.forEach(unit => {
       const dist = calculateHaversineDistance(
-        reportLat, 
-        reportLng, 
-        parseFloat(unit.latitude), 
+        reportLat,
+        reportLng,
+        parseFloat(unit.latitude),
         parseFloat(unit.longitude)
       );
       if (dist < minDistance) {
@@ -471,14 +487,29 @@ export default function ReportsPage() {
       }
     });
 
-    const unitName = typeof nearestUnit === 'object' ? (nearestUnit.name || 'Emergency Base') : nearestUnit;
-    return `${unitName} (${minDistance.toFixed(2)} km)`;
+    return `${nearestUnit.name || 'Emergency Unit'} (${minDistance.toFixed(2)} km)`;
   };
 
   const handleOpenReportModal = async (report) => {
     setSelectedReport(report);
     setActiveVideoUrl(null);
     setIsModalOpen(true);
+
+    // Fetch the reporter's contact number from the detail endpoint (it nests the user).
+    // Not awaited on purpose so it never delays the video loading below.
+    const phoneUserId = typeof report.user === 'object' && report.user !== null
+      ? report.user.id
+      : report.user;
+
+    if (phoneUserId && !phonesMap[phoneUserId]) {
+      fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
+        .then(res => (res.ok ? res.json() : null))
+        .then(detail => {
+          const phone = detail?.user?.contact_number;
+          if (phone) rememberPhones({ [phoneUserId]: phone });
+        })
+        .catch(err => console.error("Failed to fetch reporter contact number:", err));
+    }
 
     if (report.video_thumbnail_url) {
       if (videoCache.current[report.id]) {
@@ -967,6 +998,7 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-gray-200/60">
                       <span className="font-bold text-gray-400 uppercase flex items-center gap-1">
+                        <Phone size={12} className="text-gray-400" />
                         Contact Number
                       </span>
                       <span className="font-bold text-gray-800">{getReporterPhone(selectedReport)}</span>
