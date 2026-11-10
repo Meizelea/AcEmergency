@@ -431,7 +431,7 @@ export default function UsersPage() {
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
-              {isSyncing ? "Syncing..." : "Refresh"}
+              {isSyncing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
         </div>

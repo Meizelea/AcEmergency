@@ -392,7 +392,7 @@ export default function AnnouncementPage() {
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
-              {isSyncing ? "Syncing..." : "Sync Data"}
+              {isSyncing ? "Refreshing..." : "Refresh"}
             </button>
 
             <button

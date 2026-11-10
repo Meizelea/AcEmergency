@@ -372,7 +372,7 @@ export default function AdminProfilePage() {
               disabled={isSyncing}
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> {isSyncing ? "Syncing..." : "Sync Data"}
+              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> {isSyncing ? "Refreshing..." : "Refresh"}
             </button>
 
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold shadow-xs">

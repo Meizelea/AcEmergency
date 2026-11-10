@@ -168,7 +168,7 @@ export default function EmergencyUnitsPage() {
             className="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
-            {isLoading ? "Syncing..." : "Refresh"}
+            {isLoading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
