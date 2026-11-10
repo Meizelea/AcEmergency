@@ -415,7 +415,7 @@ export default function AnnouncementPage() {
             </div>
             {/* BOLD COUNTER */}
             <span className="text-xs font-black text-gray-900">
-              {filteredAnnouncements.length} Enrolled Bulletins
+              {filteredAnnouncements.length} Announcement
             </span>
           </div>
 
