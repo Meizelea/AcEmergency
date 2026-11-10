@@ -10,6 +10,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
 import AdminLayout from '../components/header';
+import DateRangeFilter from '../components/DateRangeFilter';
 
 const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) {
@@ -82,6 +83,44 @@ const CATEGORY_UNIT_TYPES = {
   'Infrastructure Hazard': [],
   'Other': []
 };
+
+const STATUS_API = { Pending: 'pending', Ongoing: 'ongoing', Resolved: 'resolved', Dismissed: 'dismissed' };
+const STATUS_OPTIONS = ['Pending', 'Ongoing', 'Resolved', 'Dismissed'];
+
+const normalizeStatus = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v || v === 'pending' || v === 'submitted') return 'Pending';
+  if (v === 'ongoing') return 'Ongoing';
+  if (v === 'dismissed') return 'Dismissed';
+  return 'Resolved';
+};
+
+const STATUS_SELECT_CLASS = {
+  Pending: 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]',
+  Ongoing: 'bg-blue-50 text-blue-700 border-blue-300',
+  Resolved: 'bg-emerald-50 text-emerald-700 border-emerald-300',
+  Dismissed: 'bg-gray-100 text-gray-700 border-gray-300'
+};
+
+const STATUS_TEXT_CLASS = {
+  Pending: 'text-amber-600',
+  Ongoing: 'text-[#109EEF]',
+  Resolved: 'text-emerald-600',
+  Dismissed: 'text-gray-500'
+};
+
+// Native <option>s inherit the select's tinted colors, so they are forced to plain white/black.
+const OPTION_STYLE = { backgroundColor: '#ffffff', color: '#111827' };
+
+const capitalizeFirst = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : text);
+const prettify = (value) => capitalizeFirst(String(value || '').replace(/_/g, ' '));
+
+const DetailRow = ({ label, children, last = false, labelClass = 'text-gray-400' }) => (
+  <div className={`flex justify-between gap-4 py-1.5 ${last ? '' : 'border-b border-gray-200/60'}`}>
+    <span className={`font-bold uppercase ${labelClass}`}>{label}</span>
+    <span className="font-bold text-gray-800 text-right">{children}</span>
+  </div>
+);
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -161,6 +200,11 @@ export default function ReportsPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
+  const [pageError, setPageError] = useState('');
+  const [usersInfoMap, setUsersInfoMap] = useState({});
+  const [residentDetail, setResidentDetail] = useState(null); // { reportId, user }
+  const [dismissalReasons, setDismissalReasons] = useState([]); // [{ value, label }]
+  const [dismissModal, setDismissModal] = useState({ isOpen: false, reportId: null, reason: '', error: '' });
 
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -303,6 +347,24 @@ export default function ReportsPage() {
     return 'N/A';
   };
 
+  const getResident = (report) => {
+    if (!report) return {};
+    const embedded = (typeof report.user === 'object' && report.user !== null) ? report.user : null;
+    const uid = embedded ? embedded.id : (report.user ?? report.user_id);
+    const fromDetail = residentDetail && residentDetail.reportId === report.id ? residentDetail.user : null;
+    const u = fromDetail || embedded || usersInfoMap[uid] || {};
+    return {
+      name: getReporterName(report),
+      username: u.username || '',
+      email: u.email || '',
+      contact: getReporterPhone(report),
+      barangay: u.residential_barangay || u.barangay || ''
+    };
+  };
+
+  const getReasonLabel = (value) =>
+    dismissalReasons.find(r => r.value === value)?.label || prettify(value);
+
   const getExactAddressSubtitle = (report) => {
     if (!report) return 'Exact address not specified';
     if (report.exact_address && report.exact_address.trim() !== '') return report.exact_address;
@@ -331,6 +393,7 @@ export default function ReportsPage() {
           if (u.contact_number) phones[u.id] = u.contact_number;
         });
         rememberPhones(phones);
+        setUsersInfoMap(Object.fromEntries(rawList.map(u => [u.id, u])));
 
         setUsersMap(prev => {
           const newMap = { ...prev };
@@ -495,21 +558,23 @@ export default function ReportsPage() {
     setActiveVideoUrl(null);
     setIsModalOpen(true);
 
-    // Fetch the reporter's contact number from the detail endpoint (it nests the user).
+    // The detail endpoint nests the resident (username, email, contact number, barangay).
     // Not awaited on purpose so it never delays the video loading below.
+    setResidentDetail(null);
     const phoneUserId = typeof report.user === 'object' && report.user !== null
       ? report.user.id
       : report.user;
 
-    if (phoneUserId && !phonesMap[phoneUserId]) {
-      fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
-        .then(res => (res.ok ? res.json() : null))
-        .then(detail => {
-          const phone = detail?.user?.contact_number;
-          if (phone) rememberPhones({ [phoneUserId]: phone });
-        })
-        .catch(err => console.error("Failed to fetch reporter contact number:", err));
-    }
+    fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
+      .then(res => (res.ok ? res.json() : null))
+      .then(detail => {
+        const u = detail?.user;
+        if (u && typeof u === 'object') {
+          setResidentDetail({ reportId: report.id, user: u });
+          if (u.contact_number && phoneUserId) rememberPhones({ [phoneUserId]: u.contact_number });
+        }
+      })
+      .catch(err => console.error("Failed to fetch resident details:", err));
 
     if (report.video_thumbnail_url) {
       if (videoCache.current[report.id]) {
@@ -538,41 +603,104 @@ export default function ReportsPage() {
     }
   };
 
-  const executeStatusUpdate = async (reportId, newStatus) => {
+  const executeStatusUpdate = async (reportId, newStatus, dismissalReason = null) => {
+    const value = STATUS_API[newStatus] || String(newStatus).toLowerCase();
+    const now = new Date().toISOString();
+    const previousReports = reports;
+    const current = reports.find(r => r.id === reportId) || {};
+
+    // Optimistic values (the server sets the real timestamps; a silent refetch follows)
+    const local = { status: value };
+    if (value === 'ongoing' && !current.ongoing_at) local.ongoing_at = now;
+    if (value === 'resolved' && !current.resolved_at) local.resolved_at = now;
+    if (value === 'dismissed') {
+      local.dismissed_at = current.dismissed_at || now;
+      local.dismissal_reason = dismissalReason;
+    } else {
+      local.dismissed_at = null;
+      local.dismissal_reason = null;
+    }
+
+    const updatedReports = reports.map(r => r.id === reportId ? { ...r, ...local } : r);
+    setReports(updatedReports);
+    sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(updatedReports));
+    if (selectedReport && selectedReport.id === reportId) {
+      setSelectedReport(prev => ({ ...prev, ...local }));
+    }
+
+    const revert = (message) => {
+      setReports(previousReports);
+      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(previousReports));
+      const original = previousReports.find(r => r.id === reportId);
+      if (original) setSelectedReport(prev => (prev && prev.id === reportId ? original : prev));
+      setPageError(message);
+    };
+
+    const body = { status: value };
+    if (value === 'dismissed') body.dismissal_reason = dismissalReason;
+
     try {
-      const statusDatabaseMap = {
-        'Pending': 'pending',      
-        'Ongoing': 'ongoing',   
-        'Resolved': 'resolved'
-      };
-
-      const finalPayloadValue = statusDatabaseMap[newStatus] || newStatus.toLowerCase();
-      const resolvedAtVal = finalPayloadValue === 'resolved' ? new Date().toISOString() : null;
-
-      const payload = { 
-        status: finalPayloadValue,
-        resolved_at: resolvedAtVal
-      };
-
-      const updatedReports = reports.map(r => r.id === reportId ? { ...r, ...payload } : r);
-      setReports(updatedReports);
-      sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(updatedReports));
-
-      if (selectedReport && selectedReport.id === reportId) {
-        setSelectedReport(prev => ({ ...prev, ...payload }));
-      }
-
-      await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+      const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
-        body: JSON.stringify(payload)
+        body: JSON.stringify(body)
       });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const detail = err.detail || (Array.isArray(err.dismissal_reason) ? err.dismissal_reason[0] : '') || (Array.isArray(err.status) ? err.status[0] : '');
+        revert(detail || `Could not update Report #${reportId} (HTTP ${res.status}).`);
+        return;
+      }
+
+      setPageError('');
+      fetchReports(true);
     } catch (error) {
       console.error("Failed to execute status update:", error);
+      revert('Could not reach the server. The status was not changed.');
     }
   };
 
+  const loadDismissalReasons = async (reportId) => {
+    if (dismissalReasons.length > 0) return;
+    try {
+      // DRF's OPTIONS response lists the valid dismissal_reason choices for this endpoint
+      const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+        method: 'OPTIONS',
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) return;
+      const meta = await res.json();
+      const field = meta?.actions?.PUT?.dismissal_reason || meta?.actions?.PATCH?.dismissal_reason;
+      const choices = (field?.choices || [])
+        .filter(c => c.value)
+        .map(c => ({ value: c.value, label: c.display_name || prettify(c.value) }));
+      setDismissalReasons(choices);
+    } catch (err) {
+      console.error("Failed to load dismissal reasons:", err);
+    }
+  };
+
+  const openDismissModal = (reportId) => {
+    setDismissModal({ isOpen: true, reportId, reason: '', error: '' });
+    loadDismissalReasons(reportId);
+  };
+
+  const submitDismissal = () => {
+    if (!dismissModal.reason) {
+      setDismissModal(prev => ({ ...prev, error: 'Please select a dismissal reason.' }));
+      return;
+    }
+    const { reportId, reason } = dismissModal;
+    setDismissModal({ isOpen: false, reportId: null, reason: '', error: '' });
+    executeStatusUpdate(reportId, 'Dismissed', reason);
+  };
+
   const requestStatusUpdate = (reportId, newStatus) => {
+    if (newStatus === 'Dismissed') {
+      openDismissModal(reportId);
+      return;
+    }
     setConfirmModal({
       isOpen: true,
       title: 'Update Report Status',
@@ -611,6 +739,17 @@ export default function ReportsPage() {
     return '—';
   };
 
+  const formatTimestamp = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return isNaN(d.getTime())
+      ? String(value)
+      : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  const formatDismissedTime = (report) =>
+    normalizeStatus(report?.status) === 'Dismissed' ? formatTimestamp(report.dismissed_at) : '—';
+
   // Enhanced Filter Logic
   const filteredReports = reports.filter(report => {
     if (!report) return false;
@@ -629,6 +768,7 @@ export default function ReportsPage() {
     if (statusFilter === 'Pending') matchedStatus = (currentStat === 'pending' || currentStat === 'submitted');
     else if (statusFilter === 'Ongoing') matchedStatus = (currentStat === 'ongoing');
     else if (statusFilter === 'Resolved') matchedStatus = (currentStat === 'resolved');
+    else if (statusFilter === 'Dismissed') matchedStatus = (currentStat === 'dismissed');
 
     // Category Filter Match
     let matchedCategory = true;
@@ -697,6 +837,20 @@ export default function ReportsPage() {
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] flex flex-col">
         
+        {/* PAGE HEADER */}
+        <div className="flex items-center gap-3 mb-5 shrink-0">
+          <FileText className="text-[#b32d2d]" size={24} />
+          <h1 className="font-black text-xl sm:text-2xl text-gray-900">Incident Reports</h1>
+        </div>
+
+        {pageError && (
+          <div className="mb-4 p-3 rounded-lg text-xs font-semibold flex items-center gap-2 border bg-red-50 text-red-700 border-red-200 shrink-0">
+            <AlertTriangle size={16} className="shrink-0" />
+            <span className="flex-1">{pageError}</span>
+            <X size={16} className="cursor-pointer shrink-0" onClick={() => setPageError('')} />
+          </div>
+        )}
+
         {/* CONTROLS HEADER */}
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 w-full">
@@ -706,7 +860,7 @@ export default function ReportsPage() {
               <Search size={18} className="text-gray-400 ml-3 shrink-0" />
               <input 
                 type="text" 
-                placeholder="Search category, description, poster..." 
+                placeholder="Search by category, resident, description..." 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 className="w-full py-2 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
@@ -736,77 +890,27 @@ export default function ReportsPage() {
                 <option value="Pending">Pending</option>
                 <option value="Ongoing">Ongoing</option>
                 <option value="Resolved">Resolved</option>
+                <option value="Dismissed">Dismissed</option>
               </select>
             </div>
 
-            {/* QUICK DATE HORIZON FILTER */}
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
-              <Clock size={14} className="text-gray-400 mr-2 shrink-0" />
-              <select 
-                value={dateRangeFilter} 
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setDateRangeFilter(val);
-                  if (val !== 'custom') {
-                    setFromDate('');
-                    setToDate('');
-                  }
-                }} 
-                className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full"
-              >
-                <option value="all_time">All Time</option>
-                <option value="7_days">This Week (7 Days)</option>
-                <option value="today">Today</option>
-                <option value="30_days">Last 30 Days</option>
-                <option value="custom">Custom Date Range...</option>
-              </select>
-            </div>
-
-            {/* CUSTOM DATE RANGE PICKER */}
-            <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
-              <CalendarDays size={14} className="text-gray-400 shrink-0" />
-              
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-gray-400 uppercase">From</span>
-                <input 
-                  type="date" 
-                  value={fromDate} 
-                  onChange={(e) => {
-                    setFromDate(e.target.value);
-                    setDateRangeFilter('custom');
-                  }} 
-                  className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                />
-              </div>
-
-              <span className="text-gray-300">•</span>
-
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-gray-400 uppercase">To</span>
-                <input 
-                  type="date" 
-                  value={toDate} 
-                  onChange={(e) => {
-                    setToDate(e.target.value);
-                    setDateRangeFilter('custom');
-                  }} 
-                  className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700" 
-                />
-              </div>
-
-              {(fromDate || toDate) && (
-                <X 
-                  size={14} 
-                  className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0" 
-                  onClick={() => {
-                    setFromDate('');
-                    setToDate('');
-                    setDateRangeFilter('all_time');
-                  }} 
-                  title="Clear Date Range"
-                />
-              )}
-            </div>
+            {/* DATE FILTER (the From/To calendar opens from "Custom Date Range...") */}
+            <DateRangeFilter
+              preset={dateRangeFilter}
+              from={fromDate}
+              to={toDate}
+              presets={[
+                { value: 'all_time', label: 'All Time' },
+                { value: '7_days', label: 'This Week (7 Days)' },
+                { value: 'today', label: 'Today' },
+                { value: '30_days', label: 'Last 30 Days' }
+              ]}
+              onChange={({ preset, from, to }) => {
+                setDateRangeFilter(preset);
+                setFromDate(from || '');
+                setToDate(to || '');
+              }}
+            />
 
             {/* SORT DROPDOWN */}
             <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 shadow-xs text-xs text-gray-600 font-bold">
@@ -834,35 +938,32 @@ export default function ReportsPage() {
         {/* MASTER TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
           <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+            <table className="w-full text-left border-collapse min-w-[1150px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-[#f8fafc] text-gray-800 text-[11px] font-black uppercase tracking-wider select-none">
                   <th className="py-3.5 px-4 sm:px-5 w-20">ID</th>
-                  <th className="py-3.5 px-4 sm:px-5 w-48 sm:w-52">TIMESTAMP</th>
-                  <th className="py-3.5 px-4 sm:px-5">EMERGENCY CATEGORY</th>
+                  <th className="py-3.5 px-4 sm:px-5 w-48 sm:w-52">CREATED AT</th>
+                  <th className="py-3.5 px-4 sm:px-5">INCIDENT CATEGORY</th>
                   <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">POSTER NAME</th>
                   <th className="py-3.5 px-4 sm:px-5 whitespace-nowrap">LOCATION (BARANGAY)</th>
+                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">ONGOING AT</th>
                   <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">RESOLVED AT</th>
-                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">STATUS DROPDOWN</th>
+                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">DISMISSED AT</th>
+                  <th className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">STATUS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
-                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
+                  <tr><td colSpan="9" className="py-12 text-center text-gray-400 font-bold">Querying reports database...</td></tr>
                 ) : filteredReports.length === 0 ? (
-                  <tr><td colSpan="7" className="py-12 text-center text-gray-400 font-medium">No records matched your filter criteria.</td></tr>
+                  <tr><td colSpan="9" className="py-12 text-center text-gray-400 font-medium">No records matched your filter criteria.</td></tr>
                 ) : (
                   filteredReports.map((report) => {
-                    const currentStatusRaw = String(report.status).toLowerCase();
-                    const displayLabel = currentStatusRaw === 'ongoing' 
-                      ? 'Ongoing' 
-                      : (currentStatusRaw === 'submitted' || currentStatusRaw === 'pending') 
-                        ? 'Pending' 
-                        : 'Resolved';
-                    
+                    const displayLabel = normalizeStatus(report.status);
+
                     return (
-                      <tr 
-                        key={report.id} 
+                      <tr
+                        key={report.id}
                         onClick={() => handleOpenReportModal(report)}
                         className="hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
@@ -890,7 +991,7 @@ export default function ReportsPage() {
                             <span>{getReporterName(report)}</span>
                           </div>
                         </td>
-                        
+
                         <td className="py-3.5 px-4 sm:px-5 text-xs font-bold text-gray-800 whitespace-nowrap">
                           <div className="inline-flex items-center gap-1">
                             <MapPin size={13} className="text-red-500 shrink-0" />
@@ -899,24 +1000,26 @@ export default function ReportsPage() {
                         </td>
 
                         <td className="py-3.5 px-4 sm:px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
+                          {formatTimestamp(report.ongoing_at)}
+                        </td>
+
+                        <td className="py-3.5 px-4 sm:px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
                           {formatResolvedTime(report)}
+                        </td>
+
+                        <td className="py-3.5 px-4 sm:px-5 text-center font-bold text-gray-800 text-[11px] whitespace-nowrap">
+                          {formatDismissedTime(report)}
                         </td>
 
                         <td className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={displayLabel}
                             onChange={(e) => requestStatusUpdate(report.id, e.target.value)}
-                            className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${
-                              displayLabel === 'Pending' 
-                                ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
-                                : displayLabel === 'Ongoing'
-                                ? 'bg-blue-50 text-blue-700 border-blue-300'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                            }`}
+                            className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${STATUS_SELECT_CLASS[displayLabel]}`}
                           >
-                            <option value="Pending">PENDING</option>
-                            <option value="Ongoing">ONGOING</option>
-                            <option value="Resolved">RESOLVED</option>
+                            {STATUS_OPTIONS.map(opt => (
+                              <option key={opt} value={opt} style={OPTION_STYLE} className="bg-white text-gray-900">{opt.toUpperCase()}</option>
+                            ))}
                           </select>
                         </td>
                       </tr>
@@ -930,10 +1033,13 @@ export default function ReportsPage() {
       </div>
 
       {/* INSPECTION MODAL */}
-      {isModalOpen && selectedReport && (
+      {isModalOpen && selectedReport && (() => {
+        const statusLabel = normalizeStatus(selectedReport.status);
+        const resident = getResident(selectedReport);
+        return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh] my-auto">
-            
+
             <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gray-50/50 shrink-0">
               <div>
                 <h3 className="font-black text-lg sm:text-xl text-gray-900 tracking-tight flex items-center gap-2">
@@ -942,30 +1048,22 @@ export default function ReportsPage() {
                 <p className="text-xs text-gray-400 font-semibold mt-0.5 flex flex-wrap items-center gap-2">
                   <span>{formatDate(selectedReport.created_at || selectedReport.timestamp)}</span>
                   <span>•</span>
-                  <span className={`uppercase font-black ${
-                    String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
-                    String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
-                  }`}>
-                    {selectedReport.status || 'Pending'}
-                  </span>
+                  <span className={`uppercase font-black ${STATUS_TEXT_CLASS[statusLabel]}`}>{statusLabel}</span>
                 </p>
               </div>
 
               <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
                 <select
-                  value={
-                    String(selectedReport.status).toLowerCase() === 'ongoing' ? 'Ongoing' :
-                    String(selectedReport.status).toLowerCase() === 'resolved' ? 'Resolved' : 'Pending'
-                  }
+                  value={statusLabel}
                   onChange={(e) => requestStatusUpdate(selectedReport.id, e.target.value)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white outline-none cursor-pointer focus:border-[#b32d2d]"
+                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white text-gray-900 outline-none cursor-pointer focus:border-[#b32d2d]"
                 >
-                  <option value="Pending">PENDING</option>
-                  <option value="Ongoing">ONGOING</option>
-                  <option value="Resolved">RESOLVED</option>
+                  {STATUS_OPTIONS.map(opt => (
+                    <option key={opt} value={opt} style={OPTION_STYLE}>{opt.toUpperCase()}</option>
+                  ))}
                 </select>
 
-                <button 
+                <button
                   onClick={() => setIsModalOpen(false)}
                   className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 cursor-pointer"
                 >
@@ -975,128 +1073,9 @@ export default function ReportsPage() {
             </div>
 
             <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                
-                <div className="col-span-1 md:col-span-6 space-y-4">
-                  <div>
-                    <h4 className="font-black text-sm text-gray-900">Report Details</h4>
-                    <p className="text-xs text-gray-400">Core information submitted with this report.</p>
-                  </div>
 
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3 text-xs">
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Report ID</span>
-                      <span className="font-black text-gray-800">#{selectedReport.id}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Category</span>
-                      <span className="font-black text-gray-800">{getCategoryName(selectedReport)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Poster Name</span>
-                      <span className="font-bold text-gray-800">{getReporterName(selectedReport)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase flex items-center gap-1">
-                        Contact Number
-                      </span>
-                      <span className="font-bold text-gray-800">{getReporterPhone(selectedReport)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Location Area</span>
-                      <span className="font-bold text-gray-800">Brgy. {selectedReport.barangay || selectedReport.location || 'Angeles City'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Coordinates</span>
-                      <span className="font-bold text-gray-800">{modalLat.toFixed(6)}, {modalLng.toFixed(6)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-gray-400 uppercase">Status</span>
-                      <span className={`font-black uppercase ${
-                        String(selectedReport.status).toLowerCase() === 'ongoing' ? 'text-[#109EEF]' :
-                        String(selectedReport.status).toLowerCase() === 'resolved' ? 'text-emerald-600' : 'text-amber-600'
-                      }`}>
-                        {selectedReport.status || 'Pending'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-gray-200/60">
-                      <span className="font-bold text-emerald-600 uppercase">Resolved Time</span>
-                      <span className="font-bold text-emerald-700">
-                        {formatResolvedTime(selectedReport)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="font-bold text-gray-400 uppercase">Nearest Responder</span>
-                      <span className="font-bold text-gray-800 text-right">{getNearestResponderText(selectedReport)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="col-span-1 md:col-span-6 flex flex-col">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin size={16} className="text-[#b32d2d]" />
-                      <h4 className="font-black text-sm text-gray-900">Report Location</h4>
-                    </div>
-                    <a
-                      href={`https://www.google.com/maps?q=${modalLat},${modalLng}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline"
-                    >
-                      Open Google Street View ↗
-                    </a>
-                  </div>
-                  
-                  <div className="flex-1 min-h-[220px] rounded-xl overflow-hidden border border-gray-200 relative shadow-inner">
-                    <MapContainer 
-                      center={[modalLat, modalLng]} 
-                      zoom={17} 
-                      style={{ height: '100%', width: '100%' }} 
-                      zoomControl={true}
-                    >
-                      <TileLayer 
-                        url={cartoUrl} 
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
-                        maxZoom={19}
-                      />
-
-                      <Marker position={[modalLat, modalLng]} icon={redMarkerIcon}>
-                        <Popup>
-                          <div className="font-bold text-xs">{getCategoryName(selectedReport)}</div>
-                          <div className="text-[10px] text-gray-500">Brgy. {selectedBrgy}</div>
-                        </Popup>
-                      </Marker>
-                    </MapContainer>
-                  </div>
-                </div>
-
-              </div>
-
-              <div className="border-t border-gray-100 pt-4">
-                <h4 className="font-black text-sm text-gray-900 mb-2">Emergency Details & Narrative</h4>
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
-                  {selectedReport.description || selectedReport.short_message || 'No additional narrative description provided.'}
-                </div>
-              </div>
-
-              <div className="bg-red-50/60 border border-red-100 p-4 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider block">
-                  EXACT EMERGENCY LOCATION / ADDRESS
-                </span>
-                <div className="text-xs font-bold text-gray-900 flex items-start gap-1.5">
-                  <MapPin size={15} className="text-[#b32d2d] shrink-0 mt-0.5" />
-                  <span>
-                    {getExactAddressSubtitle(selectedReport)}
-                  </span>
-                </div>
-                <p className="text-[10px] text-gray-400 pl-5">
-                  GPS Coordinates: {selectedReport.latitude || '15.1450'}, {selectedReport.longitude || '120.5887'} (Brgy. {selectedReport.barangay || 'Central'})
-                </p>
-              </div>
-
-              <div className="border-t border-gray-100 pt-4">
-                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Media Attachments</h4>
+              <div>
+                <h4 className="font-black text-sm text-gray-900 mb-2">Media Attachments</h4>
                 
                 {hasImage ? (
                   <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex items-center justify-center">
@@ -1145,8 +1124,155 @@ export default function ReportsPage() {
                 )}
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 border-t border-gray-100 pt-4">
+
+                <div className="col-span-1 md:col-span-6 space-y-5">
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="font-black text-sm text-gray-900">Report Details</h4>
+                      <p className="text-xs text-gray-400">Core information submitted with this report.</p>
+                    </div>
+
+                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 text-xs">
+                      <DetailRow label="Category">{getCategoryName(selectedReport)}</DetailRow>
+                      <DetailRow label="Location Area">Brgy. {selectedReport.barangay || selectedReport.location || 'Angeles City'}</DetailRow>
+                      <DetailRow label="Coordinates">{modalLat.toFixed(6)}, {modalLng.toFixed(6)}</DetailRow>
+                      <DetailRow label="Status">
+                        <span className={`font-black uppercase ${STATUS_TEXT_CLASS[statusLabel]}`}>{statusLabel}</span>
+                      </DetailRow>
+                      <DetailRow label="Ongoing At">{formatTimestamp(selectedReport.ongoing_at)}</DetailRow>
+                      {statusLabel === 'Resolved' && (
+                        <DetailRow label="Resolved At" labelClass="text-emerald-600">
+                          <span className="text-emerald-700">{formatResolvedTime(selectedReport)}</span>
+                        </DetailRow>
+                      )}
+                      {statusLabel === 'Dismissed' && (
+                        <>
+                          <DetailRow label="Dismissed At">{formatTimestamp(selectedReport.dismissed_at)}</DetailRow>
+                          <DetailRow label="Dismissal Reason">
+                            {selectedReport.dismissal_reason ? getReasonLabel(selectedReport.dismissal_reason) : '—'}
+                          </DetailRow>
+                        </>
+                      )}
+                      <DetailRow label="Nearest Responder" last>{getNearestResponderText(selectedReport)}</DetailRow>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="font-black text-sm text-gray-900">Resident Details</h4>
+                      <p className="text-xs text-gray-400">The resident who submitted this report.</p>
+                    </div>
+
+                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 text-xs">
+                      <DetailRow label="Name">{resident.name}</DetailRow>
+                      <DetailRow label="Username">{resident.username || '—'}</DetailRow>
+                      <DetailRow label="Email">{resident.email || '—'}</DetailRow>
+                      <DetailRow label="Contact Number">{resident.contact}</DetailRow>
+                      <DetailRow label="Barangay" last>{resident.barangay ? `Brgy. ${resident.barangay}` : '—'}</DetailRow>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-span-1 md:col-span-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin size={16} className="text-[#b32d2d]" />
+                      <h4 className="font-black text-sm text-gray-900">Report Location</h4>
+                    </div>
+                    <a
+                      href={`https://www.google.com/maps?q=${modalLat},${modalLng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Open Google Street View ↗
+                    </a>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[220px] rounded-xl overflow-hidden border border-gray-200 relative shadow-inner">
+                    <MapContainer 
+                      center={[modalLat, modalLng]} 
+                      zoom={17} 
+                      style={{ height: '100%', width: '100%' }} 
+                      zoomControl={true}
+                    >
+                      <TileLayer 
+                        url={cartoUrl} 
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
+                        maxZoom={19}
+                      />
+
+                      <Marker position={[modalLat, modalLng]} icon={redMarkerIcon}>
+                        <Popup>
+                          <div className="font-bold text-xs">{getCategoryName(selectedReport)}</div>
+                          <div className="text-[10px] text-gray-500">Brgy. {selectedBrgy}</div>
+                        </Popup>
+                      </Marker>
+                    </MapContainer>
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Description</h4>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
+                  {capitalizeFirst(selectedReport.description || selectedReport.short_message || '') || 'No additional description provided.'}
+                </div>
+              </div>
+
             </div>
 
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* DISMISSAL REASON MODAL (reason is required) */}
+      {dismissModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[95] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100">
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">Dismiss Report #{dismissModal.reportId}</h3>
+            <p className="text-xs text-gray-500 font-medium mb-4 leading-relaxed">
+              Select why this report is being dismissed. The reporter is notified based on the reason you choose.
+            </p>
+
+            <label className="block text-xs font-bold text-gray-700 mb-1">
+              Dismissal Reason <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={dismissModal.reason}
+              onChange={(e) => setDismissModal(prev => ({ ...prev, reason: e.target.value, error: '' }))}
+              className="w-full p-2.5 bg-white text-gray-900 border border-gray-300 rounded-lg text-xs font-medium focus:outline-none focus:border-red-500"
+            >
+              <option value="" disabled style={OPTION_STYLE}>Select a Reason</option>
+              {dismissalReasons.map(r => (
+                <option key={r.value} value={r.value} style={OPTION_STYLE}>{r.label}</option>
+              ))}
+            </select>
+
+            {dismissalReasons.length === 0 && (
+              <p className="text-[11px] text-gray-400 font-medium mt-2">Loading dismissal reasons...</p>
+            )}
+            {dismissModal.error && (
+              <p className="text-[11px] text-red-600 font-semibold mt-2">{dismissModal.error}</p>
+            )}
+
+            <div className="flex items-center gap-2 mt-5">
+              <button
+                onClick={() => setDismissModal({ isOpen: false, reportId: null, reason: '', error: '' })}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitDismissal}
+                className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                Dismiss Report
+              </button>
+            </div>
           </div>
         </div>
       )}

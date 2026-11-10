@@ -12,6 +12,7 @@ import { MapContainer, TileLayer, CircleMarker, Circle, Popup, useMap } from 're
 import 'leaflet/dist/leaflet.css';
 
 import AdminLayout from '../components/header';
+import DateRangeFilter, { formatYMD } from '../components/DateRangeFilter';
 
 export const ANGELES_BARANGAYS = [
   "Agapito del Rosario",
@@ -40,6 +41,54 @@ const DONUT_COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#dc2626', '#8b5cf6', '#e
 const CLUSTER_COLORS = ['#dc2626', '#0284c7', '#16a34a', '#f59e0b', '#8b5cf6', '#ec4899', '#0d9488', '#ea580c', '#4f46e5', '#65a30d'];
 const NOISE_COLOR = '#9ca3af';
 const ANGELES_CENTER = [15.145, 120.5887];
+const BARANGAY_ZOOM = 15;
+const EMPTY_POINTS = [];
+
+// Barangay hall coordinates (same data as the backend's core/barangays.py) - the "middle" of each barangay
+const BARANGAY_HALLS = [
+  ['Agapito del Rosario', 15.1443125, 120.5894375],
+  ['Amsic', 15.1556875, 120.5711875],
+  ['Anunas', 15.1555625, 120.5535625],
+  ['Balibago', 15.1663125, 120.5909375],
+  ['Capaya', 15.1410625, 120.6266875],
+  ['Claro M. Recto', 15.1474375, 120.5926875],
+  ['Cuayan', 15.1469375, 120.5484375],
+  ['Cutcut', 15.1370625, 120.5825625],
+  ['Cutud', 15.1753125, 120.6266875],
+  ['Lourdes NorthWest', 15.1448125, 120.5848125],
+  ['Lourdes Sur', 15.1419375, 120.5908125],
+  ['Lourdes Sur East', 15.1431875, 120.5933125],
+  ['Malabañas', 15.1514375, 120.5898125],
+  ['Margot', 15.1705625, 120.5346875],
+  ['Mining', 15.1429375, 120.6045625],
+  ['Marisol', 15.1509375, 120.5990625],
+  ['Pampang', 15.1464375, 120.5759375],
+  ['Pandan', 15.1466875, 120.6056875],
+  ['Pulung Cacutud', 15.1650625, 120.6166875],
+  ['Pulung Maragul', 15.1619375, 120.6076875],
+  ['Pulung Bulu', 15.1359375, 120.5951875],
+  ['Salapungan', 15.1466875, 120.5973125],
+  ['San Jose', 15.1319375, 120.5949375],
+  ['San Nicolas', 15.1388125, 120.5850625],
+  ['Sapalibutad', 15.1581875, 120.6320625],
+  ['Sapangbato', 15.1709375, 120.5149375],
+  ['Santa Teresita', 15.1501875, 120.5856875],
+  ['Santa. Trinidad', 15.1418125, 120.5819375],
+  ['Santo Cristo', 15.1428125, 120.5986875],
+  ['Santo Domingo', 15.1275625, 120.6006875],
+  ['Santo Rosario', 15.1353125, 120.5909375],
+  ['Tabun', 15.1490625, 120.6140625],
+  ['Virgen Delos Remedios', 15.1495625, 120.5928125]
+];
+
+const normalizeBarangay = (name) =>
+  String(name || '').toLowerCase().replace(/\bsta\b\.?/g, 'santa').replace(/[^a-z0-9]/g, '');
+
+const getBarangayCenter = (name) => {
+  const key = normalizeBarangay(name);
+  const hit = BARANGAY_HALLS.find(([n]) => normalizeBarangay(n) === key);
+  return hit ? [hit[1], hit[2]] : ANGELES_CENTER;
+};
 
 // How many cluster rows fit in the PDF's DBSCAN page table
 const PRINT_MAX_CLUSTER_ROWS = 14;
@@ -193,22 +242,26 @@ function buildTrendSeries(trend) {
 
 /* ------------------------------- DBSCAN map UI -------------------------------- */
 
-function FitBounds({ points, animate = true }) {
+function FitBounds({ points, center, animate = true }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!points.length) return;
+    if (!points.length) {
+      // No cluster selected: stay centered on the middle of the barangay
+      if (center) map.setView(center, BARANGAY_ZOOM, { animate });
+      return;
+    }
     if (points.length === 1) {
       map.setView(points[0], 17, { animate });
       return;
     }
     map.fitBounds(points, { padding: [30, 30], maxZoom: 18, animate });
-  }, [map, points, animate]);
+  }, [map, points, center, animate]);
 
   return null;
 }
 
-function ClusterMap({ groups, selectedCluster, showNoise }) {
+function ClusterMap({ groups, selectedCluster, showNoise, center }) {
   const visibleGroups = useMemo(() => {
     if (selectedCluster !== null) return groups.filter((g) => g.label === selectedCluster);
     return groups.filter((g) => !g.isNoise || showNoise);
@@ -219,13 +272,16 @@ function ClusterMap({ groups, selectedCluster, showNoise }) {
     [visibleGroups]
   );
 
+  // Only zoom to points when a single cluster is selected; otherwise stay on the barangay center
+  const focusPoints = selectedCluster !== null ? fitPoints : EMPTY_POINTS;
+
   return (
-    <MapContainer center={ANGELES_CENTER} zoom={14} scrollWheelZoom className="h-full w-full rounded-lg">
+    <MapContainer center={center || ANGELES_CENTER} zoom={BARANGAY_ZOOM} scrollWheelZoom className="h-full w-full rounded-lg">
       <TileLayer
         attribution="© OpenStreetMap contributors"
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <FitBounds points={fitPoints} />
+      <FitBounds points={focusPoints} center={center} />
 
       {visibleGroups.map((group) => {
         const color = clusterColor(group.label);
@@ -266,16 +322,11 @@ function ClusterMap({ groups, selectedCluster, showNoise }) {
 
 // Static copy of the cluster map used only by the PDF page (all clusters + noise, no
 // animations or popups so the tiles are fully drawn when the browser prints).
-function PrintClusterMap({ groups, onTilesLoading, onTilesLoaded }) {
-  const fitPoints = useMemo(
-    () => groups.flatMap((g) => g.points.map((p) => [p.lat, p.lng])),
-    [groups]
-  );
-
+function PrintClusterMap({ groups, onTilesLoading, onTilesLoaded, center }) {
   return (
     <MapContainer
-      center={ANGELES_CENTER}
-      zoom={14}
+      center={center || ANGELES_CENTER}
+      zoom={BARANGAY_ZOOM}
       zoomControl={false}
       scrollWheelZoom={false}
       dragging={false}
@@ -292,7 +343,7 @@ function PrintClusterMap({ groups, onTilesLoading, onTilesLoaded }) {
           load: () => onTilesLoaded && onTilesLoaded()
         }}
       />
-      <FitBounds points={fitPoints} animate={false} />
+      <FitBounds points={EMPTY_POINTS} center={center} animate={false} />
 
       {groups.map((group) => {
         const color = clusterColor(group.label);
@@ -341,6 +392,9 @@ export default function AnalyticsPage() {
   const [toDate, setToDate] = useState('');
 
   const requestIdRef = useRef(0);
+
+  // Active vs Suspended residents (counted from the admin users list)
+  const [residentCounts, setResidentCounts] = useState(null);
 
   // ---- DBSCAN (POST /dashboard/dbscan/) - separate, on-demand ----
   const [dbscan, setDbscan] = useState(null);
@@ -396,6 +450,25 @@ export default function AnalyticsPage() {
     }
   }, [token, timeRange, fromDate, toDate]);
 
+  const fetchResidentCounts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/users/admin/`, token);
+      if (res && res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        const suspended = list.filter((u) => u.is_active === false).length;
+        setResidentCounts({ active: list.length - suspended, suspended });
+      }
+    } catch (err) {
+      console.warn('Resident counts fetch failed:', err);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchResidentCounts();
+  }, [fetchResidentCounts]);
+
   useEffect(() => {
     if (!token) navigate('/login');
   }, [token, navigate]);
@@ -446,7 +519,27 @@ export default function AnalyticsPage() {
   const pendingOverall = dashboard?.total_statuses?.pending ?? 0;
   const inProgressOverall = dashboard?.total_statuses?.ongoing ?? 0;
   const resolvedOverall = dashboard?.total_statuses?.resolved ?? 0;
-  const dismissedOverall = dashboard?.total_statuses?.resolved ?? 0;
+  const dismissedOverall = dashboard?.total_statuses?.dismissed ?? 0;
+
+  const barangayCenter = useMemo(() => getBarangayCenter(assignedBarangay), [assignedBarangay]);
+
+  // The actual dates covered by the report, e.g. "From Oct 10, 2026 to Nov 10, 2026"
+  const periodLabel = useMemo(() => {
+    const t = dashboard?.report_trend;
+    if (!t?.start_date || !t?.end_date) return timeRange === 'all_time' ? 'All time' : '';
+    return t.start_date === t.end_date
+      ? formatYMD(t.start_date)
+      : `From ${formatYMD(t.start_date)} to ${formatYMD(t.end_date)}`;
+  }, [dashboard, timeRange]);
+
+  const residentPieData = useMemo(
+    () =>
+      [
+        { name: 'Active', value: residentCounts?.active ?? 0, color: '#16a34a' },
+        { name: 'Suspended', value: residentCounts?.suspended ?? 0, color: '#dc2626' }
+      ].filter((d) => d.value > 0),
+    [residentCounts]
+  );
 
   const trendData = useMemo(() => buildTrendSeries(dashboard?.report_trend), [dashboard]);
 
@@ -462,7 +555,7 @@ export default function AnalyticsPage() {
   const statusPieData = useMemo(() => {
     const s = dashboard?.total_statuses || {};
     return [
-      { name: 'Pending', value: s.pending ?? 0, color: '#fde68a' },
+      { name: 'Pending', value: s.pending ?? 0, color: '#c4ac4e' },
       { name: 'Ongoing', value: s.ongoing ?? 0, color: '#0284c7' },
       { name: 'Resolved', value: s.resolved ?? 0, color: '#16a34a' },
       { name: 'Dismissed', value: s.dismissed ?? 0, color: '#6b7280' }
@@ -623,6 +716,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div className="text-right text-[10px] font-bold">
                   <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                  {periodLabel && <div className="text-[9px] text-red-100 font-normal">{periodLabel}</div>}
                   <div className="text-[9px] text-red-100 font-normal">
                     Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
                   </div>
@@ -706,7 +800,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
                 <div className="w-full flex justify-around text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Pending</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#c4ac4e' }}></span> Pending</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Dismissed</span>
@@ -813,6 +907,7 @@ export default function AnalyticsPage() {
                 ) : (
                   <div className="relative isolate rounded-lg overflow-hidden border border-gray-200" style={{ width: 690, height: 380 }}>
                     <PrintClusterMap
+                      center={barangayCenter}
                       groups={clusterGroups}
                       onTilesLoading={() => { printTilesReadyRef.current = false; }}
                       onTilesLoaded={() => { printTilesReadyRef.current = true; }}
@@ -899,7 +994,7 @@ export default function AnalyticsPage() {
             </button>
 
             <button
-              onClick={() => fetchDashboard()}
+              onClick={() => { fetchDashboard(); fetchResidentCounts(); }}
               disabled={isSyncing}
               title="Reloads the general analytics only (DBSCAN has its own button)"
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
@@ -972,89 +1067,37 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 3: REPORT TRENDS LINE CHART */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-              <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={timeRange}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setTimeRange(val);
-                    if (val !== 'date_range') {
-                      setFromDate('');
-                      setToDate('');
-                    }
+          {/* ROW 3: REPORT TRENDS + PEAK INCIDENT HOURS (half / half) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <h3 className="font-bold text-sm text-gray-900">Report Trends</h3>
+                <DateRangeFilter
+                  align="right"
+                  preset={timeRange}
+                  from={fromDate}
+                  to={toDate}
+                  customValue="date_range"
+                  maxDate={todayKey}
+                  presets={[
+                    { value: 'this_week', label: 'This Week' },
+                    { value: 'today', label: 'Today' },
+                    { value: 'past_month', label: 'Past Month' },
+                    { value: 'past_year', label: 'Past Year' },
+                    { value: 'all_time', label: 'All Time' }
+                  ]}
+                  onChange={({ preset, from, to }) => {
+                    setTimeRange(preset);
+                    setFromDate(from || '');
+                    setToDate(to || '');
                   }}
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 bg-white shadow-xs focus:outline-none cursor-pointer"
-                >
-                  <option value="this_week">This Week</option>
-                  <option value="today">Today</option>
-                  <option value="past_month">Past Month</option>
-                  <option value="past_year">Past Year</option>
-                  <option value="date_range">Custom Date Range...</option>
-                  <option value="all_time">All Time</option>
-                </select>
-
-                <div className="bg-white border border-gray-300 rounded-lg flex items-center px-3 py-1 shadow-xs text-xs text-gray-600 font-bold gap-2">
-                  <CalendarDays size={14} className="text-gray-400 shrink-0" />
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 uppercase">From</span>
-                    <input
-                      type="date"
-                      value={fromDate}
-                      max={toDate || todayKey}
-                      onChange={(e) => {
-                        setFromDate(e.target.value);
-                        setTimeRange('date_range');
-                      }}
-                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700"
-                    />
-                  </div>
-
-                  <span className="text-gray-300">•</span>
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 uppercase">To</span>
-                    <input
-                      type="date"
-                      value={toDate}
-                      min={fromDate || undefined}
-                      max={todayKey}
-                      onChange={(e) => {
-                        setToDate(e.target.value);
-                        setTimeRange('date_range');
-                      }}
-                      className="bg-transparent focus:outline-none cursor-pointer text-xs font-bold text-gray-700"
-                    />
-                  </div>
-
-                  {(fromDate || toDate) && (
-                    <X
-                      size={14}
-                      className="text-gray-400 hover:text-red-500 cursor-pointer ml-1 shrink-0"
-                      onClick={() => {
-                        setFromDate('');
-                        setToDate('');
-                        setTimeRange(DEFAULT_PERIOD);
-                      }}
-                      title="Clear Custom Dates"
-                    />
-                  )}
-                </div>
+                />
               </div>
-            </div>
+              {periodLabel && (
+                <p className="text-[11px] font-bold text-gray-500 mb-3">{periodLabel}</p>
+              )}
 
-            {timeRange === 'date_range' && (!fromDate || !toDate) && (
-              <p className="text-[10px] font-bold text-amber-600 mb-2">
-                Pick both a start and an end date to load the custom range.
-              </p>
-            )}
-
-            <div className="h-56 sm:h-64 w-full min-w-0">
+            <div className="h-56 sm:h-64 w-full min-w-0 mt-auto">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
@@ -1071,9 +1114,28 @@ export default function AnalyticsPage() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
+              <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
+              <div className="h-56 sm:h-64 w-full min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    <Bar name="Reports" dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="text-[9px] text-gray-400 font-medium border-t border-gray-100 pt-2 text-right">
+                Dispatch call density by time of day
+              </div>
+            </div>
           </div>
 
-          {/* ROW 4: 3 BREAKDOWN CARDS */}
+          {/* ROW 4: BREAKDOWN CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
@@ -1094,7 +1156,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="w-full flex flex-wrap justify-around gap-1 text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Pending </span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#c4ac4e' }}></span> Pending </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500"></span> Dismissed</span>
@@ -1133,21 +1195,31 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <h4 className="font-bold text-xs text-gray-900 mb-2">Peak Incident Hours</h4>
-              <div className="h-36 w-full min-w-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="slot" tick={{ fontSize: 8, fill: '#6b7280', fontWeight: 600 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                    <Bar name="Reports" dataKey="count" fill="#b32d2d" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
+              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Active vs Suspended Residents</h4>
+              <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
+                {residentPieData.length === 0 ? (
+                  <span className="text-xs font-bold text-gray-400">No records</span>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={residentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={50} paddingAngle={4}>
+                        {residentPieData.map((entry, idx) => (
+                          <Cell key={`web-res-${idx}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-base font-black text-gray-900">{(residentCounts?.active ?? 0) + (residentCounts?.suspended ?? 0)}</span>
+                  <span className="text-[8px] uppercase font-bold text-gray-400">Residents</span>
+                </div>
               </div>
-              <div className="text-[9px] text-gray-400 font-medium border-t border-gray-100 pt-2 text-right">
-                Dispatch call density by time of day
+              <div className="w-full flex flex-wrap justify-around gap-1 text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Active ({residentCounts?.active ?? 0})</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Suspended ({residentCounts?.suspended ?? 0})</span>
               </div>
             </div>
           </div>
@@ -1221,7 +1293,7 @@ export default function AnalyticsPage() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     {/* MAP */}
                     <div className="lg:col-span-2 relative isolate h-80 lg:h-[420px] rounded-lg overflow-hidden border border-gray-200">
-                      <ClusterMap groups={clusterGroups} selectedCluster={selectedCluster} showNoise={showNoise} />
+                      <ClusterMap groups={clusterGroups} selectedCluster={selectedCluster} showNoise={showNoise} center={barangayCenter} />
                     </div>
 
                     {/* CLUSTER LIST + COORDINATES */}
