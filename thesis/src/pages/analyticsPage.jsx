@@ -651,17 +651,17 @@ export default function AnalyticsPage() {
                 <div className="bg-[#c4ac4e] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
-                  <span className="text-[8px] text-red-100">Pending Reports</span>
+                  <span className="text-[8px] text-red-100">Pending Incident Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
                   <div className="text-xl font-black my-0.5">{inProgressOverall}</div>
-                  <span className="text-[8px] text-blue-100">Active Emergency Units</span>
+                  <span className="text-[8px] text-blue-100">Ongoing Incident Reports</span>
                 </div>
                 <div className="bg-[#059669] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved</span>
                   <div className="text-xl font-black my-0.5">{resolvedOverall}</div>
-                  <span className="text-[8px] text-emerald-100">Completed Dispatches</span>
+                  <span className="text-[8px] text-emerald-100">Resolved Incident Reports</span>
                 </div>
                 <div className="bg-[#6b7280] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>

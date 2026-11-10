@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, Search, Mail, X, Eye, UserCircle, Phone, 
-  MapPin, CheckCircle, XCircle, Trash2, AlertCircle, 
+import {
+  Users, Search, Mail, X, UserCircle, Phone,
+  MapPin, CheckCircle, XCircle, AlertCircle,
   Filter, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck
 } from 'lucide-react';
 
@@ -51,6 +51,20 @@ const SUSPENSION_DETAILS = {
   ],
 };
 
+const getFullName = (u) =>
+  `${u?.first_name || ''} ${u?.last_name || ''}`.trim() || u?.username || '';
+
+const getReasonLabel = (value) =>
+  SUSPENSION_REASONS.find(r => r.value === value)?.label || (value || '').replace(/_/g, ' ');
+
+const getDetailLabel = (value) => {
+  for (const list of Object.values(SUSPENSION_DETAILS)) {
+    const found = list.find(d => d.value === value);
+    if (found) return found.label;
+  }
+  return (value || '').replace(/_/g, ' ');
+};
+
 const CACHE_KEY_CITIZENS = 'cache_admin_citizens_v2';
 
 export default function UsersPage() {
@@ -75,11 +89,8 @@ export default function UsersPage() {
 
   // Suspension Form Modal State
   const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
-  const [suspendForm, setSuspendForm] = useState({
-    reason: 'inappropriate_user_information',
-    detail: 'inappropriate_username',
-    notes: ''
-  });
+  const [suspendForm, setSuspendForm] = useState({ reason: '', detail: '', notes: '' });
+  const [suspendError, setSuspendError] = useState('');
   const [isSubmittingSuspension, setIsSubmittingSuspension] = useState(false);
 
   // Confirmation Decision Modal State
@@ -210,51 +221,28 @@ export default function UsersPage() {
 
   const handleOpenSuspendModal = (user) => {
     setSelectedUser(user);
-    setSuspendForm({
-      reason: 'inappropriate_user_information',
-      detail: 'inappropriate_username',
-      notes: ''
-    });
+    setSuspendForm({ reason: '', detail: '', notes: '' });
+    setSuspendError('');
     setIsSuspendModalOpen(true);
   };
 
-  // Handle reason dropdown change to auto-update detail options
+  // Reason change resets the detail (no default selection). "Other" has a single implicit detail.
   const handleReasonChange = (newReason) => {
-    const availableDetails = SUSPENSION_DETAILS[newReason] || [];
-    setSuspendForm({
+    setSuspendError('');
+    setSuspendForm(prev => ({
+      ...prev,
       reason: newReason,
-      detail: availableDetails[0]?.value || '',
-      notes: suspendForm.notes
-    });
+      detail: newReason === 'other' ? 'other_detail' : ''
+    }));
   };
 
-  // Execute Citizen Suspension against Django Backend models
-  const executeSuspendUser = async () => {
-    if (!selectedUser) return;
-    setIsSubmittingSuspension(true);
-
-    const payload = {
-      is_active: false,
-      suspension_reason: suspendForm.reason,
-      suspension_detail: suspendForm.detail,
-      suspension_notes: suspendForm.notes.trim(),
-      suspended_at: new Date().toISOString()
-    };
-
-    // Optimistic UI Update
-    const updatedUser = { ...selectedUser, ...payload };
-    setSelectedUser(updatedUser);
-    const updatedList = users.map(u => u.id === selectedUser.id ? updatedUser : u);
-    setUsers(updatedList);
-    sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(updatedList));
-
+  // Shared PATCH helper (tries each endpoint / auth scheme like the fetch does)
+  const patchUser = async (target, payload) => {
     const patchEndpoints = [
-      `${API_BASE_URL}/api/users/admin/users/${selectedUser.id}/`,
-      `${API_BASE_URL}/api/users/admin/${selectedUser.id}/`,
-      `${API_BASE_URL}/api/users/${selectedUser.id}/`
+      `${API_BASE_URL}/api/users/admin/users/${target.id}/`,
+      `${API_BASE_URL}/api/users/admin/${target.id}/`,
+      `${API_BASE_URL}/api/users/${target.id}/`
     ];
-
-    let success = false;
     const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
 
     for (const endpoint of patchEndpoints) {
@@ -269,32 +257,51 @@ export default function UsersPage() {
             },
             body: JSON.stringify(payload)
           });
-
-          if (response.ok) {
-            success = true;
-            break;
-          }
+          if (response.ok) return true;
         } catch (error) {
           console.warn(`Patch failed for ${endpoint}:`, error);
         }
       }
-      if (success) break;
     }
+    return false;
+  };
+
+  // Optimistic UI update
+  const applyLocalUpdate = (target, payload) => {
+    const updatedUser = { ...target, ...payload };
+    setSelectedUser(prev => (prev && prev.id === target.id ? updatedUser : prev));
+    const updatedList = users.map(u => u.id === target.id ? updatedUser : u);
+    setUsers(updatedList);
+    sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(updatedList));
+  };
+
+  const executeSuspendUser = async (target, form) => {
+    setIsSubmittingSuspension(true);
+
+    const payload = {
+      is_active: false,
+      suspension_reason: form.reason,
+      suspension_detail: form.detail,
+      suspension_notes: form.notes.trim(),
+      suspended_at: new Date().toISOString()
+    };
+
+    applyLocalUpdate(target, payload);
+    const success = await patchUser(target, payload);
 
     setIsSubmittingSuspension(false);
     setIsSuspendModalOpen(false);
 
     if (success) {
-      setNotificationMsg(`Account ${selectedUser.username} has been suspended.`);
+      setErrorMsg('');
+      setNotificationMsg(`${getFullName(target)} has been suspended.`);
     } else {
+      setNotificationMsg('');
       setErrorMsg("Failed to synchronize state with server, changes saved locally.");
     }
   };
 
-  // Execute Citizen Reactivation
-  const executeReactivateUser = async () => {
-    if (!selectedUser) return;
-
+  const executeReactivateUser = async (target) => {
     const payload = {
       is_active: true,
       suspension_reason: '',
@@ -303,61 +310,55 @@ export default function UsersPage() {
       reactivated_at: new Date().toISOString()
     };
 
-    // Optimistic UI Update
-    const updatedUser = { ...selectedUser, ...payload };
-    setSelectedUser(updatedUser);
-    const updatedList = users.map(u => u.id === selectedUser.id ? updatedUser : u);
-    setUsers(updatedList);
-    sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(updatedList));
-
-    const patchEndpoints = [
-      `${API_BASE_URL}/api/users/admin/users/${selectedUser.id}/`,
-      `${API_BASE_URL}/api/users/admin/${selectedUser.id}/`,
-      `${API_BASE_URL}/api/users/${selectedUser.id}/`
-    ];
-
-    let success = false;
-    const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
-
-    for (const endpoint of patchEndpoints) {
-      for (const useBearer of [false, true]) {
-        try {
-          const authPrefix = useBearer ? 'Bearer' : 'Token';
-          const response = await fetch(endpoint, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `${authPrefix} ${cleanToken}`
-            },
-            body: JSON.stringify(payload)
-          });
-
-          if (response.ok) {
-            success = true;
-            break;
-          }
-        } catch (error) {
-          console.warn(`Patch failed for ${endpoint}:`, error);
-        }
-      }
-      if (success) break;
-    }
+    applyLocalUpdate(target, payload);
+    const success = await patchUser(target, payload);
 
     if (success) {
-      setNotificationMsg(`Account ${selectedUser.username} reactivated successfully.`);
+      setErrorMsg('');
+      setNotificationMsg(`${getFullName(target)} has been re-activated.`);
     } else {
+      setNotificationMsg('');
       setErrorMsg("Failed to synchronize state with server, changes saved locally.");
     }
   };
 
-  const requestReactivateUser = () => {
+  // Suspension form submit -> validate -> confirm -> execute
+  const requestSuspendUser = () => {
     if (!selectedUser) return;
+
+    if (!suspendForm.reason) {
+      setSuspendError('Please select a suspension reason.');
+      return;
+    }
+    if (!suspendForm.detail) {
+      setSuspendError('Please select a suspension detail.');
+      return;
+    }
+    if (suspendForm.reason === 'other' && !suspendForm.notes.trim()) {
+      setSuspendError('Please describe the reason for suspension.');
+      return;
+    }
+
+    setSuspendError('');
+    const target = selectedUser;
+    const form = { ...suspendForm };
     setConfirmModal({
       isOpen: true,
-      title: 'Reactivate Citizen Account',
-      message: `Are you sure you want to lift the suspension and reactivate ${selectedUser.username}?`,
-      confirmText: 'Reactivate Account',
-      action: executeReactivateUser
+      title: 'Suspend Resident',
+      message: `Are you sure you want to suspend ${getFullName(target)}? Reason: ${getReasonLabel(form.reason)}.`,
+      confirmText: 'Suspend Resident',
+      action: () => executeSuspendUser(target, form)
+    });
+  };
+
+  const requestReactivateUser = (target) => {
+    if (!target) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Re-activate Resident',
+      message: `Are you sure you want to lift the suspension and re-activate ${getFullName(target)}?`,
+      confirmText: 'Re-activate Resident',
+      action: () => executeReactivateUser(target)
     });
   };
 
@@ -365,6 +366,28 @@ export default function UsersPage() {
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] relative flex flex-col">
         
+        {/* PAGE HEADER */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <Users className="text-[#b32d2d]" size={24} />
+            <h1 className="font-black text-xl sm:text-2xl text-gray-900">Registered Residents</h1>
+          </div>
+          <span className="text-xs sm:text-sm text-gray-900 font-black">
+            {filteredUsers.length} Enrolled Residents
+          </span>
+        </div>
+
+        {/* PAGE-LEVEL FEEDBACK (actions can now be done straight from the table) */}
+        {!isProfileModalOpen && (errorMsg || notificationMsg) && (
+          <div className={`mb-4 p-3 rounded-lg text-xs font-semibold flex items-center gap-2 border shrink-0 ${
+            errorMsg ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+          }`}>
+            {errorMsg ? <AlertCircle size={16} className="shrink-0" /> : <CheckCircle size={16} className="text-emerald-600 shrink-0" />}
+            <span className="flex-1">{errorMsg || notificationMsg}</span>
+            <X size={16} className="cursor-pointer shrink-0" onClick={() => { setErrorMsg(''); setNotificationMsg(''); }} />
+          </div>
+        )}
+
         {/* CONTROLS & FILTER HEADER */}
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full lg:w-auto">
@@ -374,7 +397,7 @@ export default function UsersPage() {
               <Search size={18} className="text-gray-400 ml-3 shrink-0" />
               <input 
                 type="text" 
-                placeholder="Search citizen name, email, or brgy..." 
+                placeholder="Search resident name, email, or brgy..." 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
                 className="w-full py-2 px-3 text-xs font-medium text-gray-700 focus:outline-none" 
@@ -410,62 +433,49 @@ export default function UsersPage() {
 
         {/* MASTER DIRECTORY TABLE */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-3">
-              <Users className="text-[#b32d2d]" size={22} />
-              <h2 className="font-bold text-lg sm:text-xl text-gray-900">Registered Residents Directory</h2>
-            </div>
-            {/* BOLD ENROLLED COUNTER */}
-            <span className="text-xs sm:text-sm text-gray-900 font-black">
-              {filteredUsers.length} Enrolled Citizens
-            </span>
-          </div>
-
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left border-collapse min-w-[650px]">
               <thead>
                 <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
                   <th className="py-3.5 px-4 sm:px-6">ID</th>
-                  <th className="py-3.5 px-4 sm:px-6">Username</th>
                   <th className="py-3.5 px-4 sm:px-6">Full Name</th>
+                  <th className="py-3.5 px-4 sm:px-6">Email</th>
                   <th className="py-3.5 px-4 sm:px-6">Barangay</th>
-                  <th className="py-3.5 px-4 sm:px-6">Phone Number</th>
                   <th className="py-3.5 px-4 sm:px-6">Status</th>
-                  <th className="py-3.5 px-4 sm:px-6 text-center w-36">Actions</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-center w-40">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-bold">Querying citizen accounts database...</td></tr>
+                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-bold">Querying resident accounts database...</td></tr>
                 ) : filteredUsers.length === 0 ? (
                   <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-medium">No registered residents found matching that criteria.</td></tr>
                 ) : (
                   filteredUsers.map((user) => {
-                    const finalName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
                     const isActive = user.is_active ?? true;
 
                     return (
-                      <tr 
-                        key={user.id || user.username} 
+                      <tr
+                        key={user.id || user.username}
                         onClick={() => handleOpenUserModal(user)}
                         className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
                         <td className="py-4 px-4 sm:px-6 font-black text-gray-800 text-sm tracking-tight">{user.id}</td>
-                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-gray-500 font-medium">{user.username}</td>
-                        <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{finalName}</td>
+                        <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{getFullName(user)}</td>
+                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-gray-500 font-medium">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Mail size={14} className="text-gray-400 shrink-0" />
+                            <span className="truncate">{user.email || 'No email registered'}</span>
+                          </div>
+                        </td>
                         <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm font-semibold text-gray-700">
                           <div className="flex items-center gap-1.5">
                             <MapPin size={14} className="text-[#b32d2d] shrink-0" />
                             <span className="truncate">Brgy. {user.residential_barangay || user.barangay || 'Not Specified'}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-gray-500 font-medium">
-                          <div className="flex items-center gap-1.5 truncate">
-                            <Mail size={14} className="text-gray-400 shrink-0" /> 
-                            <span className="truncate">{user.contact_number || 'No phone number'}</span>
-                          </div>
-                        </td>
                         <td className="py-4 px-4 sm:px-6">
+                          {/* READ-ONLY STATUS */}
                           <span className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-bold border flex items-center gap-1 w-fit ${
                             isActive ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
                           }`}>
@@ -474,12 +484,21 @@ export default function UsersPage() {
                           </span>
                         </td>
                         <td className="py-4 px-4 sm:px-6 text-center">
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenUserModal(user); }} 
-                            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 font-bold text-[11px] sm:text-xs uppercase tracking-tight rounded flex items-center gap-1.5 mx-auto transition-all active:scale-95 shadow-xs cursor-pointer"
-                          >
-                            <Eye size={13} /> View File
-                          </button>
+                          {isActive ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleOpenSuspendModal(user); }}
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-[11px] sm:text-xs uppercase tracking-tight rounded flex items-center gap-1.5 mx-auto transition-all active:scale-95 shadow-xs cursor-pointer"
+                            >
+                              <ShieldAlert size={13} /> Suspend
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); requestReactivateUser(user); }}
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] sm:text-xs uppercase tracking-tight rounded flex items-center gap-1.5 mx-auto transition-all active:scale-95 shadow-xs cursor-pointer"
+                            >
+                              <ShieldCheck size={13} /> Re-activate
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -537,7 +556,7 @@ export default function UsersPage() {
               <div>
                 <span className="text-[10px] font-black uppercase text-gray-400">Full Name</span>
                 <p className="text-base font-black text-gray-900 mt-0.5">
-                  {`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || selectedUser.username}
+                  {getFullName(selectedUser)}
                 </p>
               </div>
 
@@ -579,15 +598,15 @@ export default function UsersPage() {
               </div>
 
               {/* SHOW SUSPENSION REASON IF SUSPENDED */}
-              {!(selectedUser.is_active ?? true) && selectedUser.suspension_reason && (
+              {!(selectedUser.is_active ?? true) && (
                 <div className="p-3 bg-red-50/70 border border-red-200 rounded-xl space-y-1 text-xs">
-                  <span className="font-bold text-red-800 uppercase text-[10px] block">Suspension Notice</span>
+                  <span className="font-bold text-red-800 uppercase text-[10px] block">Suspension Reason</span>
                   <p className="text-gray-800 font-semibold">
-                    <span className="text-gray-500">Reason:</span> {selectedUser.suspension_reason.replace(/_/g, ' ')}
+                    {selectedUser.suspension_reason ? getReasonLabel(selectedUser.suspension_reason) : 'No reason recorded'}
                   </p>
-                  {selectedUser.suspension_detail && (
+                  {selectedUser.suspension_detail && selectedUser.suspension_detail !== 'other_detail' && (
                     <p className="text-gray-800 font-medium">
-                      <span className="text-gray-500">Detail:</span> {selectedUser.suspension_detail.replace(/_/g, ' ')}
+                      <span className="text-gray-500">Detail:</span> {getDetailLabel(selectedUser.suspension_detail)}
                     </p>
                   )}
                   {selectedUser.suspension_notes && (
@@ -612,10 +631,10 @@ export default function UsersPage() {
                   </button>
                 ) : (
                   <button 
-                    onClick={requestReactivateUser}
+                    onClick={() => requestReactivateUser(selectedUser)}
                     className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-tight rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                   >
-                    <ShieldCheck size={16} /> Reactivate Citizen Account
+                    <ShieldCheck size={16} /> Re-activate Resident
                   </button>
                 )}
               </div>
@@ -624,7 +643,7 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* SUSPEND CITIZEN FORM MODAL */}
+      {/* SUSPEND RESIDENT FORM MODAL */}
       {isSuspendModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[90] p-4 animate-fade-in overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100 my-8">
@@ -632,7 +651,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-2.5">
                 <ShieldAlert size={22} className="text-red-600 shrink-0" />
                 <h3 className="font-extrabold text-base text-gray-900">
-                  Suspend {selectedUser.username}
+                  Suspend Resident
                 </h3>
               </div>
               <X 
@@ -642,7 +661,11 @@ export default function UsersPage() {
               />
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); executeSuspendUser(); }} className="p-5 space-y-4 text-xs">
+            <form onSubmit={(e) => { e.preventDefault(); requestSuspendUser(); }} className="p-5 space-y-4 text-xs">
+              <p className="text-gray-600 font-semibold">
+                {getFullName(selectedUser)} <span className="text-gray-400 font-medium">(ID {selectedUser.id})</span>
+              </p>
+
               <div>
                 <label className="block font-bold text-gray-700 mb-1">
                   Suspension Reason <span className="text-red-500">*</span>
@@ -652,43 +675,57 @@ export default function UsersPage() {
                   onChange={(e) => handleReasonChange(e.target.value)}
                   className="w-full p-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-800 focus:outline-none focus:border-red-500"
                 >
+                  <option value="" disabled>Select a Reason</option>
                   {SUSPENSION_REASONS.map(r => (
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">
-                  Suspension Detail <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={suspendForm.detail}
-                  onChange={(e) => setSuspendForm({ ...suspendForm, detail: e.target.value })}
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-800 focus:outline-none focus:border-red-500"
-                >
-                  {(SUSPENSION_DETAILS[suspendForm.reason] || []).map(d => (
-                    <option key={d.value} value={d.value}>{d.label}</option>
-                  ))}
-                </select>
-              </div>
+              {/* "Other" has a single implicit detail, so the detail dropdown is hidden for it */}
+              {suspendForm.reason !== 'other' && (
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">
+                    Suspension Detail <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={suspendForm.detail}
+                    disabled={!suspendForm.reason}
+                    onChange={(e) => { setSuspendError(''); setSuspendForm({ ...suspendForm, detail: e.target.value }); }}
+                    className="w-full p-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-800 focus:outline-none focus:border-red-500 disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option value="" disabled>Select a Detail</option>
+                    {(SUSPENSION_DETAILS[suspendForm.reason] || []).map(d => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold text-gray-700 mb-1">
-                  Additional Notes (Optional, max 200 chars)
+                  {suspendForm.reason === 'other'
+                    ? <>Description <span className="text-red-500">*</span></>
+                    : 'Additional Notes (Optional, max 200 chars)'}
                 </label>
                 <textarea
                   maxLength={200}
                   rows={3}
-                  placeholder="Provide specific notes regarding this suspension..."
+                  placeholder={suspendForm.reason === 'other' ? 'Describe the reason for this suspension...' : 'Provide specific notes regarding this suspension...'}
                   value={suspendForm.notes}
-                  onChange={(e) => setSuspendForm({ ...suspendForm, notes: e.target.value })}
+                  onChange={(e) => { setSuspendError(''); setSuspendForm({ ...suspendForm, notes: e.target.value }); }}
                   className="w-full p-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-800 focus:outline-none focus:border-red-500 leading-relaxed"
                 />
                 <span className="text-[10px] text-gray-400 block text-right mt-1">
                   {suspendForm.notes.length}/200 characters
                 </span>
               </div>
+
+              {suspendError && (
+                <div className="p-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg font-semibold flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" /> {suspendError}
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                 <button
@@ -703,7 +740,7 @@ export default function UsersPage() {
                   disabled={isSubmittingSuspension}
                   className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-all disabled:opacity-50 cursor-pointer shadow-xs"
                 >
-                  {isSubmittingSuspension ? 'Suspending...' : 'Confirm Suspension'}
+                  {isSubmittingSuspension ? 'Suspending...' : 'Suspend Resident'}
                 </button>
               </div>
             </form>

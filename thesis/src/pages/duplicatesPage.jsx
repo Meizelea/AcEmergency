@@ -72,9 +72,6 @@ export default function DuplicatesPage() {
   const pendingPairs = pairs.filter((p) => p.status === 'pending');
   const reviewedPairs = pairs.filter((p) => p.status !== 'pending');
   const visiblePairs = activeTab === 'pending' ? pendingPairs : reviewedPairs;
-  const dismissedCount = reviewedPairs.filter((p) => p.status === 'dismissed').length;
-  const confirmedCount = reviewedPairs.filter((p) => p.status === 'confirmed').length;
-  const otherCount = reviewedPairs.length - dismissedCount - confirmedCount;
 
   const savePairsToCache = (list) => {
     try {
@@ -298,16 +295,6 @@ export default function DuplicatesPage() {
             ))}
           </div>
 
-          {!isLoading && (
-            <p className="text-[11px] text-gray-400 font-medium">
-              Server returned {pairs.length} pair{pairs.length === 1 ? '' : 's'}: {pendingPairs.length} pending,{' '}
-              {dismissedCount} dismissed, {confirmedCount} confirmed
-              {otherCount > 0 ? `, ${otherCount} with an unrecognized status` : ''}.
-              {pairs.length === 0 &&
-                ' Nothing was saved for your assigned barangay. A pair is only created when a report is submitted within 10 minutes of another report in the same barangay, within 300 m, with a match score of 70% or higher.'}
-            </p>
-          )}
-
           {activeTab === 'reviewed' && (
             <p className="text-[11px] text-gray-500 font-medium">
               Pairs are marked <b>Dismissed</b> automatically when a report is moved to Ongoing or Resolved.
@@ -358,6 +345,8 @@ export default function DuplicatesPage() {
               // and `potential_duplicate` is the OLDER report it resembles.
               const primary = dup.potential_duplicate || {};   // earlier = original
               const candidate = dup.report || {};              // later = possible duplicate
+              // The duplicate follows the main report's status (main resolved -> duplicate resolved)
+              const candidateStatus = primary.status || candidate.status;
               const matchScorePercent = Math.round((dup.similarity_score || 0) * 100);
               const isBusy = busyIds.includes(dup.id);
 
@@ -460,9 +449,9 @@ export default function DuplicatesPage() {
                     <div className="border border-amber-200 rounded-xl p-4 bg-amber-50/30">
                       <div className="text-[10px] uppercase font-black tracking-wider text-amber-700 mb-1 flex items-center justify-between">
                         <span>Candidate Duplicate #{candidate.id || 'N/A'}</span>
-                        {candidate.status && (
-                          <span className={`px-1.5 py-0.5 rounded normal-case tracking-normal font-bold ${STATUS_CHIP[candidate.status] || 'bg-gray-200 text-gray-600'}`}>
-                            {capitalize(candidate.status)}
+                        {candidateStatus && (
+                          <span className={`px-1.5 py-0.5 rounded normal-case tracking-normal font-bold ${STATUS_CHIP[candidateStatus] || 'bg-gray-200 text-gray-600'}`}>
+                            {capitalize(candidateStatus)}
                           </span>
                         )}
                       </div>
