@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, Search, Mail, X, UserCircle, Phone,
   MapPin, CheckCircle, XCircle, AlertCircle,
-  Filter, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck
+  Filter, ShieldAlert, RefreshCw, AlertTriangle, ShieldCheck,
+  ArrowUp, ArrowDown
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -80,6 +81,7 @@ export default function UsersPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [reportFilter, setReportFilter] = useState('ALL'); // ALL, CLEAN, DISABLED
+  const [idSortOrder, setIdSortOrder] = useState('asc'); // 'asc' | 'desc'
 
   // Profile Modal & Management States
   const [selectedUser, setSelectedUser] = useState(null);
@@ -210,6 +212,9 @@ export default function UsersPage() {
     }
 
     return matchesSearch && matchesFilter;
+  }).sort((a, b) => {
+    const diff = (Number(a.id) || 0) - (Number(b.id) || 0);
+    return idSortOrder === 'asc' ? diff : -diff;
   });
 
   const handleOpenUserModal = (user) => {
@@ -437,7 +442,17 @@ export default function UsersPage() {
             <table className="w-full text-left border-collapse min-w-[650px]">
               <thead>
                 <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                  <th className="py-3.5 px-4 sm:px-6">ID</th>
+                  <th className="py-3.5 px-4 sm:px-6">
+                    <button
+                      type="button"
+                      onClick={() => setIdSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))}
+                      title={idSortOrder === 'asc' ? 'Sorted ascending (click for descending)' : 'Sorted descending (click for ascending)'}
+                      className="flex items-center gap-1 uppercase font-black tracking-wider cursor-pointer hover:text-[#b32d2d] transition-colors"
+                    >
+                      ID
+                      {idSortOrder === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
+                    </button>
+                  </th>
                   <th className="py-3.5 px-4 sm:px-6">Full Name</th>
                   <th className="py-3.5 px-4 sm:px-6">Email</th>
                   <th className="py-3.5 px-4 sm:px-6">Barangay</th>
