@@ -648,7 +648,7 @@ export default function AnalyticsPage() {
               </div>
 
               <div className="grid grid-cols-4 gap-2">
-                <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
+                <div className="bg-[#fde68a] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
                   <span className="text-[8px] text-red-100">Pending Reports</span>
@@ -947,7 +947,7 @@ export default function AnalyticsPage() {
 
           {/* ROW 2: STATUS CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
+            <div className="bg-[#fde68a] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending</span>
               <div className="text-3xl font-black my-1">{pendingOverall}</div>
               <span className="text-[10px] text-red-100 font-medium">Pending Incident Reports</span>
