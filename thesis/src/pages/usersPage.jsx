@@ -451,7 +451,7 @@ export default function UsersPage() {
                         className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
                         <td className="py-4 px-4 sm:px-6 font-black text-gray-800 text-sm tracking-tight">{user.id}</td>
-                        <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{user.username}</td>
+                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-gray-500 font-medium">{user.username}</td>
                         <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{finalName}</td>
                         <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm font-semibold text-gray-700">
                           <div className="flex items-center gap-1.5">

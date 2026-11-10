@@ -442,12 +442,11 @@ export default function AnalyticsPage() {
   const totalReports = dashboard?.totals?.total_reports ?? 0;
 
   const todayStatuses = dashboard?.today_statuses || {};
-  const inProgressToday = todayStatuses.ongoing ?? 0;
-  const resolvedToday = todayStatuses.resolved ?? 0;
-  const dismissedToday = todayStatuses.dismissed ?? 0;
-
   // Pending Overall = every pending report (same source as the Report Status donut), not just today's
   const pendingOverall = dashboard?.total_statuses?.pending ?? 0;
+  const inProgressOverall = dashboard?.total_statuses?.ongoing ?? 0;
+  const resolvedOverall = dashboard?.total_statuses?.resolved ?? 0;
+  const dismissedOverall = dashboard?.total_statuses?.resolved ?? 0;
 
   const trendData = useMemo(() => buildTrendSeries(dashboard?.report_trend), [dashboard]);
 
@@ -463,7 +462,7 @@ export default function AnalyticsPage() {
   const statusPieData = useMemo(() => {
     const s = dashboard?.total_statuses || {};
     return [
-      { name: 'Pending', value: s.pending ?? 0, color: '#dc2626' },
+      { name: 'Pending', value: s.pending ?? 0, color: '#fde68a' },
       { name: 'Ongoing', value: s.ongoing ?? 0, color: '#0284c7' },
       { name: 'Resolved', value: s.resolved ?? 0, color: '#16a34a' },
       { name: 'Dismissed', value: s.dismissed ?? 0, color: '#6b7280' }
@@ -620,7 +619,7 @@ export default function AnalyticsPage() {
               <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
                 <div>
                   <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
-                  <p className="text-[10px] text-red-100 font-medium">Executive Analytics & System Insights Report</p>
+                  <p className="text-[10px] text-red-100 font-medium">Analytics Report</p>
                 </div>
                 <div className="text-right text-[10px] font-bold">
                   <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
@@ -650,23 +649,23 @@ export default function AnalyticsPage() {
 
               <div className="grid grid-cols-4 gap-2">
                 <div className="bg-[#dc2626] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending Overall</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
                   <span className="text-[8px] text-red-100">Pending Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-                  <div className="text-xl font-black my-0.5">{inProgressToday}</div>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
+                  <div className="text-xl font-black my-0.5">{inProgressOverall}</div>
                   <span className="text-[8px] text-blue-100">Active Emergency Units</span>
                 </div>
                 <div className="bg-[#059669] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-                  <div className="text-xl font-black my-0.5">{resolvedToday}</div>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Resolved</span>
+                  <div className="text-xl font-black my-0.5">{resolvedOverall}</div>
                   <span className="text-[8px] text-emerald-100">Completed Dispatches</span>
                 </div>
                 <div className="bg-[#6b7280] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Dismissed Today</span>
-                  <div className="text-xl font-black my-0.5">{dismissedToday}</div>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
+                  <div className="text-xl font-black my-0.5">{dismissedOverall}</div>
                   <span className="text-[8px] text-gray-100">Dismissed Reports</span>
                 </div>
               </div>
@@ -883,16 +882,12 @@ export default function AnalyticsPage() {
             <div className="flex items-center gap-2">
               <TrendingUp size={22} className="text-[#b32d2d] shrink-0" />
               <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">
-                System Analytics & Insights
+                System Analytics
               </h1>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-300 shadow-xs">
-              Brgy. {assignedBarangay || 'Unassigned'} Jurisdiction
-            </div>
-
             <button
               onClick={handleDownloadPDF}
               disabled={isLoading || !dashboard || isPreparingPdf || dbscanLoading}
@@ -910,7 +905,7 @@ export default function AnalyticsPage() {
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} />
-              {isSyncing ? "Syncing..." : "Sync Data"}
+              {isSyncing ? "Syncing..." : "Refresh"}
             </button>
           </div>
         </div>
@@ -927,21 +922,20 @@ export default function AnalyticsPage() {
           {/* ROW 1: TOP STAT CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Total System Users</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Registered Residents</span>
               <div className="text-3xl font-black text-gray-900 my-1">{totalUsers}</div>
-              <span className="text-[10px] text-gray-400 font-medium">Registered residents in this barangay</span>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">System Reports</span>
               <div className="text-3xl font-black text-gray-900 my-1">{totalReports}</div>
               <span className="text-[10px] text-gray-400 font-medium">
-                Submissions in Brgy. {assignedBarangay || 'Unassigned'} (confirmed duplicates excluded)
+                Submissions in Brgy. {assignedBarangay || 'Unassigned'}
               </span>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Covered Jurisdiction</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Assigned Barangay</span>
               <div className="text-xl font-black text-gray-900 my-1">
                 {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
               </div>
@@ -954,27 +948,27 @@ export default function AnalyticsPage() {
           {/* ROW 2: STATUS CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#dc2626] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending Overall</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending</span>
               <div className="text-3xl font-black my-1">{pendingOverall}</div>
-              <span className="text-[10px] text-red-100 font-medium">Pending Reports</span>
+              <span className="text-[10px] text-red-100 font-medium">Pending Incident Reports</span>
             </div>
 
             <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing Today</span>
-              <div className="text-3xl font-black my-1">{inProgressToday}</div>
-              <span className="text-[10px] text-blue-100 font-medium">Active Emergency Units</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing</span>
+              <div className="text-3xl font-black my-1">{inProgressOverall}</div>
+              <span className="text-[10px] text-blue-100 font-medium">Ongoing Incident Reports</span>
             </div>
 
             <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
-              <div className="text-3xl font-black my-1">{resolvedToday}</div>
-              <span className="text-[10px] text-emerald-100 font-medium">Completed Dispatches</span>
+              <div className="text-3xl font-black my-1">{resolvedOverall}</div>
+              <span className="text-[10px] text-emerald-100 font-medium">Resolved Incident Reports</span>
             </div>
 
             <div className="bg-[#6b7280] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Dismissed Today</span>
-              <div className="text-3xl font-black my-1">{dismissedToday}</div>
-              <span className="text-[10px] text-gray-100 font-medium">Dismissed Reports</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
+              <div className="text-3xl font-black my-1">{dismissedOverall}</div>
+              <span className="text-[10px] text-gray-100 font-medium">Dismissed Incident Reports</span>
             </div>
           </div>
 
@@ -1169,7 +1163,6 @@ export default function AnalyticsPage() {
                 <p className="text-[11px] text-gray-500 font-medium mt-0.5 flex items-start gap-1">
                   <Info size={12} className="shrink-0 mt-0.5" />
                   Groups nearby reports (within 500 m, at least 2 reports) into geographic hotspots.
-                  It runs only when requested because it is resource-intensive.
                 </p>
               </div>
 
