@@ -648,7 +648,7 @@ export default function AnalyticsPage() {
               </div>
 
               <div className="grid grid-cols-4 gap-2">
-                <div className="bg-[#fde68a] text-white p-2.5 rounded-lg">
+                <div className="bg-[#c4ac4e] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
                   <span className="text-[8px] text-red-100">Pending Reports</span>
@@ -960,7 +960,7 @@ export default function AnalyticsPage() {
             </div>
 
             <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved Today</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Resolved</span>
               <div className="text-3xl font-black my-1">{resolvedOverall}</div>
               <span className="text-[10px] text-emerald-100 font-medium">Resolved Incident Reports</span>
             </div>
