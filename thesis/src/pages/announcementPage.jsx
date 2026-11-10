@@ -96,7 +96,7 @@ export default function AnnouncementPage() {
       sessionStorage.setItem(CACHE_KEY_ANNOUNCEMENTS, JSON.stringify(rawList));
     } catch (err) {
       console.error('Fetch announcements failure:', err);
-      setFeedback({ error: 'Failed to fetch announcements. Verify credentials and assigned barangay.', success: '' });
+      setFeedback({ error: 'Failed to fetch announcements. Verify credentials and barangay.', success: '' });
     } finally {
       setLoading(false);
       setIsSyncing(false);
@@ -426,9 +426,9 @@ export default function AnnouncementPage() {
                 <tr className="border-b border-gray-200 bg-gray-50/50 text-xs font-black text-gray-900 uppercase tracking-wider select-none">
                   <th className="py-3.5 px-4 sm:px-6 w-16">ID</th>
                   <th className="py-3.5 px-4 sm:px-6">ANNOUNCEMENT DETAILS</th>
-                  <th className="py-3.5 px-4 sm:px-6">ASSIGNED BARANGAY</th>
+                  <th className="py-3.5 px-4 sm:px-6">BARANGAY</th>
                   <th className="py-3.5 px-6">ATTACHMENT</th>
-                  <th className="py-3.5 px-4 sm:px-6">DATE PUBLISHED</th>
+                  <th className="py-3.5 px-4 sm:px-6">DATE POSTED</th>
                   <th className="py-3.5 px-4 sm:px-6 text-right">ACTIONS</th>
                 </tr>
               </thead>
@@ -484,40 +484,6 @@ export default function AnnouncementPage() {
                       <td className="py-4 px-4 sm:px-6 text-gray-700 font-bold">
                         {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="py-4 px-4 sm:px-6 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenDetail(item);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
-                          >
-                            <Eye size={13} />
-                            VIEW FILE
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenForm(item);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
-                            title="Edit Announcement"
-                          >
-                            <Edit3 size={13} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              requestDelete(item);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-[11px] font-bold transition-all cursor-pointer"
-                            title="Delete Announcement"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
                     </tr>
                   ))
                 )}
@@ -537,10 +503,6 @@ export default function AnnouncementPage() {
                   </h3>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {selectedAnnouncement.created_at ? new Date(selectedAnnouncement.created_at).toLocaleString() : ''}
-                    {' • '}
-                    <span className="font-bold text-red-600 uppercase">
-                      {selectedAnnouncement.barangay ? `Brgy. ${selectedAnnouncement.barangay}` : 'Station Advisory'}
-                    </span>
                   </p>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -574,7 +536,7 @@ export default function AnnouncementPage() {
                 <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                      ASSIGNED BARANGAY JURISDICTION
+                      BARANGAY
                     </span>
                     <span className="text-sm font-semibold text-gray-800">
                       {selectedAnnouncement.barangay ? `Brgy. ${selectedAnnouncement.barangay}` : 'Command Wide'}
@@ -592,7 +554,7 @@ export default function AnnouncementPage() {
 
                 <div>
                   <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                    Advisory Content
+                    Content
                   </h4>
                   <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 text-sm text-gray-700 leading-relaxed whitespace-pre-line font-medium">
                     {selectedAnnouncement.content}

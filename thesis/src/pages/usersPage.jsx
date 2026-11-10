@@ -169,11 +169,10 @@ export default function UsersPage() {
     return <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center text-gray-400 font-bold">Redirecting...</div>;
   }
 
-  // SEARCH & ACCOUNT STATUS FILTERING (ONLY REGISTERED CITIZENS)
+
   const filteredUsers = users.filter(user => {
     if (!user) return false;
 
-    // Filter out Admin accounts strictly to show ONLY registered citizens
     const isAdminRole = user.role === 'admin' || user.role === 'privileged_admin';
     const hasAssignedBarangay = Boolean(user.assigned_barangay);
     const isSuperuser = user.is_superuser === true || user.username === 'admin' || user.is_staff === true;
@@ -286,7 +285,7 @@ export default function UsersPage() {
     setIsSuspendModalOpen(false);
 
     if (success) {
-      setNotificationMsg(`Account @${selectedUser.username} has been suspended.`);
+      setNotificationMsg(`Account ${selectedUser.username} has been suspended.`);
     } else {
       setErrorMsg("Failed to synchronize state with server, changes saved locally.");
     }
@@ -345,7 +344,7 @@ export default function UsersPage() {
     }
 
     if (success) {
-      setNotificationMsg(`Account @${selectedUser.username} reactivated successfully.`);
+      setNotificationMsg(`Account ${selectedUser.username} reactivated successfully.`);
     } else {
       setErrorMsg("Failed to synchronize state with server, changes saved locally.");
     }
@@ -356,7 +355,7 @@ export default function UsersPage() {
     setConfirmModal({
       isOpen: true,
       title: 'Reactivate Citizen Account',
-      message: `Are you sure you want to lift the suspension and reactivate @${selectedUser.username}?`,
+      message: `Are you sure you want to lift the suspension and reactivate ${selectedUser.username}?`,
       confirmText: 'Reactivate Account',
       action: executeReactivateUser
     });
@@ -390,9 +389,9 @@ export default function UsersPage() {
                 onChange={(e) => setReportFilter(e.target.value)} 
                 className="py-2 bg-transparent focus:outline-none cursor-pointer pr-2 w-full"
               >
-                <option value="ALL">All Registered Citizens</option>
-                <option value="CLEAN">Active Citizens</option>
-                <option value="DISABLED">Suspended Citizens</option>
+                <option value="ALL">All Registered Residents</option>
+                <option value="CLEAN">Active Residents</option>
+                <option value="DISABLED">Suspended Residents</option>
               </select>
             </div>
 
@@ -404,7 +403,7 @@ export default function UsersPage() {
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
-              {isSyncing ? "Syncing..." : "Sync Data"}
+              {isSyncing ? "Syncing..." : "Refresh"}
             </button>
           </div>
         </div>
@@ -414,7 +413,7 @@ export default function UsersPage() {
           <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-3">
               <Users className="text-[#b32d2d]" size={22} />
-              <h2 className="font-bold text-lg sm:text-xl text-gray-900">Registered Citizens Directory</h2>
+              <h2 className="font-bold text-lg sm:text-xl text-gray-900">Registered Residents Directory</h2>
             </div>
             {/* BOLD ENROLLED COUNTER */}
             <span className="text-xs sm:text-sm text-gray-900 font-black">
@@ -426,10 +425,11 @@ export default function UsersPage() {
             <table className="w-full text-left border-collapse min-w-[650px]">
               <thead>
                 <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-800 text-xs font-black uppercase tracking-wider">
-                  <th className="py-3.5 px-4 sm:px-6 w-32">Username</th>
-                  <th className="py-3.5 px-4 sm:px-6">Account Holder Name</th>
-                  <th className="py-3.5 px-4 sm:px-6">Residential Barangay</th>
-                  <th className="py-3.5 px-4 sm:px-6">Email Address Link</th>
+                  <th className="py-3.5 px-4 sm:px-6">ID</th>
+                  <th className="py-3.5 px-4 sm:px-6">Username</th>
+                  <th className="py-3.5 px-4 sm:px-6">Full Name</th>
+                  <th className="py-3.5 px-4 sm:px-6">Barangay</th>
+                  <th className="py-3.5 px-4 sm:px-6">Phone Number</th>
                   <th className="py-3.5 px-4 sm:px-6">Status</th>
                   <th className="py-3.5 px-4 sm:px-6 text-center w-36">Actions</th>
                 </tr>
@@ -438,7 +438,7 @@ export default function UsersPage() {
                 {isLoading ? (
                   <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-bold">Querying citizen accounts database...</td></tr>
                 ) : filteredUsers.length === 0 ? (
-                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-medium">No registered citizens found matching that criteria.</td></tr>
+                  <tr><td colSpan="6" className="py-12 text-center text-gray-400 font-medium">No registered residents found matching that criteria.</td></tr>
                 ) : (
                   filteredUsers.map((user) => {
                     const finalName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
@@ -450,7 +450,8 @@ export default function UsersPage() {
                         onClick={() => handleOpenUserModal(user)}
                         className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors cursor-pointer"
                       >
-                        <td className="py-4 px-4 sm:px-6 font-black text-gray-800 text-sm tracking-tight">@{user.username}</td>
+                        <td className="py-4 px-4 sm:px-6 font-black text-gray-800 text-sm tracking-tight">{user.id}</td>
+                        <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{user.username}</td>
                         <td className="py-4 px-4 sm:px-6 text-sm font-bold text-gray-700">{finalName}</td>
                         <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm font-semibold text-gray-700">
                           <div className="flex items-center gap-1.5">
@@ -461,7 +462,7 @@ export default function UsersPage() {
                         <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-gray-500 font-medium">
                           <div className="flex items-center gap-1.5 truncate">
                             <Mail size={14} className="text-gray-400 shrink-0" /> 
-                            <span className="truncate">{user.email || 'No email attached'}</span>
+                            <span className="truncate">{user.contact_number || 'No phone number'}</span>
                           </div>
                         </td>
                         <td className="py-4 px-4 sm:px-6">
@@ -499,8 +500,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-3">
                 <UserCircle size={32} className="text-[#b32d2d] shrink-0" />
                 <div>
-                  <h3 className="font-bold text-lg sm:text-xl text-gray-900">Citizen Account Profile</h3>
-                  <p className="text-xs text-gray-400 font-medium">Database Identifier: #{selectedUser.id || 'N/A'}</p>
+                  <h3 className="font-bold text-lg sm:text-xl text-gray-900">Resident Profile</h3>
                 </div>
               </div>
               <X 
@@ -525,12 +525,12 @@ export default function UsersPage() {
             <div className="p-5 sm:p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4 pb-2 border-b border-gray-100">
                 <div>
-                  <span className="text-[10px] font-black uppercase text-gray-400">Account ID</span>
+                  <span className="text-[10px] font-black uppercase text-gray-400">Resident ID</span>
                   <p className="text-sm font-bold text-gray-800 mt-0.5">#{selectedUser.id || 'N/A'}</p>
                 </div>
                 <div>
                   <span className="text-[10px] font-black uppercase text-gray-400">Username</span>
-                  <p className="text-sm font-black text-[#b32d2d] mt-0.5">@{selectedUser.username}</p>
+                  <p className="text-sm font-black text-[#b32d2d] mt-0.5">{selectedUser.username}</p>
                 </div>
               </div>
 
@@ -550,7 +550,7 @@ export default function UsersPage() {
                   </p>
                 </div>
                 <div>
-                  <span className="text-[10px] font-black uppercase text-gray-400">Residential Barangay</span>
+                  <span className="text-[10px] font-black uppercase text-gray-400">Barangay</span>
                   <p className="text-sm font-semibold text-gray-700 mt-0.5 flex items-center gap-1">
                     <MapPin size={14} className="text-[#b32d2d] shrink-0" />
                     Brgy. {selectedUser.residential_barangay || selectedUser.barangay || 'Not Specified'}
@@ -608,7 +608,7 @@ export default function UsersPage() {
                     }}
                     className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-tight rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                   >
-                    <ShieldAlert size={16} /> Suspend Citizen
+                    <ShieldAlert size={16} /> Suspend Resident
                   </button>
                 ) : (
                   <button 
@@ -632,7 +632,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-2.5">
                 <ShieldAlert size={22} className="text-red-600 shrink-0" />
                 <h3 className="font-extrabold text-base text-gray-900">
-                  Suspend @{selectedUser.username}
+                  Suspend {selectedUser.username}
                 </h3>
               </div>
               <X 
