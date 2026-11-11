@@ -487,8 +487,8 @@ export default function SuperAdminPage() {
               disabled={isLoading || permissionDenied}
               className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={15} className={`text-gray-600 ${isFetchingList ? 'animate-spin' : ''}`} />
-              {isLoading ? "Refreshing..." : "Refresh"}
+              <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
+              {isLoading ? "Refreshing..." : "Refresh Roster"}
             </button>
 
             <button 
