@@ -487,8 +487,8 @@ export default function SuperAdminPage() {
               disabled={isLoading || permissionDenied}
               className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
-              {isLoading ? "Refreshing..." : "Refresh Roster"}
+              <RefreshCw size={15} className={`text-gray-600 ${isFetchingList ? 'animate-spin' : ''}`} />
+              {isLoading ? "Refreshing..." : "Refresh"}
             </button>
 
             <button 
@@ -549,7 +549,11 @@ export default function SuperAdminPage() {
                     const contact = getAdminContact(admin);
 
                     return (
-                      <tr key={admin.id} className="hover:bg-gray-50/80 transition-colors">
+                      <tr 
+                        key={admin.id} 
+                        onClick={() => openViewModal(admin)}
+                        className="hover:bg-gray-50/80 transition-colors cursor-pointer"
+                      >
                         <td className="py-3.5 sm:py-4 px-4 sm:px-6">
                           <div className="font-bold text-gray-800 text-sm">
                             {admin.first_name || admin.last_name ? `${admin.first_name || ''} ${admin.last_name || ''}`.trim() : admin.username}
@@ -576,7 +580,7 @@ export default function SuperAdminPage() {
                             {isActive ? 'Active' : 'Disabled'}
                           </span>
                         </td>
-                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap">
+                        <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1.5">
                             <button 
                               onClick={() => openViewModal(admin)} 

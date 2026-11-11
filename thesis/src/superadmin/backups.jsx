@@ -275,6 +275,7 @@ export default function BackupsPage() {
               title="Refresh Server Backups List"
             >
               <RefreshCw size={15} className={`text-gray-600 ${isFetchingList ? 'animate-spin' : ''}`} />
+              {isLoading ? "Refreshing..." : "Refresh"}
             </button>
 
             <button
