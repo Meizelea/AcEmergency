@@ -555,7 +555,7 @@ export default function AnalyticsPage() {
   const statusPieData = useMemo(() => {
     const s = dashboard?.total_statuses || {};
     return [
-      { name: 'Pending', value: s.pending ?? 0, color: '#c4ac4e' },
+      { name: 'Pending', value: s.pending ?? 0, color: '#fde68a' },
       { name: 'Ongoing', value: s.ongoing ?? 0, color: '#0284c7' },
       { name: 'Resolved', value: s.resolved ?? 0, color: '#16a34a' },
       { name: 'Dismissed', value: s.dismissed ?? 0, color: '#6b7280' }
@@ -737,15 +737,15 @@ export default function AnalyticsPage() {
                 <div className="border border-gray-200 rounded-lg p-2.5">
                   <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
                   <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
-                  <span className="text-[8px] text-gray-400">Assigned Station Jurisdiction</span>
+                  <span className="text-[8px] text-gray-400">Assigned Barangay</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-4 gap-2">
-                <div className="bg-[#c4ac4e] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-100">Pending</span>
+                <div className="bg-[#fde68a] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
-                  <span className="text-[8px] text-red-100">Pending Incident Reports</span>
+                  <span className="text-[8px] text-gray-400">Pending Incident Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
@@ -800,7 +800,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
                 <div className="w-full flex justify-around text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#c4ac4e' }}></span> Pending</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#fde68a' }}></span> Pending</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Dismissed</span>
@@ -1035,17 +1035,17 @@ export default function AnalyticsPage() {
                 {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Central Command'}
               </div>
               <span className="text-[10px] text-gray-400 font-medium">
-                Assigned Station Jurisdiction
+                Assigned Area
               </span>
             </div>
           </div>
 
           {/* ROW 2: STATUS CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#c4ac4e] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-red-100">Pending</span>
+            <div className="bg-[#fde68a] text-gray-500 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-900">Pending</span>
               <div className="text-3xl font-black my-1">{pendingOverall}</div>
-              <span className="text-[10px] text-red-100 font-medium">Pending Incident Reports</span>
+              <span className="text-[10px] text-gray-400 font-medium">Pending Incident Reports</span>
             </div>
 
             <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
@@ -1156,7 +1156,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="w-full flex flex-wrap justify-around gap-1 text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#c4ac4e' }}></span> Pending </span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#fde68a' }}></span> Pending </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600"></span> Ongoing </span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Resolved</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500"></span> Dismissed</span>
