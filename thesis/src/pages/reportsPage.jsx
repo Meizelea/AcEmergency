@@ -1124,6 +1124,13 @@ export default function ReportsPage() {
                 )}
               </div>
 
+              <div className="border-t border-gray-100 pt-4">
+                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Description</h4>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
+                  {capitalizeFirst(selectedReport.description || selectedReport.short_message || '') || 'No additional description provided.'}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6 border-t border-gray-100 pt-4">
 
                 <div className="col-span-1 md:col-span-6 space-y-5">
@@ -1213,13 +1220,6 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-              </div>
-
-              <div className="border-t border-gray-100 pt-4">
-                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Description</h4>
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
-                  {capitalizeFirst(selectedReport.description || selectedReport.short_message || '') || 'No additional description provided.'}
-                </div>
               </div>
 
             </div>
