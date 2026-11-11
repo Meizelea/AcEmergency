@@ -7,7 +7,7 @@ import {
 
 import AdminLayout from '../components/header';
 
-// Full list of all 33 Barangays of Angeles City, Pampanga
+// Full list of all 33 Barangays matching core/choices.py Barangay TextChoices
 export const ANGELES_BARANGAYS = [
   "Agapito del Rosario",
   "Amsic",
@@ -18,31 +18,78 @@ export const ANGELES_BARANGAYS = [
   "Cuayan",
   "Cutcut",
   "Cutud",
+  "Lourdes NorthWest",
   "Lourdes Sur",
   "Lourdes Sur East",
-  "Lourdes NorthWest",
-  "Margavel",
+  "Malabañas",
+  "Margot",
+  "Marisol",
   "Mining",
-  "Ninoy Aquino (Marisol)",
   "Pampang",
   "Pandan",
-  "Plaridel",
-  "Poblacion",
+  "Pulung Bulu",
   "Pulung Cacutud",
   "Pulung Maragul",
-  "Pulungbulalu",
   "Salapungan",
-  "San Jose",
+  "San José",
   "San Nicolas",
   "Santa Teresita",
   "Santa Trinidad",
   "Santo Cristo",
   "Santo Domingo",
   "Santo Rosario",
+  "Sapalibutad",
   "Sapangbato",
   "Tabun",
-  "Vigen de los Remedios"
+  "Virgen Delos Remedios"
 ];
+
+// Aligned directly with core/choices.py AccountSuspensionReason & AccountSuspensionDetail
+const SUSPENSION_MAPPING = {
+  "inappropriate_user_information": {
+    label: "Inappropriate user information",
+    details: [
+      { value: "inappropriate_first_name", label: "Inappropriate first name" },
+      { value: "inappropriate_last_name", label: "Inappropriate last name" },
+      { value: "inappropriate_username", label: "Inappropriate username" },
+      { value: "inappropriate_profile_information", label: "Inappropriate profile information" },
+      { value: "false_contact_information", label: "False or misleading contact information" },
+      { value: "other_detail", label: "Other" }
+    ]
+  },
+  "reporting_system_abuse": {
+    label: "Abuse of the reporting system",
+    details: [
+      { value: "false_reports", label: "Repeated false or fabricated reports" },
+      { value: "misleading_descriptions", label: "Deliberately misleading report descriptions" },
+      { value: "spam_or_duplicate_reports", label: "Repeated duplicate or spam reports" },
+      { value: "report_location_misuse", label: "Deliberate misuse of report locations" },
+      { value: "other_detail", label: "Other" }
+    ]
+  },
+  "inappropriate_content": {
+    label: "Inappropriate content",
+    details: [
+      { value: "profanity_or_abuse", label: "Profanity or abusive language in reports" },
+      { value: "inappropriate_media", label: "Inappropriate media uploads" },
+      { value: "harassment_or_threats", label: "Harassment or threatening content" },
+      { value: "other_detail", label: "Other" }
+    ]
+  },
+  "repeated_policy_violations": {
+    label: "Repeated policy violations",
+    details: [
+      { value: "repeated_guideline_violations", label: "Repeated violations of reporting guidelines" },
+      { value: "other_detail", label: "Other" }
+    ]
+  },
+  "other": {
+    label: "Other",
+    details: [
+      { value: "other_detail", label: "Other" }
+    ]
+  }
+};
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 const CACHE_KEY_ADMINS = 'cache_super_admins_v1';
@@ -134,9 +181,14 @@ export default function SuperAdminPage() {
   const [selectedAdmin, setSelectedAdmin] = useState(null);
 
   // Status Change Modal State
+  const initialReasonKey = Object.keys(SUSPENSION_MAPPING)[0];
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
     admin: null,
+    reason: initialReasonKey,
+    detail: SUSPENSION_MAPPING[initialReasonKey].details[0].value,
+    notes: '',
+    error: '',
     isSubmitting: false
   });
 
@@ -154,7 +206,6 @@ export default function SuperAdminPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Helper to extract barangay from all possible backend field names
   const getAdminBarangay = (admin) => {
     return (
       admin?.assigned_barangay ||
@@ -164,7 +215,6 @@ export default function SuperAdminPage() {
     );
   };
 
-  // Helper to extract contact number
   const getAdminContact = (admin) => {
     return admin?.contact_number || admin?.phone_number || null;
   };
@@ -291,11 +341,27 @@ export default function SuperAdminPage() {
   };
 
   const openStatusConfirmModal = (admin) => {
+    const defaultReason = Object.keys(SUSPENSION_MAPPING)[0];
     setStatusModal({
       isOpen: true,
       admin: admin,
+      reason: defaultReason,
+      detail: SUSPENSION_MAPPING[defaultReason].details[0].value,
+      notes: '',
+      error: '',
       isSubmitting: false
     });
+  };
+
+  // Handle reason dropdown change & update available details dropdown automatically
+  const handleReasonChange = (newReason) => {
+    const availableDetails = SUSPENSION_MAPPING[newReason]?.details || [];
+    setStatusModal(prev => ({
+      ...prev,
+      reason: newReason,
+      detail: availableDetails[0]?.value || '',
+      error: ''
+    }));
   };
 
   // 2. Create / Update Admin Record with 11-digit Phone Validation
@@ -375,20 +441,48 @@ export default function SuperAdminPage() {
     }
   };
 
-  // 3. Toggle Status Active / Disabled via Modal Action
-  const handleExecuteStatusToggle = async () => {
+  // 3. Toggle Status Active / Disabled (strictly enforced by backend AccountStatusUpdateMixin)
+  const handleExecuteStatusToggle = async (e) => {
+    e.preventDefault();
     const admin = statusModal.admin;
     if (!admin) return;
 
     const currentActiveState = admin.is_active ?? true;
-    setStatusModal(prev => ({ ...prev, isSubmitting: true }));
+    const isDisabling = currentActiveState === true;
+
+    if (isDisabling) {
+      if (!statusModal.reason) {
+        setStatusModal(prev => ({ ...prev, error: 'A primary suspension reason is required.' }));
+        return;
+      }
+      if (!statusModal.detail) {
+        setStatusModal(prev => ({ ...prev, error: 'A specific suspension detail is required.' }));
+        return;
+      }
+      if (statusModal.detail === 'other_detail' && !statusModal.notes.trim()) {
+        setStatusModal(prev => ({ ...prev, error: 'Please explain the reason when selecting Other.' }));
+        return;
+      }
+    }
+
+    setStatusModal(prev => ({ ...prev, isSubmitting: true, error: '' }));
     setPageError('');
     setSessionExpired(false);
 
     try {
+      const payload = {
+        is_active: !currentActiveState
+      };
+
+      if (isDisabling) {
+        payload.suspension_reason = statusModal.reason;
+        payload.suspension_detail = statusModal.detail;
+        payload.suspension_notes = statusModal.notes.trim();
+      }
+
       const options = {
         method: 'PATCH',
-        body: JSON.stringify({ is_active: !currentActiveState })
+        body: JSON.stringify(payload)
       };
 
       let response = await authFetch(`${API_BASE}/api/users/privileged-admin/${admin.id}/`, options);
@@ -398,9 +492,10 @@ export default function SuperAdminPage() {
       }
 
       if (response && response.ok) {
+        const updatedUser = await response.json();
         setAdmins((prev) => {
           const updatedAdmins = prev.map((a) =>
-            a.id === admin.id ? { ...a, is_active: !currentActiveState } : a
+            a.id === admin.id ? { ...a, ...updatedUser } : a
           );
           try {
             sessionStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(updatedAdmins));
@@ -409,15 +504,22 @@ export default function SuperAdminPage() {
           }
           return updatedAdmins;
         });
-        setStatusModal({ isOpen: false, admin: null, isSubmitting: false });
+        setStatusModal({ isOpen: false, admin: null, reason: initialReasonKey, detail: '', notes: '', error: '', isSubmitting: false });
       } else {
-        await reportFailure(response, 'Could not update the admin status');
-        setStatusModal(prev => ({ ...prev, isSubmitting: false }));
+        const errorData = await parseJsonSafe(response);
+        setStatusModal(prev => ({ 
+          ...prev, 
+          error: formatApiError(errorData, 'Could not update admin status.'),
+          isSubmitting: false 
+        }));
       }
     } catch (error) {
       console.error("Status update error:", error);
-      setPageError('Could not reach the server. Check your connection and try again.');
-      setStatusModal(prev => ({ ...prev, isSubmitting: false }));
+      setStatusModal(prev => ({ 
+        ...prev, 
+        error: 'Could not reach the server. Check your connection and try again.',
+        isSubmitting: false 
+      }));
     }
   };
 
@@ -601,7 +703,7 @@ export default function SuperAdminPage() {
                               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                                 isActive ? 'bg-red-50 hover:bg-red-100 text-red-600' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600'
                               }`}
-                              title={isActive ? "Disable Admin Account" : "Activate Admin Account"}
+                              title={isActive ? "Disable / Suspend Admin" : "Activate Admin Account"}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -671,6 +773,38 @@ export default function SuperAdminPage() {
                       <p className="text-xs font-medium text-gray-700">{selectedAdmin.email || 'N/A'}</p>
                     </div>
                   </div>
+
+                  {/* Show Suspension details if disabled */}
+                  {selectedAdmin.is_active === false && (
+                    <div className="bg-red-50/60 p-4 rounded-xl border border-red-100 space-y-2">
+                      <div className="flex items-center gap-1.5 text-red-800 font-bold text-xs">
+                        <AlertTriangle size={14} /> Account Suspended
+                      </div>
+                      {selectedAdmin.suspension_reason && (
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-red-500 block">Primary Reason</span>
+                          <span className="text-xs font-semibold text-red-900">
+                            {SUSPENSION_MAPPING[selectedAdmin.suspension_reason]?.label || selectedAdmin.suspension_reason}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAdmin.suspension_detail && (
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-red-500 block">Specific Detail</span>
+                          <span className="text-xs font-semibold text-red-900">
+                            {selectedAdmin.suspension_detail}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAdmin.suspension_notes && (
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-red-500 block">Explanation / Notes</span>
+                          <span className="text-xs text-red-800">{selectedAdmin.suspension_notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <button onClick={() => setIsModalOpen(false)} className="mt-4 w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl transition-colors cursor-pointer">
                     Close File
                   </button>
@@ -805,51 +939,115 @@ export default function SuperAdminPage() {
         </div>
       )}
 
-      {/* STATUS CONFIRMATION MODAL */}
+      {/* SUSPENSION & STATUS REASON CONFIRMATION MODAL */}
       {statusModal.isOpen && statusModal.admin && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center my-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col my-auto text-left">
             
-            <div className={`p-3.5 rounded-full mb-4 ${
-              (statusModal.admin.is_active ?? true) ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
-            }`}>
-              <AlertTriangle size={26} />
+            <div className="flex items-center gap-3 mb-4 border-b border-gray-100 pb-3">
+              <div className={`p-2.5 rounded-xl ${
+                (statusModal.admin.is_active ?? true) ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-gray-900">
+                  {(statusModal.admin.is_active ?? true) ? 'Suspend Administrator Account' : 'Activate Administrator Account'}
+                </h3>
+                <p className="text-[11px] text-gray-500 font-medium">
+                  Target Account: <span className="font-bold text-gray-800">@{statusModal.admin.username}</span>
+                </p>
+              </div>
             </div>
-            
-            <h3 className="font-extrabold text-base text-gray-900 mb-1">
-              {(statusModal.admin.is_active ?? true) ? 'Disable Administrator Account' : 'Activate Administrator Account'}
-            </h3>
-            
-            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
-              Are you sure you want to {(statusModal.admin.is_active ?? true) ? 'disable' : 'reactivate'} admin account for{' '}
-              <span className="font-bold text-gray-800">@{statusModal.admin.username}</span>?
-              {(statusModal.admin.is_active ?? true) && ' They will temporarily lose access to their command dashboard until enabled again.'}
-            </p>
 
-            <div className="flex items-center gap-2.5 w-full">
-              <button
-                type="button"
-                disabled={statusModal.isSubmitting}
-                onClick={() => setStatusModal({ isOpen: false, admin: null, isSubmitting: false })}
-                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              
-              <button
-                type="button"
-                disabled={statusModal.isSubmitting}
-                onClick={handleExecuteStatusToggle}
-                className={`flex-1 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  (statusModal.admin.is_active ?? true)
-                    ? 'bg-[#b32d2d] hover:bg-[#8b2323]'
-                    : 'bg-emerald-600 hover:bg-emerald-700'
-                }`}
-              >
-                {statusModal.isSubmitting && <Loader2 className="animate-spin" size={14} />}
-                {(statusModal.admin.is_active ?? true) ? 'Disable Admin' : 'Activate Admin'}
-              </button>
-            </div>
+            {statusModal.error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" /> {statusModal.error}
+              </div>
+            )}
+
+            <form onSubmit={handleExecuteStatusToggle} className="space-y-4 text-xs">
+              {(statusModal.admin.is_active ?? true) ? (
+                <>
+                  {/* Primary Reason Dropdown */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Primary Suspension Reason <span className="text-red-500">*</span>
+                    </label>
+                    <select 
+                      value={statusModal.reason}
+                      onChange={(e) => handleReasonChange(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer font-medium"
+                    >
+                      {Object.entries(SUSPENSION_MAPPING).map(([key, item]) => (
+                        <option key={key} value={key}>{item.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Specific Detail Dropdown */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Specific Detail Reason <span className="text-red-500">*</span>
+                    </label>
+                    <select 
+                      value={statusModal.detail}
+                      onChange={(e) => setStatusModal({ ...statusModal, detail: e.target.value, error: '' })}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer font-medium"
+                    >
+                      {(SUSPENSION_MAPPING[statusModal.reason]?.details || []).map((detailItem) => (
+                        <option key={detailItem.value} value={detailItem.value}>{detailItem.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Explanation / Notes Textarea */}
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Explanation / Notes {statusModal.detail === 'other_detail' ? <span className="text-red-500">*</span> : <span className="text-gray-400 font-normal">(optional)</span>}
+                    </label>
+                    <textarea 
+                      rows={3}
+                      required={statusModal.detail === 'other_detail'}
+                      placeholder={statusModal.detail === 'other_detail' ? "Please explain the reason when selecting Other..." : "Enter operational notes or specific details for this action..."}
+                      value={statusModal.notes}
+                      onChange={(e) => setStatusModal({ ...statusModal, notes: e.target.value, error: '' })}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] resize-none"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Reactivating will restore dashboard access for <span className="font-bold text-gray-800">@{statusModal.admin.username}</span> and reset suspension flags.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={statusModal.isSubmitting}
+                  onClick={() => setStatusModal({ isOpen: false, admin: null, reason: initialReasonKey, detail: '', notes: '', error: '', isSubmitting: false })}
+                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                
+                <button
+                  type="submit"
+                  disabled={statusModal.isSubmitting}
+                  className={`flex-1 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    (statusModal.admin.is_active ?? true)
+                      ? 'bg-[#b32d2d] hover:bg-[#8b2323]'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
+                >
+                  {statusModal.isSubmitting && <Loader2 className="animate-spin" size={14} />}
+                  {(statusModal.admin.is_active ?? true) ? 'Confirm Suspension' : 'Confirm Activation'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
