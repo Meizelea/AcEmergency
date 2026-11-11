@@ -927,7 +927,7 @@ export default function ReportsPage() {
               type="button"
               onClick={handleLocalSync}
               disabled={isSyncing}
-              className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              className="sm:ml-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
               {isSyncing ? "Refreshing..." : "Refresh"}
@@ -1124,13 +1124,6 @@ export default function ReportsPage() {
                 )}
               </div>
 
-              <div className="border-t border-gray-100 pt-4">
-                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Description</h4>
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
-                  {capitalizeFirst(selectedReport.description || selectedReport.short_message || '') || 'No additional description provided.'}
-                </div>
-              </div>
-
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6 border-t border-gray-100 pt-4">
 
                 <div className="col-span-1 md:col-span-6 space-y-5">
@@ -1220,6 +1213,13 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <h4 className="font-black text-sm text-gray-900 mb-2">Incident Description</h4>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 leading-relaxed font-medium">
+                  {capitalizeFirst(selectedReport.description || selectedReport.short_message || '') || 'No additional description provided.'}
+                </div>
               </div>
 
             </div>

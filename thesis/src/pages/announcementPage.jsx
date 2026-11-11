@@ -359,6 +359,17 @@ export default function AnnouncementPage() {
   return (
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f3f4f6] font-sans text-gray-800 flex flex-col">
+
+        {/* PAGE HEADER */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <Megaphone className="text-[#b32d2d]" size={24} />
+            <h1 className="font-black text-xl sm:text-2xl text-gray-900">Public Announcements Directory</h1>
+          </div>
+          <span className="text-xs sm:text-sm text-gray-900 font-black">
+            {filteredAnnouncements.length} Announcement
+          </span>
+        </div>
         
         {feedback.error && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-semibold shrink-0">
@@ -372,53 +383,42 @@ export default function AnnouncementPage() {
         )}
 
         {/* CONTROLS HEADER */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
-          <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search announcement, keyword, or brgy..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border border-gray-200 text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#b32d2d] shadow-xs"
-            />
-          </div>
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mb-6 shrink-0">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            {/* SEARCH */}
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search announcement, keyword, or brgy..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border border-gray-200 text-xs font-medium text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#b32d2d] shadow-xs"
+              />
+            </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            {/* REFRESH (inline, right after the search) */}
             <button
               type="button"
               onClick={handleLocalSync}
               disabled={isSyncing}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
               {isSyncing ? "Refreshing..." : "Refresh"}
             </button>
-
-            <button
-              onClick={() => handleOpenForm()}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
-            >
-              <Plus size={16} /> Post Announcement
-            </button>
           </div>
+
+          <button
+            onClick={() => handleOpenForm()}
+            className="flex items-center justify-center gap-2 bg-[#b32d2d] hover:bg-[#962626] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+          >
+            <Plus size={16} /> Post Announcement
+          </button>
         </div>
 
         {/* DIRECTORY TABLE CONTAINER */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">
-          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-3">
-              <Megaphone className="text-[#b32d2d]" size={20} />
-              <h2 className="text-sm sm:text-base font-bold text-gray-800 tracking-tight">
-                Public Announcements Directory
-              </h2>
-            </div>
-            {/* BOLD COUNTER */}
-            <span className="text-xs font-black text-gray-900">
-              {filteredAnnouncements.length} Announcement
-            </span>
-          </div>
-
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
