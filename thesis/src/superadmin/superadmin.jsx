@@ -2,18 +2,46 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, UserPlus, Search, Edit3, Trash2, 
-  Eye, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock, RefreshCw
+  Eye, EyeOff, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
 
-// Updated Angeles Barangay Choices from image list
+// Full list of all 33 Barangays of Angeles City, Pampanga
 export const ANGELES_BARANGAYS = [
   "Agapito del Rosario",
-  "Santo Rosario",
-  "Tabun",
+  "Amsic",
+  "Anunas",
+  "Balibago",
+  "Capaya",
+  "Claro M. Recto",
+  "Cuayan",
+  "Cutcut",
   "Cutud",
-  "Marisol"
+  "Lourdes Sur",
+  "Lourdes Sur East",
+  "Lourdes NorthWest",
+  "Margavel",
+  "Mining",
+  "Ninoy Aquino (Marisol)",
+  "Pampang",
+  "Pandan",
+  "Plaridel",
+  "Poblacion",
+  "Pulung Cacutud",
+  "Pulung Maragul",
+  "Pulungbulalu",
+  "Salapungan",
+  "San Jose",
+  "San Nicolas",
+  "Santa Teresita",
+  "Santa Trinidad",
+  "Santo Cristo",
+  "Santo Domingo",
+  "Santo Rosario",
+  "Sapangbato",
+  "Tabun",
+  "Vigen de los Remedios"
 ];
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
@@ -38,9 +66,6 @@ const parseJsonSafe = async (res) => {
   }
 };
 
-// Turns a Django REST Framework error body into a readable sentence.
-// {"detail": "..."}                      -> "..."
-// {"username": ["Already exists."]}      -> "username: Already exists."
 function formatApiError(data, fallback) {
   if (!data) return fallback;
   if (typeof data === 'string') return data;
@@ -59,9 +84,6 @@ function formatApiError(data, fallback) {
   return parts.length ? parts.join(' | ') : fallback;
 }
 
-// Sends the request with a "Token" header first. It only retries with "Bearer" when the
-// server says the credentials were not recognized (401, or 403 "credentials were not provided").
-// Any other error (400 validation, 404, 500...) is returned as-is, so the real reason is never hidden.
 async function authFetch(url, options = {}) {
   const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
   if (!cleanToken) return null;
@@ -111,6 +133,13 @@ export default function SuperAdminPage() {
   const [modalMode, setModalMode] = useState('create');
   const [selectedAdmin, setSelectedAdmin] = useState(null);
 
+  // Status Change Modal State
+  const [statusModal, setStatusModal] = useState({
+    isOpen: false,
+    admin: null,
+    isSubmitting: false
+  });
+
   // Form State
   const [formData, setFormData] = useState({
     username: '',
@@ -121,6 +150,7 @@ export default function SuperAdminPage() {
     barangay: ANGELES_BARANGAYS[0],
     contact_number: ''
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -139,7 +169,6 @@ export default function SuperAdminPage() {
     return admin?.contact_number || admin?.phone_number || null;
   };
 
-  // The roster used to be cached in localStorage (it outlives logout). Clear that old copy once.
   useEffect(() => {
     try {
       localStorage.removeItem(CACHE_KEY_ADMINS);
@@ -148,7 +177,6 @@ export default function SuperAdminPage() {
     }
   }, []);
 
-  // Shows a readable page-level error for a failed request.
   const reportFailure = useCallback(async (response, fallback) => {
     if (!response || response.status === 401) {
       setSessionExpired(true);
@@ -207,7 +235,7 @@ export default function SuperAdminPage() {
       try {
         sessionStorage.setItem(CACHE_KEY_ADMINS, JSON.stringify(barangayAdmins));
       } catch {
-        /* storage unavailable - ignore */
+        /* storage unavailable */
       }
     } catch (error) {
       console.error("Failed to load admin roster:", error);
@@ -224,6 +252,7 @@ export default function SuperAdminPage() {
   // Modal Openers
   const openCreateModal = () => {
     setModalMode('create');
+    setShowPassword(false);
     setFormData({
       username: '',
       email: '',
@@ -240,6 +269,7 @@ export default function SuperAdminPage() {
   const openEditModal = (admin) => {
     const currentBrgy = getAdminBarangay(admin);
     setModalMode('edit');
+    setShowPassword(false);
     setSelectedAdmin(admin);
     setFormData({
       username: admin.username || '',
@@ -260,10 +290,25 @@ export default function SuperAdminPage() {
     setIsModalOpen(true);
   };
 
-  // 2. Create / Update Admin Record
+  const openStatusConfirmModal = (admin) => {
+    setStatusModal({
+      isOpen: true,
+      admin: admin,
+      isSubmitting: false
+    });
+  };
+
+  // 2. Create / Update Admin Record with 11-digit Phone Validation
   const handleSaveAdmin = async (e) => {
     e.preventDefault();
     setFormError('');
+
+    const phoneDigitsOnly = formData.contact_number.replace(/\D/g, '');
+    if (phoneDigitsOnly.length !== 11) {
+      setFormError('Contact number must be exactly 11 digits (e.g., 09171234567).');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -276,7 +321,7 @@ export default function SuperAdminPage() {
         assigned_barangay: formData.barangay,
         residential_barangay: formData.barangay,
         barangay: formData.barangay,
-        contact_number: formData.contact_number
+        contact_number: phoneDigitsOnly
       };
 
       if (formData.password && formData.password.trim() !== '') {
@@ -330,15 +375,13 @@ export default function SuperAdminPage() {
     }
   };
 
-  // 3. Toggle Status Active / Disabled
-  const handleToggleAdminStatus = async (admin) => {
-    const currentActiveState = admin.is_active ?? true;
-    const actionText = currentActiveState ? 'disable' : 'activate';
-    
-    if (!window.confirm(`Are you sure you want to ${actionText} admin @${admin.username}?`)) {
-      return;
-    }
+  // 3. Toggle Status Active / Disabled via Modal Action
+  const handleExecuteStatusToggle = async () => {
+    const admin = statusModal.admin;
+    if (!admin) return;
 
+    const currentActiveState = admin.is_active ?? true;
+    setStatusModal(prev => ({ ...prev, isSubmitting: true }));
     setPageError('');
     setSessionExpired(false);
 
@@ -366,12 +409,15 @@ export default function SuperAdminPage() {
           }
           return updatedAdmins;
         });
+        setStatusModal({ isOpen: false, admin: null, isSubmitting: false });
       } else {
         await reportFailure(response, 'Could not update the admin status');
+        setStatusModal(prev => ({ ...prev, isSubmitting: false }));
       }
     } catch (error) {
       console.error("Status update error:", error);
       setPageError('Could not reach the server. Check your connection and try again.');
+      setStatusModal(prev => ({ ...prev, isSubmitting: false }));
     }
   };
 
@@ -403,7 +449,7 @@ export default function SuperAdminPage() {
           </div>
         )}
 
-        {/* Page-level error banner (load failures, expired session, failed status change) */}
+        {/* Page-level error banner */}
         {pageError && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3 text-xs font-semibold text-red-700">
@@ -547,11 +593,11 @@ export default function SuperAdminPage() {
                               <Edit3 size={14} />
                             </button>
                             <button 
-                              onClick={() => handleToggleAdminStatus(admin)} 
+                              onClick={() => openStatusConfirmModal(admin)} 
                               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                                 isActive ? 'bg-red-50 hover:bg-red-100 text-red-600' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600'
                               }`}
-                              title={isActive ? "Disable Admin" : "Enable Admin"}
+                              title={isActive ? "Disable Admin Account" : "Activate Admin Account"}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -668,13 +714,23 @@ export default function SuperAdminPage() {
                       <label className="text-[11px] font-bold text-gray-600 block mb-1">
                         Password {modalMode === 'edit' && <span className="text-[10px] text-gray-400 font-normal">(leave blank to keep)</span>}
                       </label>
-                      <input 
-                        type="password" 
-                        required={modalMode === 'create'}
-                        value={formData.password} 
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                      />
+                      <div className="relative">
+                        <input 
+                          type={showPassword ? "text" : "password"} 
+                          required={modalMode === 'create'}
+                          value={formData.password} 
+                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                          className="w-full border border-gray-200 rounded-xl p-2.5 pr-9 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                          tabIndex={-1}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -692,13 +748,19 @@ export default function SuperAdminPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Contact Number</label>
+                      <label className="text-[11px] font-bold text-gray-600 block mb-1">
+                        Contact Number <span className="text-[10px] text-gray-400 font-normal">(11 digits)</span>
+                      </label>
                       <input 
                         type="text" 
                         required
-                        placeholder="e.g. 09171234567"
+                        maxLength={11}
+                        placeholder="09171234567"
                         value={formData.contact_number} 
-                        onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/\D/g, '');
+                          setFormData({ ...formData, contact_number: cleaned });
+                        }}
                         className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
                       />
                     </div>
@@ -734,6 +796,55 @@ export default function SuperAdminPage() {
                 </form>
               )}
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STATUS CONFIRMATION MODAL */}
+      {statusModal.isOpen && statusModal.admin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 flex flex-col items-center text-center my-auto">
+            
+            <div className={`p-3.5 rounded-full mb-4 ${
+              (statusModal.admin.is_active ?? true) ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+            }`}>
+              <AlertTriangle size={26} />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-gray-900 mb-1">
+              {(statusModal.admin.is_active ?? true) ? 'Disable Administrator Account' : 'Activate Administrator Account'}
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+              Are you sure you want to {(statusModal.admin.is_active ?? true) ? 'disable' : 'reactivate'} admin account for{' '}
+              <span className="font-bold text-gray-800">@{statusModal.admin.username}</span>?
+              {(statusModal.admin.is_active ?? true) && ' They will temporarily lose access to their command dashboard until enabled again.'}
+            </p>
+
+            <div className="flex items-center gap-2.5 w-full">
+              <button
+                type="button"
+                disabled={statusModal.isSubmitting}
+                onClick={() => setStatusModal({ isOpen: false, admin: null, isSubmitting: false })}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                type="button"
+                disabled={statusModal.isSubmitting}
+                onClick={handleExecuteStatusToggle}
+                className={`flex-1 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  (statusModal.admin.is_active ?? true)
+                    ? 'bg-[#b32d2d] hover:bg-[#8b2323]'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {statusModal.isSubmitting && <Loader2 className="animate-spin" size={14} />}
+                {(statusModal.admin.is_active ?? true) ? 'Disable Admin' : 'Activate Admin'}
+              </button>
             </div>
           </div>
         </div>
