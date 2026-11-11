@@ -29,7 +29,7 @@ export const ANGELES_BARANGAYS = [
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
 
-// Backend endpoints (analytics/urls.py). Adjust the prefix if your project urls.py mounts them elsewhere.
+// Backend endpoints (analytics/urls.py)
 const ANALYTICS_DASHBOARD_URL = '/api/analytics/dashboard/';        // GET
 const ANALYTICS_DBSCAN_URL = '/api/analytics/dashboard/dbscan/';    // POST
 
@@ -162,8 +162,7 @@ async function authFetch(url, token, options = {}) {
   return lastResponse;
 }
 
-// The backend only returns buckets that have reports. This fills in the empty ones with 0
-// so the trend chart has a continuous x-axis.
+// Fills in missing buckets with 0 for smooth trend display
 function buildTrendSeries(trend) {
   if (!trend || !Array.isArray(trend.data)) return [];
 
@@ -247,7 +246,6 @@ function FitBounds({ points, center, animate = true }) {
 
   useEffect(() => {
     if (!points.length) {
-      // No cluster selected: stay centered on the middle of the barangay
       if (center) map.setView(center, BARANGAY_ZOOM, { animate });
       return;
     }
@@ -272,7 +270,6 @@ function ClusterMap({ groups, selectedCluster, showNoise, center }) {
     [visibleGroups]
   );
 
-  // Only zoom to points when a single cluster is selected; otherwise stay on the barangay center
   const focusPoints = selectedCluster !== null ? fitPoints : EMPTY_POINTS;
 
   return (
@@ -287,7 +284,6 @@ function ClusterMap({ groups, selectedCluster, showNoise, center }) {
         const color = clusterColor(group.label);
         return (
           <React.Fragment key={group.label}>
-            {/* halo around the cluster */}
             {!group.isNoise && (
               <Circle
                 center={group.center}
@@ -296,7 +292,6 @@ function ClusterMap({ groups, selectedCluster, showNoise, center }) {
               />
             )}
 
-            {/* each report coordinate */}
             {group.points.map((p) => (
               <CircleMarker
                 key={`${group.label}-${p.id}`}
@@ -320,8 +315,6 @@ function ClusterMap({ groups, selectedCluster, showNoise, center }) {
   );
 }
 
-// Static copy of the cluster map used only by the PDF page (all clusters + noise, no
-// animations or popups so the tiles are fully drawn when the browser prints).
 function PrintClusterMap({ groups, onTilesLoading, onTilesLoaded, center }) {
   return (
     <MapContainer
@@ -393,18 +386,18 @@ export default function AnalyticsPage() {
 
   const requestIdRef = useRef(0);
 
-  // Active vs Suspended residents (counted from the admin users list)
+  // Active vs Suspended residents
   const [residentCounts, setResidentCounts] = useState(null);
 
-  // ---- DBSCAN (POST /dashboard/dbscan/) - separate, on-demand ----
+  // ---- DBSCAN (POST /dashboard/dbscan/) ----
   const [dbscan, setDbscan] = useState(null);
   const [dbscanLoading, setDbscanLoading] = useState(false);
   const [dbscanError, setDbscanError] = useState('');
   const [dbscanRanAt, setDbscanRanAt] = useState(null);
-  const [selectedCluster, setSelectedCluster] = useState(null); // null = all clusters
+  const [selectedCluster, setSelectedCluster] = useState(null);
   const [showNoise, setShowNoise] = useState(true);
 
-  // PDF export: runs DBSCAN automatically if needed and waits for the page-2 map tiles
+  // PDF export state
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   const printTilesReadyRef = useRef(false);
 
@@ -414,14 +407,14 @@ export default function AnalyticsPage() {
     if (!token) return;
 
     const query = buildQuery(timeRange, fromDate, toDate);
-    if (!query) return; // custom range not complete yet
+    if (!query) return;
 
     const requestId = ++requestIdRef.current;
     setIsSyncing(true);
 
     try {
       const res = await authFetch(`${API_BASE_URL}${ANALYTICS_DASHBOARD_URL}?${query}`, token);
-      if (requestId !== requestIdRef.current) return; // a newer request replaced this one
+      if (requestId !== requestIdRef.current) return;
 
       if (res && res.ok) {
         const data = await res.json();
@@ -431,7 +424,7 @@ export default function AnalyticsPage() {
         try {
           sessionStorage.setItem(CACHE_KEY_DASHBOARD, JSON.stringify({ query, data }));
         } catch {
-          /* storage full or unavailable - ignore */
+          /* storage unavailable */
         }
       } else if (res) {
         const body = await res.json().catch(() => ({}));
@@ -473,7 +466,6 @@ export default function AnalyticsPage() {
     if (!token) navigate('/login');
   }, [token, navigate]);
 
-  // Loads on mount and when the selected range changes. No auto-refresh: use "Sync Data" to reload.
   useEffect(() => {
     if (!token) return;
     fetchDashboard();
@@ -508,14 +500,12 @@ export default function AnalyticsPage() {
     }
   }, [token, dbscanLoading]);
 
-  /* ------------------------- derived data from the backend ------------------------- */
+  /* ------------------------- derived data ------------------------- */
 
   const assignedBarangay = dashboard?.barangay || '';
   const totalUsers = dashboard?.totals?.total_users ?? 0;
   const totalReports = dashboard?.totals?.total_reports ?? 0;
 
-  const todayStatuses = dashboard?.today_statuses || {};
-  // Pending Overall = every pending report (same source as the Report Status donut), not just today's
   const pendingOverall = dashboard?.total_statuses?.pending ?? 0;
   const inProgressOverall = dashboard?.total_statuses?.ongoing ?? 0;
   const resolvedOverall = dashboard?.total_statuses?.resolved ?? 0;
@@ -523,7 +513,6 @@ export default function AnalyticsPage() {
 
   const barangayCenter = useMemo(() => getBarangayCenter(assignedBarangay), [assignedBarangay]);
 
-  // The actual dates covered by the report, e.g. "From Oct 10, 2026 to Nov 10, 2026"
   const periodLabel = useMemo(() => {
     const t = dashboard?.report_trend;
     if (!t?.start_date || !t?.end_date) return timeRange === 'all_time' ? 'All time' : '';
@@ -570,7 +559,6 @@ export default function AnalyticsPage() {
     [dashboard]
   );
 
-  // ---- DBSCAN: group report coordinates per cluster ----
   const clusterGroups = useMemo(() => {
     if (!dbscan) return [];
 
@@ -586,7 +574,7 @@ export default function AnalyticsPage() {
     return Object.keys(groups)
       .map(Number)
       .sort((a, b) => {
-        if (a === -1) return 1; // noise last
+        if (a === -1) return 1;
         if (b === -1) return -1;
         return a - b;
       })
@@ -613,7 +601,6 @@ export default function AnalyticsPage() {
 
   const hasNoise = clusterGroups.some((g) => g.isNoise);
 
-  // PDF page 2: rows for the cluster summary table
   const printClusterRows = clusterGroups.slice(0, PRINT_MAX_CLUSTER_ROWS);
   const hiddenClusterCount = Math.max(0, clusterGroups.length - PRINT_MAX_CLUSTER_ROWS);
 
@@ -622,19 +609,16 @@ export default function AnalyticsPage() {
     setIsPreparingPdf(true);
 
     try {
-      // Page 2 needs the DBSCAN result, so run it now if it hasn't been run yet
       if (!dbscan) {
         printTilesReadyRef.current = false;
         await runDbscan();
       }
 
-      // Give React time to mount the page-2 map, then wait (max ~6s) for its tiles to finish loading
       await new Promise((resolve) => setTimeout(resolve, 600));
       const startedAt = Date.now();
       while (!printTilesReadyRef.current && Date.now() - startedAt < 6000) {
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
-      // Small buffer so the last tiles are painted
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       window.print();
@@ -661,8 +645,6 @@ export default function AnalyticsPage() {
             background: #fff !important;
             margin: 0 !important;
             padding: 0 !important;
-            /* app layouts often lock html/body to the viewport height with overflow hidden,
-               which makes the browser print only the first sheet */
             height: auto !important;
             min-height: 0 !important;
             max-height: none !important;
@@ -670,7 +652,6 @@ export default function AnalyticsPage() {
             display: block !important;
           }
 
-          /* hide the whole app, keep only the print portal */
           body > *:not(#aksyon-print-root) { display: none !important; }
 
           #aksyon-print-root {
@@ -683,7 +664,6 @@ export default function AnalyticsPage() {
             display: block !important;
           }
 
-          /* each .aksyon-print-page is one A4 sheet */
           .aksyon-print-page {
             break-after: page;
             page-break-after: always;
@@ -700,11 +680,11 @@ export default function AnalyticsPage() {
         }
       `}</style>
 
-      {/* PRINT-ONLY LAYOUT (rendered in a portal, fixed-size charts) */}
+      {/* PRINT-ONLY LAYOUT */}
       {createPortal(
         <div id="aksyon-print-root">
 
-          {/* ------------------------------ PAGE 1: ANALYTICS ------------------------------ */}
+          {/* PAGE 1: ANALYTICS */}
           <div className="aksyon-print-page bg-white box-border flex flex-col justify-between" style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden' }}>
 
             {/* HEADER + CARDS */}
@@ -741,31 +721,32 @@ export default function AnalyticsPage() {
                 </div>
               </div>
 
+              {/* PDF STATUS CARDS - Clean Readable White Text */}
               <div className="grid grid-cols-4 gap-2">
                 <div className="bg-[#fde68a] text-[#854d0e] p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
-                  <div className="text-xl font-black my-0.5">{pendingOverall}</div>
+                  <div className="text-xl font-black my-0.5 text-[#854d0e]">{pendingOverall}</div>
                   <span className="text-[8px] text-[#a16207]">Pending Incident Reports</span>
                 </div>
-                <div className="bg-[#109EEF] text-[#082f49] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Ongoing</span>
-                  <div className="text-xl font-black my-0.5">{inProgressOverall}</div>
-                  <span className="text-[8px] text-[#0c4a6e]">Ongoing Incident Reports</span>
+                <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
+                  <div className="text-xl font-black my-0.5 text-white">{inProgressOverall}</div>
+                  <span className="text-[8px] text-white/90">Ongoing Incident Reports</span>
                 </div>
-                <div className="bg-[#059669] text-[#022c22] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Resolved</span>
-                  <div className="text-xl font-black my-0.5">{resolvedOverall}</div>
-                  <span className="text-[8px] text-gray-200">Resolved Incident Reports</span>
+                <div className="bg-[#059669] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Resolved</span>
+                  <div className="text-xl font-black my-0.5 text-white">{resolvedOverall}</div>
+                  <span className="text-[8px] text-white/90">Resolved Incident Reports</span>
                 </div>
-                <div className="bg-[#6b7280] text-[#111827] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
-                  <div className="text-xl font-black my-0.5">{dismissedOverall}</div>
-                  <span className="text-[8px] text-gray-200">Dismissed Reports</span>
+                <div className="bg-[#6b7280] text-white p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Dismissed</span>
+                  <div className="text-xl font-black my-0.5 text-white">{dismissedOverall}</div>
+                  <span className="text-[8px] text-white/90">Dismissed Reports</span>
                 </div>
               </div>
             </div>
 
-            {/* TRENDS + PEAK INCIDENT HOURS (half / half, like the dashboard) */}
+            {/* TRENDS + PEAK INCIDENT HOURS */}
             <div className="grid grid-cols-2 gap-2">
               <div className="border border-gray-200 rounded-lg p-3">
                 <h3 className="font-bold text-xs text-gray-900">Report Trends</h3>
@@ -798,7 +779,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* DONUTS (three across, like the dashboard) */}
+            {/* DONUTS */}
             <div className="grid grid-cols-3 gap-2">
               <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
                 <h4 className="font-bold text-[10px] text-gray-900 self-start">Report Status</h4>
@@ -880,7 +861,7 @@ export default function AnalyticsPage() {
 
           </div>
 
-          {/* ------------------------------ PAGE 2: DBSCAN (only after DBSCAN has been run) ------------------------------ */}
+          {/* PAGE 2: DBSCAN */}
           {dbscan && (
             <div className="aksyon-print-page bg-white box-border flex flex-col gap-2" style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden' }}>
 
@@ -1013,7 +994,7 @@ export default function AnalyticsPage() {
             <button
               onClick={handleDownloadPDF}
               disabled={isLoading || !dashboard || isPreparingPdf || dbscanLoading}
-              title="Page 1: analytics. Page 2: DBSCAN clusters (runs automatically if you haven't run it yet)"
+              title="Page 1: analytics. Page 2: DBSCAN clusters"
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               {isPreparingPdf ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
@@ -1023,7 +1004,7 @@ export default function AnalyticsPage() {
             <button
               onClick={() => { fetchDashboard(); fetchResidentCounts(); }}
               disabled={isSyncing}
-              title="Reloads the general analytics only (DBSCAN has its own button)"
+              title="Reloads general analytics"
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} />
@@ -1067,34 +1048,34 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 2: STATUS CARDS */}
+          {/* ROW 2: STATUS CARDS - Clean Readable White Text */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#fde68a] text-[#854d0e] p-4 rounded-xl shadow-xs flex flex-col justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
-              <div className="text-3xl font-black my-1">{pendingOverall}</div>
+              <div className="text-3xl font-black my-1 text-[#854d0e]">{pendingOverall}</div>
               <span className="text-[10px] text-[#a16207] font-medium">Pending Incident Reports</span>
             </div>
 
-            <div className="bg-[#109EEF] text-[#082f49] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Ongoing</span>
-              <div className="text-3xl font-black my-1">{inProgressOverall}</div>
-              <span className="text-[10px] text-gray-200 font-medium">Ongoing Incident Reports</span>
+            <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Ongoing</span>
+              <div className="text-3xl font-black my-1 text-white">{inProgressOverall}</div>
+              <span className="text-[10px] text-white/90 font-medium">Ongoing Incident Reports</span>
             </div>
 
-            <div className="bg-[#059669] text-[#022c22] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Resolved</span>
-              <div className="text-3xl font-black my-1">{resolvedOverall}</div>
-              <span className="text-[10px] text-gray-200 font-medium">Resolved Incident Reports</span>
+            <div className="bg-[#059669] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Resolved</span>
+              <div className="text-3xl font-black my-1 text-white">{resolvedOverall}</div>
+              <span className="text-[10px] text-white/90 font-medium">Resolved Incident Reports</span>
             </div>
 
-            <div className="bg-[#6b7280] text-[#111827] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
-              <div className="text-3xl font-black my-1">{dismissedOverall}</div>
-              <span className="text-[10px] text-gray-200 font-medium">Dismissed Incident Reports</span>
+            <div className="bg-[#6b7280] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-white">Dismissed</span>
+              <div className="text-3xl font-black my-1 text-white">{dismissedOverall}</div>
+              <span className="text-[10px] text-white/90 font-medium">Dismissed Incident Reports</span>
             </div>
           </div>
 
-          {/* ROW 3: REPORT TRENDS + PEAK INCIDENT HOURS (half / half) */}
+          {/* ROW 3: REPORT TRENDS + PEAK INCIDENT HOURS */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs flex flex-col">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
@@ -1124,23 +1105,23 @@ export default function AnalyticsPage() {
                 <p className="text-[11px] font-bold text-gray-500 mb-3">{periodLabel}</p>
               )}
 
-            <div className="h-56 sm:h-64 w-full min-w-0 mt-auto">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="webColorReports" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                  <Area name="Reports" type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#webColorReports)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+              <div className="h-56 sm:h-64 w-full min-w-0 mt-auto">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="webColorReports" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    <Area name="Reports" type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2.5} fillOpacity={1} fill="url(#webColorReports)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col justify-between">
@@ -1251,7 +1232,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ROW 5: DBSCAN CLUSTERS (separate, on-demand) */}
+          {/* ROW 5: DBSCAN CLUSTERS */}
           <div className="bg-white p-5 rounded-xl border border-gray-200/80 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
