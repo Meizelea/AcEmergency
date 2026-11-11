@@ -358,7 +358,7 @@ export default function AdminProfilePage() {
           <div>
             <h1 className="text-xl font-black tracking-tight text-gray-900 flex items-center gap-2">
               <ShieldCheck className="text-[#b32d2d]" size={24} />
-              ADMINISTRATIVE PROFILE & CREDENTIALS
+              ADMINISTRATOR PROFILE & CREDENTIALS
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               Manage command center access, contact records, and dispatch clearance.

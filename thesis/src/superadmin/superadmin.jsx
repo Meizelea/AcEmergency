@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ShieldCheck, UserPlus, Search, Edit3, Trash2, 
+  ShieldCheck, UserPlus, Search, Trash2, 
   Eye, EyeOff, CheckCircle, XCircle, Phone, MapPin, X, AlertCircle, Loader2, Lock, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
@@ -334,12 +334,6 @@ export default function SuperAdminPage() {
     setIsModalOpen(true);
   };
 
-  const openViewModal = (admin) => {
-    setModalMode('view');
-    setSelectedAdmin(admin);
-    setIsModalOpen(true);
-  };
-
   const openStatusConfirmModal = (admin) => {
     const defaultReason = Object.keys(SUSPENSION_MAPPING)[0];
     setStatusModal({
@@ -621,7 +615,7 @@ export default function SuperAdminPage() {
                   <th className="py-3.5 px-4 sm:px-6 min-w-[160px] whitespace-nowrap">Assigned Barangay</th>
                   <th className="py-3.5 px-4 sm:px-6 whitespace-nowrap">Contact Number</th>
                   <th className="py-3.5 px-4 sm:px-6 whitespace-nowrap">Status</th>
-                  <th className="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap w-36">Actions</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap w-24">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs text-gray-600">
@@ -653,8 +647,9 @@ export default function SuperAdminPage() {
                     return (
                       <tr 
                         key={admin.id} 
-                        onClick={() => openViewModal(admin)}
+                        onClick={() => openEditModal(admin)}
                         className="hover:bg-gray-50/80 transition-colors cursor-pointer"
+                        title="Click to edit admin details"
                       >
                         <td className="py-3.5 sm:py-4 px-4 sm:px-6">
                           <div className="font-bold text-gray-800 text-sm">
@@ -683,21 +678,7 @@ export default function SuperAdminPage() {
                           </span>
                         </td>
                         <td className="py-3.5 sm:py-4 px-4 sm:px-6 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button 
-                              onClick={() => openViewModal(admin)} 
-                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-all cursor-pointer"
-                              title="View Admin File"
-                            >
-                              <Eye size={14} />
-                            </button>
-                            <button 
-                              onClick={() => openEditModal(admin)} 
-                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all cursor-pointer"
-                              title="Edit Admin Information"
-                            >
-                              <Edit3 size={14} />
-                            </button>
+                          <div className="flex items-center justify-end">
                             <button 
                               onClick={() => openStatusConfirmModal(admin)} 
                               className={`p-1.5 rounded-lg transition-all cursor-pointer ${
@@ -719,7 +700,7 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      {/* CRUD MODAL */}
+      {/* EDIT / CREATE MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
@@ -730,7 +711,7 @@ export default function SuperAdminPage() {
                 <div className="flex items-center gap-2.5">
                   <ShieldCheck size={22} className="text-[#b32d2d]" />
                   <h3 className="font-bold text-sm sm:text-base text-gray-900">
-                    {modalMode === 'create' ? 'Register New Admin' : modalMode === 'edit' ? 'Update Admin Record' : 'Administrator Details'}
+                    {modalMode === 'create' ? 'Register New Admin' : 'Update Admin Record'}
                   </h3>
                 </div>
                 <X size={18} className="text-gray-400 hover:text-gray-600 cursor-pointer" onClick={() => setIsModalOpen(false)} />
@@ -742,197 +723,126 @@ export default function SuperAdminPage() {
                 </div>
               )}
 
-              {/* View Only Mode */}
-              {modalMode === 'view' && selectedAdmin && (
-                <div className="space-y-3.5 text-xs text-gray-600 flex-1">
-                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-                    <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Full Name</label>
-                    <p className="text-sm font-bold text-gray-900">
-                      {selectedAdmin.first_name || selectedAdmin.last_name ? `${selectedAdmin.first_name || ''} ${selectedAdmin.last_name || ''}`.trim() : selectedAdmin.username}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Username</label>
-                      <p className="text-xs font-semibold text-[#b32d2d]">@{selectedAdmin.username}</p>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Assigned Station</label>
-                      <p className="text-xs font-bold text-gray-700">
-                        {getAdminBarangay(selectedAdmin) ? `Brgy. ${getAdminBarangay(selectedAdmin)}` : 'Central Command'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Contact Number</label>
-                      <p className="text-xs font-medium text-gray-700">{getAdminContact(selectedAdmin) || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Email Routing</label>
-                      <p className="text-xs font-medium text-gray-700">{selectedAdmin.email || 'N/A'}</p>
-                    </div>
-                  </div>
-
-                  {/* Show Suspension details if disabled */}
-                  {selectedAdmin.is_active === false && (
-                    <div className="bg-red-50/60 p-4 rounded-xl border border-red-100 space-y-2">
-                      <div className="flex items-center gap-1.5 text-red-800 font-bold text-xs">
-                        <AlertTriangle size={14} /> Account Suspended
-                      </div>
-                      {selectedAdmin.suspension_reason && (
-                        <div>
-                          <span className="text-[10px] font-bold uppercase text-red-500 block">Primary Reason</span>
-                          <span className="text-xs font-semibold text-red-900">
-                            {SUSPENSION_MAPPING[selectedAdmin.suspension_reason]?.label || selectedAdmin.suspension_reason}
-                          </span>
-                        </div>
-                      )}
-                      {selectedAdmin.suspension_detail && (
-                        <div>
-                          <span className="text-[10px] font-bold uppercase text-red-500 block">Specific Detail</span>
-                          <span className="text-xs font-semibold text-red-900">
-                            {selectedAdmin.suspension_detail}
-                          </span>
-                        </div>
-                      )}
-                      {selectedAdmin.suspension_notes && (
-                        <div>
-                          <span className="text-[10px] font-bold uppercase text-red-500 block">Explanation / Notes</span>
-                          <span className="text-xs text-red-800">{selectedAdmin.suspension_notes}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <button onClick={() => setIsModalOpen(false)} className="mt-4 w-full py-2.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl transition-colors cursor-pointer">
-                    Close File
-                  </button>
-                </div>
-              )}
-
               {/* Create / Edit Form Mode */}
-              {(modalMode === 'create' || modalMode === 'edit') && (
-                <form onSubmit={handleSaveAdmin} className="space-y-4 text-xs flex-1">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">First Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={formData.first_name} 
-                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Last Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={formData.last_name} 
-                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Username</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={formData.username} 
-                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">
-                        Password {modalMode === 'edit' && <span className="text-[10px] text-gray-400 font-normal">(leave blank to keep)</span>}
-                      </label>
-                      <div className="relative">
-                        <input 
-                          type={showPassword ? "text" : "password"} 
-                          required={modalMode === 'create'}
-                          value={formData.password} 
-                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                          className="w-full border border-gray-200 rounded-xl p-2.5 pr-9 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
-                          tabIndex={-1}
-                        >
-                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Assigned Barangay</label>
-                      <select 
-                        value={formData.barangay} 
-                        onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer"
-                      >
-                        {ANGELES_BARANGAYS.map((brgy) => (
-                          <option key={brgy} value={brgy}>{brgy}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">
-                        Contact Number <span className="text-[10px] text-gray-400 font-normal">(11 digits)</span>
-                      </label>
-                      <input 
-                        type="text" 
-                        required
-                        maxLength={11}
-                        placeholder="09171234567"
-                        value={formData.contact_number} 
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/\D/g, '');
-                          setFormData({ ...formData, contact_number: cleaned });
-                        }}
-                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
-                      />
-                    </div>
-                  </div>
-
+              <form onSubmit={handleSaveAdmin} className="space-y-4 text-xs flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Email Address</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">First Name</label>
                     <input 
-                      type="email" 
-                      value={formData.email} 
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      type="text" 
+                      required
+                      value={formData.first_name} 
+                      onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                       className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
                     />
                   </div>
-
-                  <div className="flex gap-2 pt-3 border-t border-gray-100">
-                    <button 
-                      type="button" 
-                      onClick={() => setIsModalOpen(false)}
-                      className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      disabled={submitting}
-                      className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      {submitting && <Loader2 className="animate-spin" size={14} />}
-                      {modalMode === 'create' ? 'Create Admin Account' : 'Save Changes'}
-                    </button>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Last Name</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={formData.last_name} 
+                      onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                    />
                   </div>
-                </form>
-              )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Username</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={formData.username} 
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">
+                      Password {modalMode === 'edit' && <span className="text-[10px] text-gray-400 font-normal">(leave blank to keep)</span>}
+                    </label>
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? "text" : "password"} 
+                        required={modalMode === 'create'}
+                        value={formData.password} 
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className="w-full border border-gray-200 rounded-xl p-2.5 pr-9 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Assigned Barangay</label>
+                    <select 
+                      value={formData.barangay} 
+                      onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer"
+                    >
+                      {ANGELES_BARANGAYS.map((brgy) => (
+                        <option key={brgy} value={brgy}>{brgy}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">
+                      Contact Number <span className="text-[10px] text-gray-400 font-normal">(11 digits)</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      required
+                      maxLength={11}
+                      placeholder="09171234567"
+                      value={formData.contact_number} 
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/\D/g, '');
+                        setFormData({ ...formData, contact_number: cleaned });
+                      }}
+                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-gray-600 block mb-1">Email Address</label>
+                  <input 
+                    type="email" 
+                    value={formData.email} 
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d]" 
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-3 border-t border-gray-100">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-1 py-2.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {submitting && <Loader2 className="animate-spin" size={14} />}
+                    {modalMode === 'create' ? 'Create Admin Account' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
 
             </div>
           </div>
