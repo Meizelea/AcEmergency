@@ -742,10 +742,10 @@ export default function AnalyticsPage() {
               </div>
 
               <div className="grid grid-cols-4 gap-2">
-                <div className="bg-[#fde68a] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">Pending</span>
+                <div className="bg-[#fde68a] text-[#854d0e] p-2.5 rounded-lg">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
                   <div className="text-xl font-black my-0.5">{pendingOverall}</div>
-                  <span className="text-[8px] text-gray-400">Pending Incident Reports</span>
+                  <span className="text-[8px] text-[#a16207]">Pending Incident Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
@@ -765,29 +765,45 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* REPORT TRENDS (fixed-size chart, ~190mm wide) */}
-            <div className="border border-gray-200 rounded-lg p-3">
-              <h3 className="font-bold text-xs text-gray-900 mb-1">Report Trends</h3>
-              <AreaChart width={690} height={210} data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#6b7280' }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
-                <Area isAnimationActive={false} type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#printColorReports)" />
-              </AreaChart>
+            {/* TRENDS + PEAK INCIDENT HOURS (half / half, like the dashboard) */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="border border-gray-200 rounded-lg p-3">
+                <h3 className="font-bold text-xs text-gray-900">Report Trends</h3>
+                {periodLabel && <p className="text-[8px] text-gray-500 font-bold mb-1">{periodLabel}</p>}
+                <AreaChart width={325} height={240} data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fontSize: 8, fill: '#6b7280' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                  <Area isAnimationActive={false} type="monotone" dataKey="reports" stroke="#0d9488" strokeWidth={2} fillOpacity={1} fill="url(#printColorReports)" />
+                </AreaChart>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-3">
+                <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
+                <BarChart width={325} height={240} data={hourlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="slot" tick={{ fontSize: 7, fill: '#6b7280', fontWeight: 600 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                  <Bar isAnimationActive={false} dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={30} />
+                </BarChart>
+                <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
+                  Dispatch call density by time of day
+                </div>
+              </div>
             </div>
 
-            {/* DONUTS */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* DONUTS (three across, like the dashboard) */}
+            <div className="grid grid-cols-3 gap-2">
               <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
                 <h4 className="font-bold text-[10px] text-gray-900 self-start">Report Status</h4>
-                <div className="relative" style={{ width: 320, height: 140 }}>
-                  <PieChart width={320} height={140}>
+                <div className="relative" style={{ width: 210, height: 140 }}>
+                  <PieChart width={210} height={140}>
                     <Pie isAnimationActive={false} data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`print-cell-${idx}`} fill={entry.color} />
@@ -799,7 +815,7 @@ export default function AnalyticsPage() {
                     <span className="text-[7px] uppercase font-bold text-gray-400">Total</span>
                   </div>
                 </div>
-                <div className="w-full flex justify-around text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                <div className="w-full flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#fde68a' }}></span> Pending</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
@@ -809,11 +825,11 @@ export default function AnalyticsPage() {
 
               <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
                 <h4 className="font-bold text-[10px] text-gray-900 self-start">Emergency Categories</h4>
-                <div className="relative" style={{ width: 320, height: 140 }}>
+                <div className="relative" style={{ width: 210, height: 140 }}>
                   {incidentTypeData.length === 0 ? (
                     <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-400">No records</div>
                   ) : (
-                    <PieChart width={320} height={140}>
+                    <PieChart width={210} height={140}>
                       <Pie isAnimationActive={false} data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`print-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
@@ -826,7 +842,7 @@ export default function AnalyticsPage() {
                     <span className="text-[7px] uppercase font-bold text-gray-400">Categories</span>
                   </div>
                 </div>
-                <div className="w-full flex flex-wrap justify-center gap-1.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                <div className="w-full flex flex-wrap justify-center gap-x-1.5 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
                   {incidentTypeData.map((item, idx) => (
                     <span key={`print-cat-label-${item.name}`} className="flex items-center gap-0.5">
                       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span>
@@ -835,19 +851,30 @@ export default function AnalyticsPage() {
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* PEAK INCIDENT HOURS */}
-            <div className="border border-gray-200 rounded-lg p-3">
-              <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
-              <BarChart width={690} height={140} data={hourlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="slot" tick={{ fontSize: 9, fill: '#6b7280', fontWeight: 600 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
-                <Bar isAnimationActive={false} dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={30} />
-              </BarChart>
-              <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
-                Dispatch call density by time of day
+              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
+                <h4 className="font-bold text-[10px] text-gray-900 self-start">Active vs Suspended Residents</h4>
+                <div className="relative" style={{ width: 210, height: 140 }}>
+                  {residentPieData.length === 0 ? (
+                    <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-400">No records</div>
+                  ) : (
+                    <PieChart width={210} height={140}>
+                      <Pie isAnimationActive={false} data={residentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
+                        {residentPieData.map((entry, idx) => (
+                          <Cell key={`print-res-${idx}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  )}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-sm font-black text-gray-900">{(residentCounts?.active ?? 0) + (residentCounts?.suspended ?? 0)}</span>
+                    <span className="text-[7px] uppercase font-bold text-gray-400">Residents</span>
+                  </div>
+                </div>
+                <div className="w-full flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Active ({residentCounts?.active ?? 0})</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Suspended ({residentCounts?.suspended ?? 0})</span>
+                </div>
               </div>
             </div>
 
@@ -1042,10 +1069,10 @@ export default function AnalyticsPage() {
 
           {/* ROW 2: STATUS CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#fde68a] text-gray-500 p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-900">Pending</span>
+            <div className="bg-[#fde68a] text-[#854d0e] p-4 rounded-xl shadow-xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
               <div className="text-3xl font-black my-1">{pendingOverall}</div>
-              <span className="text-[10px] text-gray-400 font-medium">Pending Incident Reports</span>
+              <span className="text-[10px] text-[#a16207] font-medium">Pending Incident Reports</span>
             </div>
 
             <div className="bg-[#109EEF] text-white p-4 rounded-xl shadow-xs flex flex-col justify-between">
