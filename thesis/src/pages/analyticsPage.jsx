@@ -748,19 +748,19 @@ export default function AnalyticsPage() {
                   <span className="text-[8px] text-[#a16207]">Pending Incident Reports</span>
                 </div>
                 <div className="bg-[#109EEF] text-[#082f49] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#082f49]">Ongoing</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Ongoing</span>
                   <div className="text-xl font-black my-0.5">{inProgressOverall}</div>
                   <span className="text-[8px] text-[#0c4a6e]">Ongoing Incident Reports</span>
                 </div>
                 <div className="bg-[#059669] text-[#022c22] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#022c22]">Resolved</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Resolved</span>
                   <div className="text-xl font-black my-0.5">{resolvedOverall}</div>
-                  <span className="text-[8px] text-[#064e3b]">Resolved Incident Reports</span>
+                  <span className="text-[8px] text-gray-200">Resolved Incident Reports</span>
                 </div>
                 <div className="bg-[#6b7280] text-[#111827] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#111827]">Dismissed</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
                   <div className="text-xl font-black my-0.5">{dismissedOverall}</div>
-                  <span className="text-[8px] text-[#1f2937]">Dismissed Reports</span>
+                  <span className="text-[8px] text-gray-200">Dismissed Reports</span>
                 </div>
               </div>
             </div>
@@ -1076,21 +1076,21 @@ export default function AnalyticsPage() {
             </div>
 
             <div className="bg-[#109EEF] text-[#082f49] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#082f49]">Ongoing</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Ongoing</span>
               <div className="text-3xl font-black my-1">{inProgressOverall}</div>
-              <span className="text-[10px] text-[#0c4a6e] font-medium">Ongoing Incident Reports</span>
+              <span className="text-[10px] text-gray-200 font-medium">Ongoing Incident Reports</span>
             </div>
 
             <div className="bg-[#059669] text-[#022c22] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#022c22]">Resolved</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Resolved</span>
               <div className="text-3xl font-black my-1">{resolvedOverall}</div>
-              <span className="text-[10px] text-[#064e3b] font-medium">Resolved Incident Reports</span>
+              <span className="text-[10px] text-gray-200 font-medium">Resolved Incident Reports</span>
             </div>
 
             <div className="bg-[#6b7280] text-[#111827] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#111827]">Dismissed</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-100">Dismissed</span>
               <div className="text-3xl font-black my-1">{dismissedOverall}</div>
-              <span className="text-[10px] text-[#1f2937] font-medium">Dismissed Incident Reports</span>
+              <span className="text-[10px] text-gray-200 font-medium">Dismissed Incident Reports</span>
             </div>
           </div>
 
