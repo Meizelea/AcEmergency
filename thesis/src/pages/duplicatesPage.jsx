@@ -233,67 +233,62 @@ export default function DuplicatesPage() {
 
   return (
     <AdminLayout>
-      <main className="w-full h-full min-h-0 flex flex-col bg-gray-100 overflow-hidden">
-        
-        {/* TOP BAR WITH REFRESH BUTTON AND TIMESTAMP */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shrink-0 shadow-2xs">
-          <div>
-            <h1 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-amber-500" />
-              Potential Duplicate Reports
-            </h1>
-            <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Reports flagged as potential duplicates based on content, location, and submission time.
-            </p>
-          </div>
+      <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto bg-[#f0f0f0] flex flex-col">
 
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-400 font-semibold hidden sm:inline">
-              Refreshed: {lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
+        {/* PAGE HEADER */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="text-[#b32d2d]" size={24} />
+            <h1 className="font-black text-xl sm:text-2xl text-gray-900">Potential Duplicate Reports</h1>
+          </div>
+          <span className="text-xs sm:text-sm text-gray-900 font-black">
+            {pendingPairs.length} Pending {pendingPairs.length === 1 ? 'Duplicate' : 'Duplicates'}
+          </span>
+        </div>
+
+        {/* CONTROLS: tabs on the left, Refresh on the far right */}
+        <div className="flex flex-wrap items-center gap-2.5 mb-6 shrink-0">
+          {[
+            { key: 'pending', label: 'Pending', count: pendingPairs.length },
+            { key: 'reviewed', label: 'Reviewed', count: reviewedPairs.length }
+          ].map((tab) => (
             <button
-              onClick={() => {
-                setNotice('');
-                fetchDuplicates(true);
-              }}
-              disabled={isRefreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border shadow-xs ${
+                activeTab === tab.key
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing...' : 'Refresh List'}
-            </button>
-          </div>
-        </header>
-
-        {/* DUPLICATE PAIRS SCROLLABLE LIST */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-
-          {/* TABS */}
-          <div className="flex items-center gap-2">
-            {[
-              { key: 'pending', label: 'Pending', count: pendingPairs.length },
-              { key: 'reviewed', label: 'Reviewed', count: reviewedPairs.length }
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
-                  activeTab === tab.key
-                    ? 'bg-gray-900 text-white border-gray-900'
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              {tab.label}
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === tab.key ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
                 }`}
               >
-                {tab.label}
-                <span
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                    activeTab === tab.key ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
+                {tab.count}
+              </span>
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => {
+              setNotice('');
+              fetchDuplicates(true);
+            }}
+            disabled={isRefreshing}
+            title={`Last refreshed ${lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
+            className="sm:ml-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-[#b32d2d]' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {/* DUPLICATE PAIRS LIST */}
+        <div className="space-y-4">
 
           {activeTab === 'reviewed' && (
             <p className="text-[11px] text-gray-500 font-medium">
@@ -486,7 +481,7 @@ export default function DuplicatesPage() {
           )}
         </div>
 
-      </main>
+      </div>
     </AdminLayout>
   );
 }
