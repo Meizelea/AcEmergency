@@ -17,16 +17,14 @@ import {
   X
 } from 'lucide-react';
 
+import { performLogout } from '../utils/logout';
+
 export default function AdminLayout({ children }) {
   const [showSidebar, setShowSidebar] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = () => {
-    localStorage.removeItem('ac_token');
-    localStorage.removeItem('ac_user');
-    navigate('/login');
-  };
+  const handleLogout = () => performLogout(navigate);
 
   // Pull cached user data
   const storedUser = JSON.parse(localStorage.getItem('ac_user') || '{}');

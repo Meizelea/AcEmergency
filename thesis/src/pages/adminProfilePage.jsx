@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
+import { performLogout } from '../utils/logout';
 import { 
   User, 
   Mail, 
@@ -120,35 +121,8 @@ export default function AdminProfilePage() {
       : { 'Content-Type': 'application/json' };
   }, []);
 
-  // LOGOUT WORKFLOW FUNCTION
-  const handleLogout = async () => {
-    const token = localStorage.getItem('ac_token');
-    if (token) {
-      try {
-        const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
-        await fetch(`${API_BASE}/api/users/logout/`, {
-          method: 'POST',
-          headers: {
-            'Content-[#Type]': 'application/json',
-            'Authorization': `Token ${cleanToken}`
-          }
-        });
-      } catch (err) {
-        console.warn('Logout endpoint diagnostic failure:', err);
-      }
-    }
-
-    // Clear all persistent user storage credentials
-    localStorage.removeItem('ac_token');
-    localStorage.removeItem('ac_user');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('is_superuser');
-    localStorage.removeItem('username');
-    sessionStorage.clear();
-
-    // Redirect to login page
-    navigate('/login', { replace: true });
-  };
+  // LOGOUT WORKFLOW (shared with the sidebar logout in components/header.jsx)
+  const handleLogout = () => performLogout(navigate);
 
   const syncProfileState = useCallback((userObj) => {
     const isPriv = checkIsPrivileged(userObj);
