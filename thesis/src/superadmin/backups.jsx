@@ -94,7 +94,7 @@ export default function BackupsPage() {
       return;
     }
 
-    const isPrivileged = user.is_superuser || user.role?.toUpperCase() === 'PRIVILEGED ADMIN';
+    const isPrivileged = user.is_superuser || user.role?.toUpperCase() === 'PRIVILEGED_ADMIN';
     if (!isPrivileged) {
       setFeedback({
         error: 'Access Restricted: Database backups require Privileged Administrator authorization.',
