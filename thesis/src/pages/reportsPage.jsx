@@ -725,7 +725,8 @@ export default function ReportsPage() {
           year: 'numeric', 
           hour: '2-digit', 
           minute: '2-digit',
-          second: '2-digit'
+          second: '2-digit',
+          hour12: true
         });
   };
 
@@ -734,7 +735,7 @@ export default function ReportsPage() {
     if (!isResolved) return '—';
     if (report.resolved_at) {
       const d = new Date(report.resolved_at);
-      return isNaN(d.getTime()) ? report.resolved_at : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return isNaN(d.getTime()) ? report.resolved_at : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
     }
     return '—';
   };
@@ -744,7 +745,7 @@ export default function ReportsPage() {
     const d = new Date(value);
     return isNaN(d.getTime())
       ? String(value)
-      : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      : d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   };
 
   const formatDismissedTime = (report) =>
@@ -779,12 +780,12 @@ export default function ReportsPage() {
     let matchedDate = true;
     const now = new Date();
 
-    // Custom From/To Date Range
+    // Custom From/To Date Range (local-time day boundaries)
     if ((fromDate || toDate) && (report.created_at || report.timestamp)) {
       const reportDateRaw = report.created_at || report.timestamp;
       const reportTime = new Date(reportDateRaw).getTime();
-      const startMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
-      const endMs = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+      const startMs = fromDate ? new Date(`${fromDate}T00:00:00.000`).getTime() : 0;
+      const endMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Infinity;
       if (!isNaN(reportTime)) {
         matchedDate = reportTime >= startMs && reportTime <= endMs;
       }
@@ -795,9 +796,10 @@ export default function ReportsPage() {
       const reportTimestamp = new Date(reportDateRaw).getTime();
       if (!isNaN(reportTimestamp)) {
         if (dateRangeFilter === 'today') {
-          const todayStr = now.toISOString().split('T')[0];
-          const reportDateStr = new Date(reportDateRaw).toISOString().split('T')[0];
-          matchedDate = todayStr === reportDateStr;
+          // Compare LOCAL calendar days (toISOString() is UTC and is off by 8h in the Philippines)
+          const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+          matchedDate = reportTimestamp >= startOfToday && reportTimestamp < startOfTomorrow;
         } else if (dateRangeFilter === '7_days') {
           const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
           matchedDate = reportTimestamp >= sevenDaysAgo;

@@ -10,7 +10,6 @@ import {
   Loader2,
   FileSpreadsheet,
   Download,
-  Trash2,
   AlertTriangle,
   RotateCcw,
   RefreshCw
@@ -19,12 +18,40 @@ import {
 const API_BASE = 'https://api.aksyon.online';
 const CACHE_KEY_BACKUPS = 'cache_admin_backups_history_v3';
 
+// Cache lives in sessionStorage so it is wiped when the tab/session ends.
+const saveBackupCache = (list) => {
+  try {
+    sessionStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(list));
+  } catch {
+    /* storage unavailable - ignore */
+  }
+};
+
+// Remove any copy left in localStorage by older versions of this page.
+try {
+  localStorage.removeItem(CACHE_KEY_BACKUPS);
+} catch {
+  /* ignore */
+}
+
+const isPrivilegedUser = (user) =>
+  Boolean(
+    user &&
+      (user.is_superuser === true ||
+        String(user.role || '').toUpperCase() === 'PRIVILEGED_ADMIN' ||
+        String(user.role || '').toUpperCase() === 'SUPERADMIN')
+  );
+
 export default function BackupsPage() {
   const navigate = useNavigate();
 
   const [backupHistory, setBackupHistory] = useState(() => {
-    const cached = localStorage.getItem(CACHE_KEY_BACKUPS);
-    return cached ? JSON.parse(cached) : [];
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY_BACKUPS);
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [isFetchingList, setIsFetchingList] = useState(false);
@@ -73,11 +100,12 @@ export default function BackupsPage() {
         filename: b.filename,
         size_bytes: b.size_bytes || 0,
         created_at: b.created_at ? new Date(b.created_at).toLocaleString() : 'N/A',
+        download_url: b.download_url || b.url || '',
         format: 'DUMP'
       }));
 
       setBackupHistory(serverBackups);
-      localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(serverBackups));
+      saveBackupCache(serverBackups);
     } catch (err) {
       console.warn("Server backup listing error:", err);
     } finally {
@@ -87,22 +115,25 @@ export default function BackupsPage() {
 
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
-    const user = JSON.parse(localStorage.getItem('ac_user') || '{}');
-    
-    if (!token) {
-      navigate('/login');
+    let user = {};
+    try {
+      user = JSON.parse(localStorage.getItem('ac_user') || '{}');
+    } catch {
+      user = {};
+    }
+
+    if (!token || token === 'undefined' || token === 'null') {
+      navigate('/login', { replace: true });
       return;
     }
 
-    const isPrivileged = user.is_superuser || user.role?.toUpperCase() === 'PRIVILEGED_ADMIN';
-    if (!isPrivileged) {
-      setFeedback({
-        error: 'Access Restricted: Database backups require Privileged Administrator authorization.',
-        success: ''
-      });
-    } else {
-      fetchServerBackups();
+    if (!isPrivilegedUser(user)) {
+      // Regular barangay admins must not see this page at all.
+      navigate('/analytics', { replace: true });
+      return;
     }
+
+    fetchServerBackups();
   }, [navigate, fetchServerBackups]);
 
   // POST /api/backups/database/
@@ -140,7 +171,7 @@ export default function BackupsPage() {
 
       const updatedHistory = [newBackup, ...backupHistory];
       setBackupHistory(updatedHistory);
-      localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(updatedHistory));
+      saveBackupCache(updatedHistory);
 
       setFeedback({
         error: '',
@@ -190,14 +221,26 @@ export default function BackupsPage() {
         throw new Error(data.detail || data.message || 'Database restoration failed.');
       }
 
-      sessionStorage.clear();
+      // The restored database may no longer recognise our token or cached data,
+      // so wipe the whole local session and send the admin back to the login page.
+      try {
+        sessionStorage.clear();
+        ['ac_token', 'ac_user', 'user_role', 'is_superuser', 'username'].forEach((k) =>
+          localStorage.removeItem(k)
+        );
+      } catch {
+        /* ignore */
+      }
 
       setFeedback({
         error: '',
-        success: data.message || `Database restored successfully from dump: ${selectedDumpFilename}`,
+        success:
+          (data.message || `Database restored successfully from dump: ${selectedDumpFilename}`) +
+          ' You will be signed out so you can log in again.',
       });
       setDumpRestoreModalOpen(false);
       setSelectedDumpFilename('');
+      setTimeout(() => navigate('/login', { replace: true }), 2500);
     } catch (err) {
       setFeedback({ error: err.message || 'Database restore failed.', success: '' });
     } finally {
@@ -206,19 +249,44 @@ export default function BackupsPage() {
   };
 
   // Authenticated Dump Download Helper
-  const handleDownloadDump = async (filename) => {
+  // Order: (1) URL returned by the list endpoint, (2) authenticated backend endpoint,
+  // (3) legacy public storage URL (only works if the bucket is public).
+  const handleDownloadDump = async (item) => {
+    const filename = item.filename;
     setDownloadingFile(filename);
     setFeedback({ error: '', success: '' });
 
-    try {
-      const storageUrl = `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${filename}`;
-      const res = await fetch(storageUrl);
+    const encoded = encodeURIComponent(filename);
+    const candidates = [
+      ...(item.download_url ? [{ url: item.download_url, auth: true }] : []),
+      { url: `${API_BASE}/api/backups/database/download/?filename=${encoded}`, auth: true },
+      { url: `${API_BASE}/storage/v1/object/public/aksyon-backups/${encoded}`, auth: false }
+    ];
 
-      if (!res.ok) {
-        throw new Error('Public bucket access disabled. Backup files are stored securely in a private storage bucket.');
+    try {
+      let blob = null;
+
+      for (const c of candidates) {
+        try {
+          let res = await fetch(c.url, c.auth ? { headers: getAuthHeaders(false) } : undefined);
+          if (c.auth && res.status === 401) {
+            res = await fetch(c.url, { headers: getAuthHeaders(true) });
+          }
+          if (res.ok) {
+            blob = await res.blob();
+            break;
+          }
+        } catch (innerErr) {
+          console.warn('Download attempt failed:', c.url, innerErr);
+        }
       }
 
-      const blob = await res.blob();
+      if (!blob) {
+        throw new Error(
+          'Could not download this backup. The storage bucket is private and no authenticated download endpoint responded.'
+        );
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -234,12 +302,6 @@ export default function BackupsPage() {
     } finally {
       setDownloadingFile('');
     }
-  };
-
-  const removeItemFromHistory = (indexToRemove) => {
-    const updated = backupHistory.filter((_, idx) => idx !== indexToRemove);
-    setBackupHistory(updated);
-    localStorage.setItem(CACHE_KEY_BACKUPS, JSON.stringify(updated));
   };
 
   const formatBytes = (bytes) => {
@@ -360,9 +422,11 @@ export default function BackupsPage() {
                 ) : (
                   backupHistory.map((item, index) => (
                     <tr key={item.filename || index} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-4 px-6 font-bold text-gray-900 flex items-center gap-2">
-                        <Database size={15} className="text-[#b32d2d]" />
-                        {item.filename}
+                      <td className="py-4 px-6 font-bold text-gray-900">
+                        <div className="flex items-center gap-2">
+                          <Database size={15} className="text-[#b32d2d]" />
+                          {item.filename}
+                        </div>
                       </td>
                       <td className="py-4 px-6 font-bold">
                         <span className="px-2 py-0.5 rounded text-[10px] uppercase bg-red-50 text-red-700 border border-red-200">
@@ -394,20 +458,12 @@ export default function BackupsPage() {
                           </button>
 
                           <button
-                            onClick={() => handleDownloadDump(item.filename)}
+                            onClick={() => handleDownloadDump(item)}
                             disabled={downloadingFile === item.filename}
                             className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#b32d2d] hover:bg-[#8b2323] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
                           >
                             {downloadingFile === item.filename ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                             Download
-                          </button>
-                          
-                          <button
-                            onClick={() => removeItemFromHistory(index)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-[#b32d2d] rounded-lg text-xs font-bold transition-all cursor-pointer"
-                            title="Remove log entry"
-                          >
-                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>

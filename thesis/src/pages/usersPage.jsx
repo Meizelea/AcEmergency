@@ -271,13 +271,32 @@ export default function UsersPage() {
     return false;
   };
 
-  // Optimistic UI update
+  // Apply a change to one user in the list, selected-user view and session cache.
+  // Uses the functional form so it never works from a stale `users` array.
   const applyLocalUpdate = (target, payload) => {
-    const updatedUser = { ...target, ...payload };
-    setSelectedUser(prev => (prev && prev.id === target.id ? updatedUser : prev));
-    const updatedList = users.map(u => u.id === target.id ? updatedUser : u);
-    setUsers(updatedList);
-    sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(updatedList));
+    setSelectedUser(prev => (prev && prev.id === target.id ? { ...prev, ...payload } : prev));
+    setUsers(prev => {
+      const updatedList = prev.map(u => (u.id === target.id ? { ...u, ...payload } : u));
+      try {
+        sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(updatedList));
+      } catch {
+        /* storage unavailable - ignore */
+      }
+      return updatedList;
+    });
+  };
+
+  // Optimistic update with rollback: the UI changes immediately, but if the server
+  // rejects the change the previous values are restored.
+  const applyWithRollback = async (target, payload) => {
+    const snapshot = {};
+    Object.keys(payload).forEach((k) => { snapshot[k] = target[k]; });
+
+    applyLocalUpdate(target, payload);
+    const success = await patchUser(target, payload);
+
+    if (!success) applyLocalUpdate(target, snapshot);
+    return success;
   };
 
   const executeSuspendUser = async (target, form) => {
@@ -287,12 +306,10 @@ export default function UsersPage() {
       is_active: false,
       suspension_reason: form.reason,
       suspension_detail: form.detail,
-      suspension_notes: form.notes.trim(),
-      suspended_at: new Date().toISOString()
+      suspension_notes: form.notes.trim()
     };
 
-    applyLocalUpdate(target, payload);
-    const success = await patchUser(target, payload);
+    const success = await applyWithRollback(target, payload);
 
     setIsSubmittingSuspension(false);
     setIsSuspendModalOpen(false);
@@ -302,7 +319,7 @@ export default function UsersPage() {
       setNotificationMsg(`${getFullName(target)} has been suspended.`);
     } else {
       setNotificationMsg('');
-      setErrorMsg("Failed to synchronize state with server, changes saved locally.");
+      setErrorMsg("The server rejected the change, so nothing was updated. Please try again.");
     }
   };
 
@@ -311,19 +328,17 @@ export default function UsersPage() {
       is_active: true,
       suspension_reason: '',
       suspension_detail: '',
-      suspension_notes: '',
-      reactivated_at: new Date().toISOString()
+      suspension_notes: ''
     };
 
-    applyLocalUpdate(target, payload);
-    const success = await patchUser(target, payload);
+    const success = await applyWithRollback(target, payload);
 
     if (success) {
       setErrorMsg('');
       setNotificationMsg(`${getFullName(target)} has been re-activated.`);
     } else {
       setNotificationMsg('');
-      setErrorMsg("Failed to synchronize state with server, changes saved locally.");
+      setErrorMsg("The server rejected the change, so nothing was updated. Please try again.");
     }
   };
 
