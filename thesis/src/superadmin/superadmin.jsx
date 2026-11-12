@@ -914,21 +914,23 @@ export default function SuperAdminPage() {
                     </select>
                   </div>
 
-                  {/* Specific Detail Dropdown */}
-                  <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
-                      Specific Detail Reason <span className="text-red-500">*</span>
-                    </label>
-                    <select 
-                      value={statusModal.detail}
-                      onChange={(e) => setStatusModal({ ...statusModal, detail: e.target.value, error: '' })}
-                      className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer font-medium"
-                    >
-                      {(SUSPENSION_MAPPING[statusModal.reason]?.details || []).map((detailItem) => (
-                        <option key={detailItem.value} value={detailItem.value}>{detailItem.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {/* Specific Detail Dropdown (hidden for "Other": its only detail is also "Other") */}
+                  {statusModal.reason !== 'other' && (
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                        Specific Detail Reason <span className="text-red-500">*</span>
+                      </label>
+                      <select 
+                        value={statusModal.detail}
+                        onChange={(e) => setStatusModal({ ...statusModal, detail: e.target.value, error: '' })}
+                        className="w-full border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 outline-none focus:border-[#b32d2d] bg-white cursor-pointer font-medium"
+                      >
+                        {(SUSPENSION_MAPPING[statusModal.reason]?.details || []).map((detailItem) => (
+                          <option key={detailItem.value} value={detailItem.value}>{detailItem.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* Explanation / Notes Textarea */}
                   <div>
