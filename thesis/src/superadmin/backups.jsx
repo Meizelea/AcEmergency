@@ -100,7 +100,6 @@ export default function BackupsPage() {
         filename: b.filename,
         size_bytes: b.size_bytes || 0,
         created_at: b.created_at ? new Date(b.created_at).toLocaleString() : 'N/A',
-        download_url: b.download_url || b.url || '',
         format: 'DUMP'
       }));
 
@@ -249,55 +248,44 @@ export default function BackupsPage() {
   };
 
   // Dump Download Helper
-  // The original public storage URL is tried first (it is known to work).
-  // Authenticated URLs are only used as fallbacks if that one fails.
+  // The bucket is private, so the backend returns a short-lived signed URL
+  // (GET /api/backups/database/download/?filename=...) and the browser downloads from it.
   const handleDownloadDump = async (item) => {
     const filename = item.filename;
     setDownloadingFile(filename);
     setFeedback({ error: '', success: '' });
 
-    const candidates = [
-      { url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${filename}`, auth: false },
-      ...(item.download_url ? [{ url: item.download_url, auth: true }] : []),
-      { url: `${API_BASE}/api/backups/database/download/?filename=${encodeURIComponent(filename)}`, auth: true }
-    ];
-
     try {
-      let blob = null;
+      const endpoint = `${API_BASE}/api/backups/database/download/?filename=${encodeURIComponent(filename)}`;
 
-      for (const c of candidates) {
-        try {
-          let res = await fetch(c.url, c.auth ? { headers: getAuthHeaders(false) } : undefined);
-          if (c.auth && res.status === 401) {
-            res = await fetch(c.url, { headers: getAuthHeaders(true) });
-          }
-          if (!res.ok) continue;
-
-          const candidateBlob = await res.blob();
-          // Ignore error pages / JSON error bodies that came back with a 200 status
-          if (/json|html/i.test(candidateBlob.type || '')) continue;
-
-          blob = candidateBlob;
-          break;
-        } catch (innerErr) {
-          console.warn('Download attempt failed:', c.url, innerErr);
-        }
+      let res = await fetch(endpoint, { headers: getAuthHeaders(false) });
+      if (res.status === 401) {
+        res = await fetch(endpoint, { headers: getAuthHeaders(true) });
+      }
+      if (res.status === 401) {
+        throw new Error('Session expired or invalidated. Please log back in.');
+      }
+      if (res.status === 404) {
+        // The server has no download endpoint yet (backend not updated).
+        throw new Error(
+          'Direct download is not enabled on the server yet. Download this file from the Supabase dashboard instead: Storage > aksyon-backups.'
+        );
       }
 
-      if (!blob) {
-        throw new Error('Could not download this backup file from storage.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(data.detail || 'Could not get a download link for this backup.');
       }
 
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = data.url;
+      a.rel = 'noopener';
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
 
-      setFeedback({ error: '', success: `Downloaded backup snapshot: ${filename}` });
+      setFeedback({ error: '', success: `Download started: ${filename}` });
     } catch (err) {
       setFeedback({ error: err.message || 'Download failed.', success: '' });
     } finally {
