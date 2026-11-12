@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/header';
 import { performLogout } from '../utils/logout';
@@ -56,6 +56,13 @@ export default function AdminProfilePage() {
     const stored = localStorage.getItem('ac_user');
     return stored ? JSON.parse(stored) : null;
   });
+
+  // Refs keep the fetch function stable. If fetchAdminProfile depended on `profile`,
+  // every successful fetch would create a new function and re-trigger the effect
+  // below, causing an endless loop of /api/users/me/ requests.
+  const profileRef = useRef(profile);
+  const lastFetchRef = useRef(0);
+  const inFlightRef = useRef(false);
 
   const [loading, setLoading] = useState(() => !profile);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -143,6 +150,7 @@ export default function AdminProfilePage() {
     };
 
     setAdminData(formattedData);
+    profileRef.current = userObj;
     setProfile(userObj);
     sessionStorage.setItem(CACHE_KEY_PROFILE, JSON.stringify(userObj));
     localStorage.setItem('ac_user', JSON.stringify(userObj));
@@ -150,7 +158,10 @@ export default function AdminProfilePage() {
 
   // 1. Fetch Profile Data strictly isolated to this page
   const fetchAdminProfile = useCallback(async (silent = false) => {
-    if (!silent && !profile) setLoading(true);
+    if (inFlightRef.current) return; // never run two fetches at once
+    inFlightRef.current = true;
+
+    if (!silent && !profileRef.current) setLoading(true);
     setIsSyncing(true);
 
     try {
@@ -158,7 +169,8 @@ export default function AdminProfilePage() {
         headers: getAuthHeaders(),
       });
 
-      if (!res.ok) {
+      // Only fall back when the route itself is missing
+      if (res.status === 404) {
         res = await fetch(`${API_BASE}/api/auth/me/`, {
           headers: getAuthHeaders(),
         });
@@ -170,21 +182,26 @@ export default function AdminProfilePage() {
       }
     } catch (err) {
       console.error('Error fetching admin profile:', err);
-      if (!profile) {
+      if (!profileRef.current) {
         setFeedback({ error: 'Failed to synchronize live profile data.', success: '', info: '' });
       }
     } finally {
+      lastFetchRef.current = Date.now();
+      inFlightRef.current = false;
       setLoading(false);
       setIsSyncing(false);
     }
-  }, [profile, getAuthHeaders, syncProfileState]);
+  }, [getAuthHeaders, syncProfileState]);
 
-  // Execute fetch on mount and tab re-focus
+  // Fetch once on mount, and again when the tab regains focus (at most every 30s)
   useEffect(() => {
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_PROFILE));
     fetchAdminProfile(hasCache);
 
-    const handleFocus = () => fetchAdminProfile(true);
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      fetchAdminProfile(true);
+    };
     window.addEventListener('focus', handleFocus);
 
     return () => {

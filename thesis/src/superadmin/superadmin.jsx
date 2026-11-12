@@ -44,43 +44,62 @@ export const ANGELES_BARANGAYS = [
   "Virgen Delos Remedios"
 ];
 
-// Aligned directly with core/choices.py AccountSuspensionReason & AccountSuspensionDetail
+// Aligned directly with core/choices.py AdminSuspensionReason & AdminSuspensionDetail
+// (used when a privileged admin suspends a barangay admin account)
 const SUSPENSION_MAPPING = {
-  "inappropriate_user_information": {
-    label: "Inappropriate user information",
+  "misuse_of_administrative_privileges": {
+    label: "Misuse of administrative privileges",
     details: [
-      { value: "inappropriate_first_name", label: "Inappropriate first name" },
-      { value: "inappropriate_last_name", label: "Inappropriate last name" },
-      { value: "inappropriate_username", label: "Inappropriate username" },
-      { value: "inappropriate_profile_information", label: "Inappropriate profile information" },
-      { value: "false_contact_information", label: "False or misleading contact information" },
-      { value: "other_detail", label: "Other" }
+      { value: "unauthorized_account_suspension", label: "Unauthorized suspension of accounts" },
+      { value: "unauthorized_report_modification", label: "Unauthorized modification of reports" },
+      { value: "abuse_of_admin_access", label: "Abuse of administrative access" }
     ]
   },
-  "reporting_system_abuse": {
-    label: "Abuse of the reporting system",
+  "negligence_of_duties": {
+    label: "Negligence of duties",
     details: [
-      { value: "false_reports", label: "Repeated false or fabricated reports" },
-      { value: "misleading_descriptions", label: "Deliberately misleading report descriptions" },
-      { value: "spam_or_duplicate_reports", label: "Repeated duplicate or spam reports" },
-      { value: "report_location_misuse", label: "Deliberate misuse of report locations" },
-      { value: "other_detail", label: "Other" }
+      { value: "failure_to_review_reports", label: "Failure to review assigned reports" },
+      { value: "failure_to_act_on_reports", label: "Repeated failure to act on assigned reports" },
+      { value: "neglect_of_administrative_duties", label: "Prolonged neglect of administrative responsibilities" }
     ]
   },
-  "inappropriate_content": {
-    label: "Inappropriate content",
+  "data_privacy_violation": {
+    label: "Data privacy violation",
     details: [
-      { value: "profanity_or_abuse", label: "Profanity or abusive language in reports" },
-      { value: "inappropriate_media", label: "Inappropriate media uploads" },
-      { value: "harassment_or_threats", label: "Harassment or threatening content" },
-      { value: "other_detail", label: "Other" }
+      { value: "unauthorized_disclosure", label: "Unauthorized disclosure of resident information" },
+      { value: "unauthorized_record_access", label: "Unauthorized access to private records" },
+      { value: "improper_data_handling", label: "Improper handling of personal data" }
+    ]
+  },
+  "unauthorized_system_activity": {
+    label: "Unauthorized system activity",
+    details: [
+      { value: "unauthorized_account_access", label: "Unauthorized account access" },
+      { value: "unauthorized_system_changes", label: "Unauthorized changes to system settings" },
+      { value: "credential_sharing", label: "Sharing administrative credentials" }
+    ]
+  },
+  "falsification_of_records": {
+    label: "Falsification of records",
+    details: [
+      { value: "alteration_of_reports", label: "Deliberate alteration of report information" },
+      { value: "falsification_of_administrative_actions", label: "Falsification of administrative actions" },
+      { value: "concealment_of_records", label: "Concealing or manipulating administrative records" }
+    ]
+  },
+  "inappropriate_conduct": {
+    label: "Inappropriate conduct",
+    details: [
+      { value: "harassment_or_threats", label: "Harassment or threatening behavior" },
+      { value: "abusive_communication", label: "Abusive communication" },
+      { value: "unprofessional_conduct", label: "Unprofessional conduct" }
     ]
   },
   "repeated_policy_violations": {
     label: "Repeated policy violations",
     details: [
-      { value: "repeated_guideline_violations", label: "Repeated violations of reporting guidelines" },
-      { value: "other_detail", label: "Other" }
+      { value: "repeated_administrative_violations", label: "Repeated violations of administrative guidelines" },
+      { value: "failure_to_follow_instructions", label: "Failure to comply with official instructions" }
     ]
   },
   "other": {
