@@ -268,7 +268,7 @@ export default function BackupsPage() {
       if (res.status === 404) {
         // The server has no download endpoint yet (backend not updated).
         throw new Error(
-          'Direct download is not enabled on the server yet. Download this file from the Supabase dashboard instead: Storage > aksyon-backups.'
+          'Direct download is not enabled on the server. Download this file from the Supabase dashboard instead: Storage > aksyon-backups.'
         );
       }
 
