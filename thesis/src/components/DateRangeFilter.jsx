@@ -17,7 +17,7 @@ export const formatYMD = (s) =>
 export const formatRange = (from, to) =>
   from && to ? `${formatYMD(from)} – ${formatYMD(to)}` : from ? `From ${formatYMD(from)}` : '';
 
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function DateRangeFilter({
   preset,
