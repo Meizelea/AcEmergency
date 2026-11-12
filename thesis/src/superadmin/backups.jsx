@@ -248,19 +248,18 @@ export default function BackupsPage() {
     }
   };
 
-  // Authenticated Dump Download Helper
-  // Order: (1) URL returned by the list endpoint, (2) authenticated backend endpoint,
-  // (3) legacy public storage URL (only works if the bucket is public).
+  // Dump Download Helper
+  // The original public storage URL is tried first (it is known to work).
+  // Authenticated URLs are only used as fallbacks if that one fails.
   const handleDownloadDump = async (item) => {
     const filename = item.filename;
     setDownloadingFile(filename);
     setFeedback({ error: '', success: '' });
 
-    const encoded = encodeURIComponent(filename);
     const candidates = [
+      { url: `https://api.aksyon.online/storage/v1/object/public/aksyon-backups/${filename}`, auth: false },
       ...(item.download_url ? [{ url: item.download_url, auth: true }] : []),
-      { url: `${API_BASE}/api/backups/database/download/?filename=${encoded}`, auth: true },
-      { url: `${API_BASE}/storage/v1/object/public/aksyon-backups/${encoded}`, auth: false }
+      { url: `${API_BASE}/api/backups/database/download/?filename=${encodeURIComponent(filename)}`, auth: true }
     ];
 
     try {
@@ -272,19 +271,21 @@ export default function BackupsPage() {
           if (c.auth && res.status === 401) {
             res = await fetch(c.url, { headers: getAuthHeaders(true) });
           }
-          if (res.ok) {
-            blob = await res.blob();
-            break;
-          }
+          if (!res.ok) continue;
+
+          const candidateBlob = await res.blob();
+          // Ignore error pages / JSON error bodies that came back with a 200 status
+          if (/json|html/i.test(candidateBlob.type || '')) continue;
+
+          blob = candidateBlob;
+          break;
         } catch (innerErr) {
           console.warn('Download attempt failed:', c.url, innerErr);
         }
       }
 
       if (!blob) {
-        throw new Error(
-          'Could not download this backup. The storage bucket is private and no authenticated download endpoint responded.'
-        );
+        throw new Error('Could not download this backup file from storage.');
       }
 
       const url = URL.createObjectURL(blob);
