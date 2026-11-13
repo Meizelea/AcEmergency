@@ -90,7 +90,7 @@ export default function PrivilegedEmergencyUnitsPage() {
       } else if (res.status === 401) {
         setPageError('Your session has expired. Please log in again.');
       } else {
-        setPageError(`Could not load emergency units (HTTP ${res.status}).`);
+        
       }
     } catch (err) {
       console.error("Failed to load emergency units:", err);
