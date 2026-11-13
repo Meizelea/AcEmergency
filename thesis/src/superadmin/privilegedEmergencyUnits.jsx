@@ -89,8 +89,6 @@ export default function PrivilegedEmergencyUnitsPage() {
         setPageError('');
       } else if (res.status === 401) {
         setPageError('Your session has expired. Please log in again.');
-      } else if (res.status === 403) {
-        setPageError('Privileged Admin verification failed. You do not have access to list emergency units.');
       } else {
         setPageError(`Could not load emergency units (HTTP ${res.status}).`);
       }
