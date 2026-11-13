@@ -22,12 +22,17 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // CACHE KEYS
-const CACHE_KEY_REPORTS = 'cache_admin_reports_v12';
+// v13: the list now embeds the reporter's first/last name and no longer carries media URLs
+const CACHE_KEY_REPORTS = 'cache_admin_reports_v13';
 const CACHE_KEY_UNITS = 'cache_admin_units_v2';
-// v11: the users map is now keyed by USER id only. (v10 mixed report ids and user ids in one
-// object, so a report #43 and a user #43 could overwrite each other and show the wrong name.)
-const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v11';
-const CACHE_KEY_PHONES_MAP = 'cache_admin_phones_map_v1';
+
+// Remove caches left behind by older versions of this page.
+try {
+  ['cache_admin_reports_v12', 'cache_admin_users_map_v10', 'cache_admin_users_map_v11', 'cache_admin_phones_map_v1']
+    .forEach((key) => sessionStorage.removeItem(key));
+} catch {
+  /* ignore */
+}
 
 const redMarkerIcon = L.divIcon({
   className: 'custom-map-marker',
@@ -97,6 +102,17 @@ const normalizeStatus = (value) => {
   return 'Resolved';
 };
 
+// Mirrors the backend's status rules: pending -> ongoing | dismissed, ongoing -> resolved | dismissed.
+// Resolved and dismissed reports are final, so any other change would be rejected with a 400.
+const STATUS_TRANSITIONS = {
+  Pending: ['Ongoing', 'Dismissed'],
+  Ongoing: ['Resolved', 'Dismissed'],
+  Resolved: [],
+  Dismissed: []
+};
+const canChangeStatus = (from, to) => from === to || (STATUS_TRANSITIONS[from] || []).includes(to);
+const isFinalStatus = (status) => (STATUS_TRANSITIONS[status] || []).length === 0;
+
 const STATUS_SELECT_CLASS = {
   Pending: 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]',
   Ongoing: 'bg-blue-50 text-blue-700 border-blue-300',
@@ -149,48 +165,6 @@ export default function ReportsPage() {
     return cached ? JSON.parse(cached) : [];
   });
 
-  // Maps USER id -> display name
-  const [usersMap, setUsersMap] = useState(() => {
-    let existingMap = {};
-    try {
-      existingMap = JSON.parse(sessionStorage.getItem(CACHE_KEY_USERS_MAP)) || {};
-    } catch {
-      existingMap = {};
-    }
-
-    try {
-      const parsedReports = JSON.parse(sessionStorage.getItem(CACHE_KEY_REPORTS)) || [];
-      parsedReports.forEach(r => {
-        if (typeof r.user === 'object' && r.user !== null && r.user.id) {
-          const name = resolveUserDisplayName(r.user);
-          if (name) existingMap[r.user.id] = name;
-        }
-      });
-    } catch (e) {
-      console.error("Failed to parse cached reports for user map initialization:", e);
-    }
-    return existingMap;
-  });
-
-  // Maps user id -> contact number (the reports list only returns a bare user id)
-  const [phonesMap, setPhonesMap] = useState(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem(CACHE_KEY_PHONES_MAP)) || {};
-    } catch {
-      return {};
-    }
-  });
-
-  const rememberPhones = useCallback((entries) => {
-    const valid = Object.entries(entries).filter(([, v]) => v && String(v).trim());
-    if (valid.length === 0) return;
-    setPhonesMap(prev => {
-      const updated = { ...prev, ...Object.fromEntries(valid) };
-      sessionStorage.setItem(CACHE_KEY_PHONES_MAP, JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
   const [isLoading, setIsLoading] = useState(() => reports.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   
@@ -203,10 +177,10 @@ export default function ReportsPage() {
   const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
   const [pageError, setPageError] = useState('');
-  const [usersInfoMap, setUsersInfoMap] = useState({});
-  const [usersListLoaded, setUsersListLoaded] = useState(false);
-  const [resolveTick, setResolveTick] = useState(0);
-  const [residentDetail, setResidentDetail] = useState(null); // { reportId, user }
+  // Full report returned by GET /api/reports/admin/<id>/ when a report is opened.
+  // It carries the resident (username, email, contact, barangay) and the signed media URLs.
+  const [reportDetail, setReportDetail] = useState(null); // { reportId, data }
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [dismissalReasons, setDismissalReasons] = useState([]); // [{ value, label }]
   const [dismissModal, setDismissModal] = useState({ isOpen: false, reportId: null, reason: '', error: '' });
 
@@ -229,9 +203,7 @@ export default function ReportsPage() {
   const hasReportsRef = useRef(reports.length > 0);
   const inFlightRef = useRef(false);
   const lastFetchRef = useRef(0);
-  const residentCache = useRef({});          // reportId -> resident object (from the detail endpoint)
-  const attemptedUserIds = useRef(new Set()); // user ids we already tried to resolve this session
-  const resolvingRef = useRef(false);
+  const modalReportIdRef = useRef(null);     // guards against a slow detail response for a report that was closed
 
   const token = localStorage.getItem('ac_token');
 
@@ -271,73 +243,23 @@ export default function ReportsPage() {
     return rawCategory || report.short_message || 'General Emergency';
   };
 
-  // Pure lookup: it never fires a request. (It used to call the report detail endpoint
-  // from inside render for every unresolved report, which spammed the API.)
+  // The list endpoint embeds user: { first_name, last_name }, so no extra request is needed.
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
-
-    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
-    const resolvedFromObj = resolveUserDisplayName(userObj);
-    if (resolvedFromObj) return resolvedFromObj;
-
-    const flatFirstLast = `${report.first_name || ''} ${report.last_name || ''}`.trim();
-    if (flatFirstLast) return flatFirstLast;
-    if (report.reporter_name) return report.reporter_name;
-    if (report.username) return report.username;
-
-    const rawUserId = typeof report.user === 'number' || typeof report.user === 'string' 
-      ? report.user 
-      : (report.user_id || report.user?.id);
-
-    if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
-    if (rawUserId) return `Citizen #${rawUserId}`;
-
-    return 'Anonymous Citizen';
+    return resolveUserDisplayName(report.user) || 'Anonymous Citizen';
   };
 
-  const getReporterPhone = (report) => {
-    if (!report) return 'N/A';
-
-    // Direct check for contact_number on report root
-    if (report.contact_number && String(report.contact_number).trim()) {
-      return String(report.contact_number).trim();
-    }
-
-    // Check user/user_details/profile objects
-    const userObj = (typeof report.user === 'object' && report.user !== null) ? report.user : (report.user_details || report.profile);
-    if (userObj) {
-      if (userObj.contact_number && String(userObj.contact_number).trim()) return String(userObj.contact_number).trim();
-      if (userObj.phone_number && String(userObj.phone_number).trim()) return String(userObj.phone_number).trim();
-      if (userObj.phone && String(userObj.phone).trim()) return String(userObj.phone).trim();
-      if (userObj.mobile && String(userObj.mobile).trim()) return String(userObj.mobile).trim();
-    }
-
-    // Fallback checks on report root
-    if (report.phone_number && String(report.phone_number).trim()) return String(report.phone_number).trim();
-    if (report.phone && String(report.phone).trim()) return String(report.phone).trim();
-    if (report.mobile && String(report.mobile).trim()) return String(report.mobile).trim();
-
-    // The list endpoint returns `user` as a bare id, so look the number up by user id
-    const rawUserId = typeof report.user === 'object' && report.user !== null
-      ? report.user.id
-      : (report.user ?? report.user_id);
-    if (rawUserId && phonesMap[rawUserId]) return phonesMap[rawUserId];
-
-    return 'N/A';
-  };
-
+  // Username, email, contact number and barangay come from the detail endpoint (see handleOpenReportModal).
   const getResident = (report) => {
     if (!report) return {};
-    const embedded = (typeof report.user === 'object' && report.user !== null) ? report.user : null;
-    const uid = embedded ? embedded.id : (report.user ?? report.user_id);
-    const fromDetail = residentDetail && residentDetail.reportId === report.id ? residentDetail.user : null;
-    const u = fromDetail || embedded || usersInfoMap[uid] || {};
+    const detailUser =
+      reportDetail && reportDetail.reportId === report.id ? reportDetail.data?.user : null;
     return {
-      name: getReporterName(report),
-      username: u.username || '',
-      email: u.email || '',
-      contact: getReporterPhone(report),
-      barangay: u.residential_barangay || u.barangay || ''
+      name: resolveUserDisplayName(detailUser) || getReporterName(report),
+      username: detailUser?.username || '',
+      email: detailUser?.email || '',
+      contact: detailUser?.contact_number || '',
+      barangay: detailUser?.residential_barangay || ''
     };
   };
 
@@ -359,42 +281,6 @@ export default function ReportsPage() {
 
     return 'Exact address not specified';
   };
-
-  // GET /api/users/admin/ (one bulk call, only on page load and manual refresh)
-  const fetchUsersMap = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/admin/`, { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const rawList = Array.isArray(data) ? data : (data?.results || []);
-
-        const phones = {};
-        rawList.forEach(u => {
-          if (u.contact_number) phones[u.id] = u.contact_number;
-        });
-        rememberPhones(phones);
-        setUsersInfoMap(Object.fromEntries(rawList.map(u => [u.id, u])));
-
-        setUsersMap(prev => {
-          const newMap = { ...prev };
-          rawList.forEach(u => {
-            const displayName = resolveUserDisplayName(u);
-            if (displayName) newMap[u.id] = displayName;
-          });
-          try {
-            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
-          } catch {
-            /* storage unavailable - ignore */
-          }
-          return newMap;
-        });
-      }
-    } catch (err) {
-      console.error("Bulk user fetch error:", err);
-    } finally {
-      setUsersListLoaded(true);
-    }
-  }, [getAuthHeaders, rememberPhones]);
 
   const fetchEmergencyUnits = useCallback(async () => {
     try {
@@ -433,23 +319,6 @@ export default function ReportsPage() {
         const rawList = Array.isArray(data) ? data : (data?.results || data?.data || []);
         const sorted = rawList.sort((a, b) => (b.id || 0) - (a.id || 0));
 
-        // Learn names from users that are already embedded in the reports (keyed by user id)
-        setUsersMap(prev => {
-          const updated = { ...prev };
-          sorted.forEach(r => {
-            if (typeof r.user === 'object' && r.user !== null && r.user.id) {
-              const name = resolveUserDisplayName(r.user);
-              if (name) updated[r.user.id] = name;
-            }
-          });
-          try {
-            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
-          } catch {
-            /* storage unavailable - ignore */
-          }
-          return updated;
-        });
-
         hasReportsRef.current = true;
         setReports(sorted);
         sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
@@ -477,7 +346,6 @@ export default function ReportsPage() {
 
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_REPORTS));
     fetchReports(hasCache);
-    fetchUsersMap();
     fetchEmergencyUnits();
 
     // Refocus only refreshes the report list, and at most once every 30 seconds
@@ -490,79 +358,14 @@ export default function ReportsPage() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [token, navigate, fetchReports, fetchUsersMap, fetchEmergencyUnits]);
-
-  // Resolve reporter names for the few reports whose reporter is NOT in the bulk users list
-  // (e.g. a resident from another barangay reporting here). Runs in an effect, never in render:
-  //  - waits for the bulk users list first
-  //  - one request per distinct USER (not per report), each tried at most once per session
-  //  - 3 at a time, results cached in sessionStorage
-  useEffect(() => {
-    if (!usersListLoaded || reports.length === 0 || resolvingRef.current) return;
-
-    const queue = [];
-    const seen = new Set();
-    reports.forEach(r => {
-      if (typeof r.user === 'object' && r.user !== null) return; // already embedded in the list
-      const uid = r.user ?? r.user_id;
-      if (!uid || seen.has(uid)) return;
-      seen.add(uid);
-      if (usersMap[uid] || attemptedUserIds.current.has(uid)) return;
-      queue.push({ uid, reportId: r.id });
-    });
-
-    if (queue.length === 0) return;
-
-    resolvingRef.current = true;
-    (async () => {
-      try {
-        for (let i = 0; i < queue.length; i += 3) {
-          const batch = queue.slice(i, i + 3);
-          await Promise.all(batch.map(async ({ uid, reportId }) => {
-            attemptedUserIds.current.add(uid);
-            try {
-              const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
-                headers: getAuthHeaders()
-              });
-              if (!res.ok) return;
-              const detail = await res.json();
-              const u = detail?.user;
-              if (u && typeof u === 'object') {
-                residentCache.current[reportId] = u;
-                const name = resolveUserDisplayName(u);
-                if (name) {
-                  setUsersMap(prev => {
-                    const updated = { ...prev, [uid]: name };
-                    try {
-                      sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
-                    } catch {
-                      /* storage unavailable - ignore */
-                    }
-                    return updated;
-                  });
-                }
-                if (u.contact_number) rememberPhones({ [uid]: u.contact_number });
-              }
-            } catch (err) {
-              console.error(`Failed to resolve user #${uid}:`, err);
-            }
-          }));
-        }
-      } finally {
-        resolvingRef.current = false;
-        setResolveTick(t => t + 1);
-      }
-    })();
-  }, [usersListLoaded, reports, usersMap, resolveTick, getAuthHeaders, rememberPhones]);
+  }, [token, navigate, fetchReports, fetchEmergencyUnits]);
 
   // ISOLATED REFRESH BUTTON HANDLER
   const handleLocalSync = (e) => {
     e.stopPropagation();
     e.preventDefault();
     sessionStorage.removeItem(CACHE_KEY_REPORTS);
-    attemptedUserIds.current = new Set(); // let failed lookups retry on a manual refresh
     fetchReports(false);
-    fetchUsersMap();
   };
 
   const getNearestResponderText = (report) => {
@@ -617,37 +420,33 @@ export default function ReportsPage() {
     return `${nearestUnit.name || 'Emergency Unit'} (${minDistance.toFixed(2)} km)`;
   };
 
+  // GET /api/reports/admin/<id>/ returns the resident and fresh signed media URLs. The list endpoint
+  // no longer includes either, so this is fetched each time a report is opened (signed URLs expire).
   const handleOpenReportModal = async (report) => {
+    modalReportIdRef.current = report.id;
     setSelectedReport(report);
     setActiveVideoUrl(null);
+    setReportDetail(null);
+    setIsDetailLoading(true);
     setIsModalOpen(true);
 
-    // The detail endpoint nests the resident (username, email, contact number, barangay).
-    // It is fetched once per report and cached, so reopening a report costs no request.
-    // Not awaited on purpose so it never delays the video loading below.
-    setResidentDetail(null);
-    const phoneUserId = typeof report.user === 'object' && report.user !== null
-      ? report.user.id
-      : report.user;
-
-    const cachedResident = residentCache.current[report.id];
-    if (cachedResident) {
-      setResidentDetail({ reportId: report.id, user: cachedResident });
-    } else {
-      fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
-        .then(res => (res.ok ? res.json() : null))
-        .then(detail => {
-          const u = detail?.user;
-          if (u && typeof u === 'object') {
-            residentCache.current[report.id] = u;
-            setResidentDetail({ reportId: report.id, user: u });
-            if (u.contact_number && phoneUserId) rememberPhones({ [phoneUserId]: u.contact_number });
-          }
-        })
-        .catch(err => console.error("Failed to fetch resident details:", err));
+    let detail = null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) detail = await res.json();
+    } catch (err) {
+      console.error("Failed to fetch report details:", err);
     }
 
-    if (report.video_thumbnail_url) {
+    // The modal was closed or another report was opened while this request was running
+    if (modalReportIdRef.current !== report.id) return;
+
+    setReportDetail(detail ? { reportId: report.id, data: detail } : null);
+    setIsDetailLoading(false);
+
+    if (detail?.video_thumbnail_url) {
       if (videoCache.current[report.id]) {
         setActiveVideoUrl(videoCache.current[report.id]);
         return;
@@ -661,7 +460,7 @@ export default function ReportsPage() {
 
         if (res.ok) {
           const data = await res.json();
-          if (data.video_url) {
+          if (data.video_url && modalReportIdRef.current === report.id) {
             videoCache.current[report.id] = data.video_url;
             setActiveVideoUrl(data.video_url);
           }
@@ -672,6 +471,11 @@ export default function ReportsPage() {
         setIsVideoLoading(false);
       }
     }
+  };
+
+  const closeReportModal = () => {
+    modalReportIdRef.current = null;
+    setIsModalOpen(false);
   };
 
   const executeStatusUpdate = async (reportId, newStatus, dismissalReason = null) => {
@@ -830,10 +634,9 @@ export default function ReportsPage() {
     const categoryText = resolvedCatName.toLowerCase();
     const barangayText = (report.barangay || report.location || '').toLowerCase();
     const posterText = getReporterName(report).toLowerCase();
-    const phoneText = getReporterPhone(report).toLowerCase();
     const query = searchQuery.toLowerCase();
 
-    const matchedSearch = reportText.includes(query) || categoryText.includes(query) || barangayText.includes(query) || posterText.includes(query) || phoneText.includes(query) || String(report.id).includes(query);
+    const matchedSearch = reportText.includes(query) || categoryText.includes(query) || barangayText.includes(query) || posterText.includes(query) || String(report.id).includes(query);
     const currentStat = String(report.status).toLowerCase();
     
     let matchedStatus = true;
@@ -901,8 +704,12 @@ export default function ReportsPage() {
     modalLng = fallback[1];
   }
 
-  const hasImage = Boolean(selectedReport?.image_url);
-  const hasVideo = Boolean(selectedReport?.video_thumbnail_url || activeVideoUrl);
+  const detailData =
+    reportDetail && selectedReport && reportDetail.reportId === selectedReport.id ? reportDetail.data : null;
+  const imageUrl = detailData?.image_url || null;
+  const videoThumbUrl = detailData?.video_thumbnail_url || null;
+  const hasImage = Boolean(imageUrl);
+  const hasVideo = Boolean(videoThumbUrl || activeVideoUrl);
 
   const cartoUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -1087,11 +894,13 @@ export default function ReportsPage() {
                         <td className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={displayLabel}
+                            disabled={isFinalStatus(displayLabel)}
+                            title={isFinalStatus(displayLabel) ? `${displayLabel} reports can no longer change status` : undefined}
                             onChange={(e) => requestStatusUpdate(report.id, e.target.value)}
-                            className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all ${STATUS_SELECT_CLASS[displayLabel]}`}
+                            className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wide border cursor-pointer outline-none transition-all disabled:cursor-not-allowed ${STATUS_SELECT_CLASS[displayLabel]}`}
                           >
                             {STATUS_OPTIONS.map(opt => (
-                              <option key={opt} value={opt} style={OPTION_STYLE} className="bg-white text-gray-900">{opt.toUpperCase()}</option>
+                              <option key={opt} value={opt} disabled={!canChangeStatus(displayLabel, opt)} style={OPTION_STYLE} className="bg-white text-gray-900">{opt.toUpperCase()}</option>
                             ))}
                           </select>
                         </td>
@@ -1109,6 +918,7 @@ export default function ReportsPage() {
       {isModalOpen && selectedReport && (() => {
         const statusLabel = normalizeStatus(selectedReport.status);
         const resident = getResident(selectedReport);
+        const residentValue = (value) => (isDetailLoading ? 'Loading...' : (value || '—'));
         return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh] my-auto">
@@ -1128,16 +938,17 @@ export default function ReportsPage() {
               <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
                 <select
                   value={statusLabel}
+                  disabled={isFinalStatus(statusLabel)}
                   onChange={(e) => requestStatusUpdate(selectedReport.id, e.target.value)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white text-gray-900 outline-none cursor-pointer focus:border-[#b32d2d]"
+                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase border bg-white text-gray-900 outline-none cursor-pointer focus:border-[#b32d2d] disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {STATUS_OPTIONS.map(opt => (
-                    <option key={opt} value={opt} style={OPTION_STYLE}>{opt.toUpperCase()}</option>
+                    <option key={opt} value={opt} disabled={!canChangeStatus(statusLabel, opt)} style={OPTION_STYLE}>{opt.toUpperCase()}</option>
                   ))}
                 </select>
 
                 <button
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeReportModal}
                   className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 cursor-pointer"
                 >
                   Close
@@ -1150,10 +961,15 @@ export default function ReportsPage() {
               <div>
                 <h4 className="font-black text-sm text-gray-900 mb-2">Media Attachments</h4>
                 
-                {hasImage ? (
+                {isDetailLoading ? (
+                  <div className="p-10 bg-gray-50 rounded-xl border border-gray-200 flex flex-col items-center justify-center text-[#b32d2d] font-semibold gap-2">
+                    <Loader2 className="animate-spin" size={26} />
+                    <span className="text-xs">Loading report media...</span>
+                  </div>
+                ) : hasImage ? (
                   <div className="rounded-xl overflow-hidden border border-gray-200 max-h-80 bg-black flex items-center justify-center">
                     <img 
-                      src={selectedReport.image_url} 
+                      src={imageUrl} 
                       alt="Incident Evidence" 
                       className="max-h-80 object-contain w-full" 
                     />
@@ -1178,7 +994,7 @@ export default function ReportsPage() {
                     ) : (
                       <div className="relative w-full h-80 flex items-center justify-center">
                         <img 
-                          src={selectedReport.video_thumbnail_url} 
+                          src={videoThumbUrl} 
                           alt="Video Thumbnail" 
                           className="max-h-80 w-full object-contain filter brightness-75" 
                         />
@@ -1246,10 +1062,10 @@ export default function ReportsPage() {
 
                     <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 text-xs">
                       <DetailRow label="Name">{resident.name}</DetailRow>
-                      <DetailRow label="Username">{resident.username || '—'}</DetailRow>
-                      <DetailRow label="Email">{resident.email || '—'}</DetailRow>
-                      <DetailRow label="Contact Number">{resident.contact}</DetailRow>
-                      <DetailRow label="Barangay" last>{resident.barangay ? `Brgy. ${resident.barangay}` : '—'}</DetailRow>
+                      <DetailRow label="Username">{residentValue(resident.username)}</DetailRow>
+                      <DetailRow label="Email">{residentValue(resident.email)}</DetailRow>
+                      <DetailRow label="Contact Number">{residentValue(resident.contact)}</DetailRow>
+                      <DetailRow label="Barangay" last>{residentValue(resident.barangay ? `Brgy. ${resident.barangay}` : '')}</DetailRow>
                     </div>
                   </div>
                 </div>
