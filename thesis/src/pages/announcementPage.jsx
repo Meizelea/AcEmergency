@@ -26,6 +26,14 @@ export default function AnnouncementPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Refs keep fetchAnnouncements stable. It used to depend on announcements.length, so every
+  // time the list size changed (first load, publish, delete) a NEW function was created, the
+  // mount effect re-ran, and the whole list was fetched a second time.
+  const hasAnnouncementsRef = useRef(announcements.length > 0);
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
   // Modals
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -68,40 +76,54 @@ export default function AnnouncementPage() {
     return headers;
   }, []);
 
-  const fetchAnnouncements = useCallback(async (silent = false) => {
-    try {
-      if (!silent && announcements.length === 0) setLoading(true);
-      setIsSyncing(true);
+  // GET /api/announcements/admin/
+  // force=true is used after publish/delete: if a fetch is already running, one more fetch is
+  // queued to run right after it, so the list is never left stale.
+  const fetchAnnouncements = useCallback(async (silent = false, force = false) => {
+    if (inFlightRef.current) {
+      if (force) queuedRef.current = true;
+      return;
+    }
+    inFlightRef.current = true;
 
-      let res = await fetch(`${API_BASE}/api/announcements/admin/`, {
-        headers: getAuthHeaders(),
-      });
+    const loadOnce = async (isSilent) => {
+      try {
+        if (!isSilent && !hasAnnouncementsRef.current) setLoading(true);
+        setIsSyncing(true);
 
-      if (res.status === 401) {
-        const rawToken = localStorage.getItem('ac_token') || '';
-        const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-        res = await fetch(`${API_BASE}/api/announcements/admin/`, {
-          headers: {
-            'Authorization': `Bearer ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
+        const res = await fetch(`${API_BASE}/api/announcements/admin/`, {
+          headers: getAuthHeaders(),
         });
-      }
 
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data = await res.json();
-      const rawList = Array.isArray(data) ? data : data.results || [];
-      
-      setAnnouncements(rawList);
-      sessionStorage.setItem(CACHE_KEY_ANNOUNCEMENTS, JSON.stringify(rawList));
-    } catch (err) {
-      console.error('Fetch announcements failure:', err);
-      setFeedback({ error: 'Failed to fetch announcements. Verify credentials and barangay.', success: '' });
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        const data = await res.json();
+        const rawList = Array.isArray(data) ? data : data.results || [];
+
+        hasAnnouncementsRef.current = true;
+        setAnnouncements(rawList);
+        try {
+          sessionStorage.setItem(CACHE_KEY_ANNOUNCEMENTS, JSON.stringify(rawList));
+        } catch {
+          /* storage unavailable - ignore */
+        }
+      } catch (err) {
+        console.error('Fetch announcements failure:', err);
+        setFeedback({ error: 'Failed to fetch announcements. Verify credentials and barangay.', success: '' });
+      }
+    };
+
+    try {
+      do {
+        queuedRef.current = false;
+        await loadOnce(silent);
+      } while (queuedRef.current);
     } finally {
+      lastFetchRef.current = Date.now();
+      inFlightRef.current = false;
       setLoading(false);
       setIsSyncing(false);
     }
-  }, [getAuthHeaders, announcements.length]);
+  }, [getAuthHeaders]);
 
   // ON MOUNT AND WINDOW FOCUS SYNC (NO POLLING INTERVAL)
   useEffect(() => {
@@ -114,7 +136,11 @@ export default function AnnouncementPage() {
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_ANNOUNCEMENTS));
     fetchAnnouncements(hasCache);
 
-    const handleFocus = () => fetchAnnouncements(true);
+    // Refocusing the tab refreshes at most once every 30 seconds
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      fetchAnnouncements(true);
+    };
     window.addEventListener('focus', handleFocus);
 
     return () => {
@@ -292,7 +318,7 @@ export default function AnnouncementPage() {
       });
       setIsFormModalOpen(false);
       setSelectedAnnouncement(null);
-      await fetchAnnouncements(true);
+      await fetchAnnouncements(true, true);
     } catch (err) {
       console.error('Submit form error:', err);
       setFeedback({ error: err.message || 'Operation failed.', success: '' });
@@ -334,7 +360,7 @@ export default function AnnouncementPage() {
       setFeedback({ error: '', success: 'Announcement deleted successfully.' });
       setIsDetailModalOpen(false);
       setSelectedAnnouncement(null);
-      fetchAnnouncements(true);
+      fetchAnnouncements(true, true);
     } catch (err) {
       setFeedback({ error: 'Failed to delete record.', success: '' });
     } finally {
