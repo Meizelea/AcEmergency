@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Truck, 
@@ -9,7 +9,9 @@ import {
   ShieldCheck, 
   ShieldAlert,
   Radio,
-  Eye
+  Eye,
+  AlertCircle,
+  X
 } from 'lucide-react';
 
 import AdminLayout from '../components/header';
@@ -36,18 +38,16 @@ export default function EmergencyUnitsPage() {
   });
 
   const [isLoading, setIsLoading] = useState(() => units.length === 0);
-  const token = localStorage.getItem('ac_token');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [pageError, setPageError] = useState('');
 
-  const getAuthHeaders = useCallback((useBearer = false) => {
-    const rawToken = token || '';
-    const cleanToken = rawToken.replace(/^(Token|Bearer)\s+/i, '').trim();
-    if (!cleanToken) return { 'Content-Type': 'application/json' };
-    const authPrefix = useBearer ? 'Bearer' : 'Token';
-    return { 
-      'Authorization': rawToken.startsWith('Bearer ') || rawToken.startsWith('Token ') ? rawToken : `${authPrefix} ${cleanToken}`, 
-      'Content-Type': 'application/json' 
-    };
-  }, [token]);
+  // Refs keep the fetch function stable (it used to depend on units.length, which
+  // re-triggered the mount effect after the first load) and prevent overlapping requests.
+  const hasUnitsRef = useRef(units.length > 0);
+  const inFlightRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
+  const token = localStorage.getItem('ac_token');
 
   // Helper to map unit_type codes to human labels
   const getUnitTypeLabel = (type) => {
@@ -59,62 +59,59 @@ export default function EmergencyUnitsPage() {
     }
   };
 
-  // View-Only Fetcher: Tries public read-only endpoints & unauthenticated fallback
-  const fetchEmergencyUnits = useCallback(async () => {
-    const endpointsToTry = [
-      `${API_BASE_URL}/api/emergency-units/public/`,
-      `${API_BASE_URL}/api/public/emergency-units/`,
-      `${API_BASE_URL}/api/emergency-units/`
-    ];
-
-    for (const url of endpointsToTry) {
-      // First try with token
-      for (const useBearer of [false, true]) {
-        try {
-          const res = await fetch(url, { headers: getAuthHeaders(useBearer) });
-          if (res.ok) {
-            const data = await res.json();
-            const list = Array.isArray(data) ? data : (data?.results || data?.data || []);
-            if (list.length > 0) {
-              setUnits(list);
-              sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
-              return;
-            }
-          }
-        } catch (err) {
-          console.error(`Failed loading units from ${url}:`, err);
-        }
-      }
-
-      // Fallback: Try unauthenticated public request
-      try {
-        const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
-        if (res.ok) {
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : (data?.results || data?.data || []);
-          if (list.length > 0) {
-            setUnits(list);
-            sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
-            return;
-          }
-        }
-      } catch (err) {
-        // Silent catch for public endpoint trial
-      }
-    }
-  }, [getAuthHeaders]);
-
-  const synchronizeData = useCallback(async (silent = false) => {
-    if (!token) {
+  // GET /api/emergency-units/  (the only real route; the old /public/ URLs do not exist
+  // on the backend, so every attempt at them was a wasted 404/401 request)
+  const fetchEmergencyUnits = useCallback(async (silent = false) => {
+    const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
+    if (!cleanToken) {
       navigate('/login');
       return;
     }
-    if (!silent && units.length === 0) setIsLoading(true);
-    await fetchEmergencyUnits();
-    setIsLoading(false);
-  }, [token, navigate, fetchEmergencyUnits, units.length]);
 
-  // FETCH ON MOUNT AND WINDOW FOCUS SYNC (NO AUTOMATIC INTERVAL TIMER)
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
+    if (!silent && !hasUnitsRef.current) setIsLoading(true);
+    setIsSyncing(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/emergency-units/`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${cleanToken}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data?.results || data?.data || []);
+        hasUnitsRef.current = true;
+        setUnits(list);
+        try {
+          sessionStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(list));
+        } catch {
+          /* storage unavailable - ignore */
+        }
+        setPageError('');
+      } else if (res.status === 401) {
+        setPageError('Your session has expired. Please log in again.');
+      } else if (res.status === 403) {
+        setPageError('You do not have permission to view emergency units.');
+      } else {
+        setPageError(`Could not load emergency units (HTTP ${res.status}).`);
+      }
+    } catch (err) {
+      console.error('Failed loading emergency units:', err);
+      setPageError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      lastFetchRef.current = Date.now();
+      inFlightRef.current = false;
+      setIsLoading(false);
+      setIsSyncing(false);
+    }
+  }, [navigate]);
+
+  // FETCH ON MOUNT AND WINDOW FOCUS SYNC (focus refresh at most every 30s)
   useEffect(() => {
     if (!token) {
       navigate('/login');
@@ -122,22 +119,25 @@ export default function EmergencyUnitsPage() {
     }
 
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_UNITS));
-    synchronizeData(hasCache);
+    fetchEmergencyUnits(hasCache);
 
-    const handleFocus = () => synchronizeData(true);
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      fetchEmergencyUnits(true);
+    };
     window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [token, navigate, synchronizeData]);
+  }, [token, navigate, fetchEmergencyUnits]);
 
   // ISOLATED REFRESH BUTTON HANDLER
   const handleLocalSync = (e) => {
     e.stopPropagation();
     e.preventDefault();
     sessionStorage.removeItem(CACHE_KEY_UNITS);
-    synchronizeData(false);
+    fetchEmergencyUnits(false);
   };
 
   return (
@@ -164,13 +164,21 @@ export default function EmergencyUnitsPage() {
           <button 
             type="button"
             onClick={handleLocalSync}
-            disabled={isLoading}
+            disabled={isSyncing}
             className="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw size={14} className={isLoading ? "animate-spin text-[#b32d2d]" : ""} /> 
-            {isLoading ? "Refreshing..." : "Refresh"}
+            <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} /> 
+            {isSyncing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
+
+        {pageError && (
+          <div className="p-3 rounded-lg text-xs font-semibold flex items-center gap-2 border bg-red-50 text-red-700 border-red-200 shrink-0">
+            <AlertCircle size={16} className="shrink-0" />
+            <span className="flex-1">{pageError}</span>
+            <X size={16} className="cursor-pointer shrink-0" onClick={() => setPageError('')} />
+          </div>
+        )}
 
         {/* EMERGENCY UNITS DIRECTORY TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">

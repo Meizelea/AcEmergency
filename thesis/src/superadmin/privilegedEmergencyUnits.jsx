@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, RefreshCw, Plus, Edit3, 
@@ -8,10 +8,7 @@ import {
 
 import AdminLayout from '../components/header';
 
-const targetHostname = window.location.hostname || '127.0.0.1';
-
 const API_BASE = 'https://api.aksyon.online';
-//const API_BASE = `http://${targetHostname}:8000`;
 const EMERGENCY_UNITS_URL = `${API_BASE}/api/emergency-units/`;
 
 // CACHE KEY
@@ -25,6 +22,15 @@ export default function PrivilegedEmergencyUnitsPage() {
     return cached ? JSON.parse(cached) : [];
   });
   const [isLoading, setIsLoading] = useState(() => units.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Refs keep the fetch function stable (it used to depend on units.length, which
+  // re-triggered the mount effect after the first load) and prevent overlapping requests.
+  const hasUnitsRef = useRef(units.length > 0);
+  const inFlightRef = useRef(false);
+
+  // Page-level error banner (list failures, delete failures)
+  const [pageError, setPageError] = useState('');
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,23 +72,37 @@ export default function PrivilegedEmergencyUnitsPage() {
   };
 
   const fetchEmergencyUnits = useCallback(async () => {
-    if (units.length === 0) setIsLoading(true);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
+    if (!hasUnitsRef.current) setIsLoading(true);
+    setIsSyncing(true);
+
     try {
       const res = await fetch(EMERGENCY_UNITS_URL, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const rawList = Array.isArray(data) ? data : (data?.results || []);
+        hasUnitsRef.current = true;
         setUnits(rawList);
         localStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(rawList));
+        setPageError('');
+      } else if (res.status === 401) {
+        setPageError('Your session has expired. Please log in again.');
       } else if (res.status === 403) {
-        setFormError("Privileged Admin verification failed. You do not have access to manage emergency units.");
+        setPageError('Privileged Admin verification failed. You do not have access to list emergency units.');
+      } else {
+        setPageError(`Could not load emergency units (HTTP ${res.status}).`);
       }
     } catch (err) {
       console.error("Failed to load emergency units:", err);
+      setPageError('Could not reach the server. Check your connection and try again.');
     } finally {
+      inFlightRef.current = false;
       setIsLoading(false);
+      setIsSyncing(false);
     }
-  }, [getAuthHeaders, units.length]);
+  }, [getAuthHeaders]);
 
   useEffect(() => {
     const token = localStorage.getItem('ac_token');
@@ -196,9 +216,14 @@ export default function PrivilegedEmergencyUnitsPage() {
         const updated = units.filter(u => u.id !== unit.id);
         setUnits(updated);
         localStorage.setItem(CACHE_KEY_UNITS, JSON.stringify(updated));
+        setPageError('');
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setPageError(errData.detail || `Could not delete "${unit.name}" (HTTP ${res.status}).`);
       }
     } catch (err) {
       console.error("Delete unit failed:", err);
+      setPageError('Could not reach the server. The unit was not deleted.');
     }
   };
 
@@ -220,12 +245,12 @@ export default function PrivilegedEmergencyUnitsPage() {
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button 
-              onClick={fetchEmergencyUnits}
-              disabled={isLoading}
+              onClick={() => fetchEmergencyUnits()}
+              disabled={isSyncing}
               className="flex-1 sm:flex-none bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> 
-              {isLoading ? "Refreshing..." : "Refresh Data"}
+              <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} /> 
+              {isSyncing ? "Refreshing..." : "Refresh Data"}
             </button>
             <button 
               onClick={openCreateModal}
@@ -235,6 +260,14 @@ export default function PrivilegedEmergencyUnitsPage() {
             </button>
           </div>
         </div>
+
+        {pageError && (
+          <div className="mb-4 p-3 rounded-lg text-xs font-semibold flex items-center gap-2 border bg-red-50 text-red-700 border-red-200 shrink-0">
+            <AlertCircle size={16} className="shrink-0" />
+            <span className="flex-1">{pageError}</span>
+            <X size={16} className="cursor-pointer shrink-0" onClick={() => setPageError('')} />
+          </div>
+        )}
 
         {/* EMERGENCY UNITS INVENTORY TABLE CONTAINER */}
         <div className="bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0">

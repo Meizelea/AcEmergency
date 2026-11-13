@@ -24,7 +24,9 @@ const API_BASE_URL = getApiBaseUrl();
 // CACHE KEYS
 const CACHE_KEY_REPORTS = 'cache_admin_reports_v12';
 const CACHE_KEY_UNITS = 'cache_admin_units_v2';
-const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v10';
+// v11: the users map is now keyed by USER id only. (v10 mixed report ids and user ids in one
+// object, so a report #43 and a user #43 could overwrite each other and show the wrong name.)
+const CACHE_KEY_USERS_MAP = 'cache_admin_users_map_v11';
 const CACHE_KEY_PHONES_MAP = 'cache_admin_phones_map_v1';
 
 const redMarkerIcon = L.divIcon({
@@ -115,6 +117,18 @@ const OPTION_STYLE = { backgroundColor: '#ffffff', color: '#111827' };
 const capitalizeFirst = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : text);
 const prettify = (value) => capitalizeFirst(String(value || '').replace(/_/g, ' '));
 
+// Pure helper (no state), so it lives outside the component
+const resolveUserDisplayName = (u) => {
+  if (!u) return null;
+  if (typeof u === 'string') return u.trim() || null;
+  const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  if (firstLast) return firstLast;
+  if (u.full_name && u.full_name.trim()) return u.full_name.trim();
+  if (u.username && u.username.trim()) return u.username.trim();
+  if (u.email && u.email.trim()) return u.email.split('@')[0];
+  return null;
+};
+
 const DetailRow = ({ label, children, last = false, labelClass = 'text-gray-400' }) => (
   <div className={`flex justify-between gap-4 py-1.5 ${last ? '' : 'border-b border-gray-200/60'}`}>
     <span className={`font-bold uppercase ${labelClass}`}>{label}</span>
@@ -124,17 +138,6 @@ const DetailRow = ({ label, children, last = false, labelClass = 'text-gray-400'
 
 export default function ReportsPage() {
   const navigate = useNavigate();
-
-  const resolveUserDisplayName = (u) => {
-    if (!u) return null;
-    if (typeof u === 'string') return u.trim() || null;
-    const firstLast = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-    if (firstLast) return firstLast;
-    if (u.full_name && u.full_name.trim()) return u.full_name.trim();
-    if (u.username && u.username.trim()) return u.username.trim();
-    if (u.email && u.email.trim()) return u.email.split('@')[0];
-    return null;
-  };
 
   const [reports, setReports] = useState(() => {
     const cached = sessionStorage.getItem(CACHE_KEY_REPORTS);
@@ -146,26 +149,25 @@ export default function ReportsPage() {
     return cached ? JSON.parse(cached) : [];
   });
 
+  // Maps USER id -> display name
   const [usersMap, setUsersMap] = useState(() => {
-    const cached = sessionStorage.getItem(CACHE_KEY_USERS_MAP);
-    const existingMap = cached ? JSON.parse(cached) : {};
+    let existingMap = {};
+    try {
+      existingMap = JSON.parse(sessionStorage.getItem(CACHE_KEY_USERS_MAP)) || {};
+    } catch {
+      existingMap = {};
+    }
 
-    const cachedReports = sessionStorage.getItem(CACHE_KEY_REPORTS);
-    if (cachedReports) {
-      try {
-        const parsedReports = JSON.parse(cachedReports);
-        parsedReports.forEach(r => {
-          const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
-          const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
-          const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
-          if (name) {
-            if (r.id) existingMap[r.id] = name;
-            if (uid) existingMap[uid] = name;
-          }
-        });
-      } catch (e) {
-        console.error("Failed to parse cached reports for user map initialization:", e);
-      }
+    try {
+      const parsedReports = JSON.parse(sessionStorage.getItem(CACHE_KEY_REPORTS)) || [];
+      parsedReports.forEach(r => {
+        if (typeof r.user === 'object' && r.user !== null && r.user.id) {
+          const name = resolveUserDisplayName(r.user);
+          if (name) existingMap[r.user.id] = name;
+        }
+      });
+    } catch (e) {
+      console.error("Failed to parse cached reports for user map initialization:", e);
     }
     return existingMap;
   });
@@ -202,6 +204,8 @@ export default function ReportsPage() {
   const [sortBy, setSortBy] = useState('date_desc');
   const [pageError, setPageError] = useState('');
   const [usersInfoMap, setUsersInfoMap] = useState({});
+  const [usersListLoaded, setUsersListLoaded] = useState(false);
+  const [resolveTick, setResolveTick] = useState(0);
   const [residentDetail, setResidentDetail] = useState(null); // { reportId, user }
   const [dismissalReasons, setDismissalReasons] = useState([]); // [{ value, label }]
   const [dismissModal, setDismissModal] = useState({ isOpen: false, reportId: null, reason: '', error: '' });
@@ -221,7 +225,13 @@ export default function ReportsPage() {
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [isVideoLoading, setIsVideoLoading] = useState(false);
 
-  const pendingUserFetches = useRef(new Set());
+  // Refs that keep the fetch functions stable and prevent request storms
+  const hasReportsRef = useRef(reports.length > 0);
+  const inFlightRef = useRef(false);
+  const lastFetchRef = useRef(0);
+  const residentCache = useRef({});          // reportId -> resident object (from the detail endpoint)
+  const attemptedUserIds = useRef(new Set()); // user ids we already tried to resolve this session
+  const resolvingRef = useRef(false);
 
   const token = localStorage.getItem('ac_token');
 
@@ -261,33 +271,8 @@ export default function ReportsPage() {
     return rawCategory || report.short_message || 'General Emergency';
   };
 
-  const resolveMissingUser = async (reportId, userId) => {
-    if (!reportId || pendingUserFetches.current.has(reportId)) return;
-    pendingUserFetches.current.add(reportId);
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
-        headers: getAuthHeaders()
-      });
-      if (res.ok) {
-        const detailData = await res.json();
-        const userObj = detailData?.user || detailData?.user_details || detailData?.profile;
-        const displayName = resolveUserDisplayName(userObj) || detailData?.reporter_name;
-
-        if (displayName) {
-          setUsersMap(prev => {
-            const updated = { ...prev, [reportId]: displayName };
-            if (userId) updated[userId] = displayName;
-            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
-            return updated;
-          });
-        }
-      }
-    } catch (err) {
-      console.error(`Failed to resolve user for report #${reportId}:`, err);
-    }
-  };
-
+  // Pure lookup: it never fires a request. (It used to call the report detail endpoint
+  // from inside render for every unresolved report, which spammed the API.)
   const getReporterName = (report) => {
     if (!report) return 'Anonymous Citizen';
 
@@ -304,13 +289,7 @@ export default function ReportsPage() {
       ? report.user 
       : (report.user_id || report.user?.id);
 
-    if (usersMap[report.id]) return usersMap[report.id];
     if (rawUserId && usersMap[rawUserId]) return usersMap[rawUserId];
-
-    if (report.id && !usersMap[report.id] && (!rawUserId || !usersMap[rawUserId])) {
-      resolveMissingUser(report.id, rawUserId);
-    }
-
     if (rawUserId) return `Citizen #${rawUserId}`;
 
     return 'Anonymous Citizen';
@@ -381,6 +360,7 @@ export default function ReportsPage() {
     return 'Exact address not specified';
   };
 
+  // GET /api/users/admin/ (one bulk call, only on page load and manual refresh)
   const fetchUsersMap = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/users/admin/`, { headers: getAuthHeaders() });
@@ -401,12 +381,18 @@ export default function ReportsPage() {
             const displayName = resolveUserDisplayName(u);
             if (displayName) newMap[u.id] = displayName;
           });
-          sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
+          try {
+            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(newMap));
+          } catch {
+            /* storage unavailable - ignore */
+          }
           return newMap;
         });
       }
     } catch (err) {
       console.error("Bulk user fetch error:", err);
+    } finally {
+      setUsersListLoaded(true);
     }
   }, [getAuthHeaders, rememberPhones]);
 
@@ -427,52 +413,60 @@ export default function ReportsPage() {
     }
   }, [getAuthHeaders]);
 
+  // GET /api/reports/admin/ (stable function: it does NOT depend on reports.length)
   const fetchReports = useCallback(async (silent = false) => {
     if (!token) return;
-    if (!silent && reports.length === 0) setIsLoading(true);
+    if (inFlightRef.current) return; // never run two list fetches at once
+    inFlightRef.current = true;
+
+    if (!silent && !hasReportsRef.current) setIsLoading(true);
     setIsSyncing(true);
 
-    for (const useBearer of [false, true]) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
-          method: 'GET',
-          headers: getAuthHeaders(useBearer)
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const rawList = Array.isArray(data) ? data : (data?.results || data?.data || []);
-          const sorted = rawList.sort((a, b) => (b.id || 0) - (a.id || 0));
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/admin/`, {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
 
-          setUsersMap(prev => {
-            const updated = { ...prev };
-            sorted.forEach(r => {
-              const userObj = (typeof r.user === 'object' && r.user !== null) ? r.user : (r.user_details || r.profile);
-              const name = resolveUserDisplayName(userObj) || r.reporter_name || `${r.first_name || ''} ${r.last_name || ''}`.trim();
-              const uid = typeof r.user === 'number' || typeof r.user === 'string' ? r.user : r.user?.id;
-              if (name) {
-                if (r.id) updated[r.id] = name;
-                if (uid) updated[uid] = name;
-              }
-            });
-            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
-            return updated;
+      if (response.ok) {
+        const data = await response.json();
+        const rawList = Array.isArray(data) ? data : (data?.results || data?.data || []);
+        const sorted = rawList.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+        // Learn names from users that are already embedded in the reports (keyed by user id)
+        setUsersMap(prev => {
+          const updated = { ...prev };
+          sorted.forEach(r => {
+            if (typeof r.user === 'object' && r.user !== null && r.user.id) {
+              const name = resolveUserDisplayName(r.user);
+              if (name) updated[r.user.id] = name;
+            }
           });
+          try {
+            sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
+          } catch {
+            /* storage unavailable - ignore */
+          }
+          return updated;
+        });
 
-          setReports(sorted);
-          sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
-          fetchUsersMap();
-          setIsLoading(false);
-          setIsSyncing(false);
-          return;
-        }
-      } catch (error) {
-        console.error("Error fetching reports:", error);
+        hasReportsRef.current = true;
+        setReports(sorted);
+        sessionStorage.setItem(CACHE_KEY_REPORTS, JSON.stringify(sorted));
+        setPageError(prev => (prev.startsWith('Could not load reports') ? '' : prev));
+      } else {
+        setPageError(`Could not load reports (HTTP ${response.status}).`);
       }
+    } catch (error) {
+      console.error("Error fetching reports:", error);
+      setPageError('Could not load reports. Check your connection and try again.');
+    } finally {
+      lastFetchRef.current = Date.now();
+      inFlightRef.current = false;
+      setIsLoading(false);
+      setIsSyncing(false);
     }
-    setIsLoading(false);
-    setIsSyncing(false);
-  }, [token, getAuthHeaders, fetchUsersMap, reports.length]);
+  }, [token, getAuthHeaders]);
 
   // ON MOUNT AND WINDOW FOCUS SYNC
   useEffect(() => {
@@ -483,22 +477,92 @@ export default function ReportsPage() {
 
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_REPORTS));
     fetchReports(hasCache);
+    fetchUsersMap();
     fetchEmergencyUnits();
 
-    const handleFocus = () => fetchReports(true);
+    // Refocus only refreshes the report list, and at most once every 30 seconds
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      fetchReports(true);
+    };
     window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [token, navigate, fetchReports, fetchEmergencyUnits]);
+  }, [token, navigate, fetchReports, fetchUsersMap, fetchEmergencyUnits]);
+
+  // Resolve reporter names for the few reports whose reporter is NOT in the bulk users list
+  // (e.g. a resident from another barangay reporting here). Runs in an effect, never in render:
+  //  - waits for the bulk users list first
+  //  - one request per distinct USER (not per report), each tried at most once per session
+  //  - 3 at a time, results cached in sessionStorage
+  useEffect(() => {
+    if (!usersListLoaded || reports.length === 0 || resolvingRef.current) return;
+
+    const queue = [];
+    const seen = new Set();
+    reports.forEach(r => {
+      if (typeof r.user === 'object' && r.user !== null) return; // already embedded in the list
+      const uid = r.user ?? r.user_id;
+      if (!uid || seen.has(uid)) return;
+      seen.add(uid);
+      if (usersMap[uid] || attemptedUserIds.current.has(uid)) return;
+      queue.push({ uid, reportId: r.id });
+    });
+
+    if (queue.length === 0) return;
+
+    resolvingRef.current = true;
+    (async () => {
+      try {
+        for (let i = 0; i < queue.length; i += 3) {
+          const batch = queue.slice(i, i + 3);
+          await Promise.all(batch.map(async ({ uid, reportId }) => {
+            attemptedUserIds.current.add(uid);
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/reports/admin/${reportId}/`, {
+                headers: getAuthHeaders()
+              });
+              if (!res.ok) return;
+              const detail = await res.json();
+              const u = detail?.user;
+              if (u && typeof u === 'object') {
+                residentCache.current[reportId] = u;
+                const name = resolveUserDisplayName(u);
+                if (name) {
+                  setUsersMap(prev => {
+                    const updated = { ...prev, [uid]: name };
+                    try {
+                      sessionStorage.setItem(CACHE_KEY_USERS_MAP, JSON.stringify(updated));
+                    } catch {
+                      /* storage unavailable - ignore */
+                    }
+                    return updated;
+                  });
+                }
+                if (u.contact_number) rememberPhones({ [uid]: u.contact_number });
+              }
+            } catch (err) {
+              console.error(`Failed to resolve user #${uid}:`, err);
+            }
+          }));
+        }
+      } finally {
+        resolvingRef.current = false;
+        setResolveTick(t => t + 1);
+      }
+    })();
+  }, [usersListLoaded, reports, usersMap, resolveTick, getAuthHeaders, rememberPhones]);
 
   // ISOLATED REFRESH BUTTON HANDLER
   const handleLocalSync = (e) => {
     e.stopPropagation();
     e.preventDefault();
     sessionStorage.removeItem(CACHE_KEY_REPORTS);
+    attemptedUserIds.current = new Set(); // let failed lookups retry on a manual refresh
     fetchReports(false);
+    fetchUsersMap();
   };
 
   const getNearestResponderText = (report) => {
@@ -559,22 +623,29 @@ export default function ReportsPage() {
     setIsModalOpen(true);
 
     // The detail endpoint nests the resident (username, email, contact number, barangay).
+    // It is fetched once per report and cached, so reopening a report costs no request.
     // Not awaited on purpose so it never delays the video loading below.
     setResidentDetail(null);
     const phoneUserId = typeof report.user === 'object' && report.user !== null
       ? report.user.id
       : report.user;
 
-    fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
-      .then(res => (res.ok ? res.json() : null))
-      .then(detail => {
-        const u = detail?.user;
-        if (u && typeof u === 'object') {
-          setResidentDetail({ reportId: report.id, user: u });
-          if (u.contact_number && phoneUserId) rememberPhones({ [phoneUserId]: u.contact_number });
-        }
-      })
-      .catch(err => console.error("Failed to fetch resident details:", err));
+    const cachedResident = residentCache.current[report.id];
+    if (cachedResident) {
+      setResidentDetail({ reportId: report.id, user: cachedResident });
+    } else {
+      fetch(`${API_BASE_URL}/api/reports/admin/${report.id}/`, { headers: getAuthHeaders() })
+        .then(res => (res.ok ? res.json() : null))
+        .then(detail => {
+          const u = detail?.user;
+          if (u && typeof u === 'object') {
+            residentCache.current[report.id] = u;
+            setResidentDetail({ reportId: report.id, user: u });
+            if (u.contact_number && phoneUserId) rememberPhones({ [phoneUserId]: u.contact_number });
+          }
+        })
+        .catch(err => console.error("Failed to fetch resident details:", err));
+    }
 
     if (report.video_thumbnail_url) {
       if (videoCache.current[report.id]) {

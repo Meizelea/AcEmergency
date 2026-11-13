@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Search, Mail, X, UserCircle, Phone,
@@ -66,6 +66,21 @@ const getDetailLabel = (value) => {
   return (value || '').replace(/_/g, ' ');
 };
 
+// Turns a DRF error body into a readable message
+const formatApiError = (data, fallback) => {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (data.detail) return String(data.detail);
+
+  const parts = Object.entries(data).map(([field, messages]) => {
+    const text = Array.isArray(messages) ? messages.join(' ') : String(messages);
+    const label = field === 'non_field_errors' ? '' : `${field.replace(/_/g, ' ')}: `;
+    return `${label}${text}`;
+  });
+
+  return parts.length ? parts.join(' | ') : fallback;
+};
+
 const CACHE_KEY_CITIZENS = 'cache_admin_citizens_v2';
 
 export default function UsersPage() {
@@ -76,6 +91,12 @@ export default function UsersPage() {
     const cached = sessionStorage.getItem(CACHE_KEY_CITIZENS);
     return cached ? JSON.parse(cached) : [];
   });
+
+  // Refs keep fetchUsers stable. Previously it depended on users.length, so the first
+  // load (0 -> N users) recreated the function and re-fired the effect: a second request.
+  const hasUsersRef = useRef(users.length > 0);
+  const lastFetchRef = useRef(0);
+  const inFlightRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(() => users.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -105,64 +126,67 @@ export default function UsersPage() {
   });
 
   const token = localStorage.getItem('ac_token');
-  const targetHostname = window.location.hostname || '127.0.0.1';
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.aksyon.online';
-  //const API_BASE_URL = `http://${targetHostname}:8000`;
 
-  // 1. FETCH USERS EXCLUSIVELY FOR THIS PAGE
+  // 1. FETCH USERS EXCLUSIVELY FOR THIS PAGE (single endpoint: GET /api/users/admin/)
   const fetchUsers = useCallback(async (silent = false) => {
-    if (!token) {
+    const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
+    if (!cleanToken) {
       navigate('/login');
       return;
     }
 
-    if (!silent && users.length === 0) setIsLoading(true);
+    if (inFlightRef.current) return; // never run two fetches at once
+    inFlightRef.current = true;
+
+    if (!silent && !hasUsersRef.current) setIsLoading(true);
     setIsSyncing(true);
 
-    const endpoints = [
-      `${API_BASE_URL}/api/users/admin/`,
-      `${API_BASE_URL}/api/users/`
-    ];
-
-    for (const endpoint of endpoints) {
-      for (const useBearer of [false, true]) {
-        try {
-          const authPrefix = useBearer ? 'Bearer' : 'Token';
-          const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
-
-          const response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `${authPrefix} ${cleanToken}`
-            }
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const list = Array.isArray(data) ? data : (data?.results || []);
-            setUsers(list);
-            sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(list));
-            setIsLoading(false);
-            setIsSyncing(false);
-            return;
-          }
-        } catch (error) {
-          console.warn(`Failed fetching from ${endpoint}:`, error);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/admin/`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${cleanToken}`
         }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        hasUsersRef.current = true;
+        setUsers(list);
+        try {
+          sessionStorage.setItem(CACHE_KEY_CITIZENS, JSON.stringify(list));
+        } catch {
+          /* storage unavailable - ignore */
+        }
+        setErrorMsg('');
+      } else if (response.status === 401) {
+        setErrorMsg('Your session has expired. Please log in again.');
+      } else {
+        setErrorMsg(`Could not load residents (${response.status}). Please try again.`);
       }
+    } catch (error) {
+      console.warn('Failed fetching residents:', error);
+      setErrorMsg('Could not reach the server. Check your connection and try again.');
+    } finally {
+      lastFetchRef.current = Date.now();
+      inFlightRef.current = false;
+      setIsLoading(false);
+      setIsSyncing(false);
     }
+  }, [navigate, API_BASE_URL]);
 
-    setIsLoading(false);
-    setIsSyncing(false);
-  }, [token, navigate, API_BASE_URL, users.length]);
-
-  // FETCH ON MOUNT AND FOCUS (NO AUTO-REFRESH INTERVAL)
+  // FETCH ON MOUNT AND ON TAB REFOCUS (at most once every 30s)
   useEffect(() => {
     const hasCache = Boolean(sessionStorage.getItem(CACHE_KEY_CITIZENS));
     fetchUsers(hasCache);
 
-    const handleFocus = () => fetchUsers(true);
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      fetchUsers(true);
+    };
     window.addEventListener('focus', handleFocus);
 
     return () => {
@@ -174,7 +198,6 @@ export default function UsersPage() {
   const handleLocalSync = (e) => {
     e.stopPropagation();
     e.preventDefault();
-    sessionStorage.removeItem(CACHE_KEY_CITIZENS);
     fetchUsers(false);
   };
 
@@ -241,34 +264,43 @@ export default function UsersPage() {
     }));
   };
 
-  // Shared PATCH helper (tries each endpoint / auth scheme like the fetch does)
+  // PATCH /api/users/admin/<id>/ (the only real route; the old fallbacks
+  // /api/users/admin/users/<id>/ and /api/users/<id>/ do not exist on the backend).
+  // Returns { success, message } so the real server error can be shown.
   const patchUser = async (target, payload) => {
-    const patchEndpoints = [
-      `${API_BASE_URL}/api/users/admin/users/${target.id}/`,
-      `${API_BASE_URL}/api/users/admin/${target.id}/`,
-      `${API_BASE_URL}/api/users/${target.id}/`
-    ];
-    const cleanToken = token.replace(/^(Token|Bearer)\s+/i, '').trim();
+    const cleanToken = (localStorage.getItem('ac_token') || '').replace(/^(Token|Bearer)\s+/i, '').trim();
 
-    for (const endpoint of patchEndpoints) {
-      for (const useBearer of [false, true]) {
-        try {
-          const authPrefix = useBearer ? 'Bearer' : 'Token';
-          const response = await fetch(endpoint, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `${authPrefix} ${cleanToken}`
-            },
-            body: JSON.stringify(payload)
-          });
-          if (response.ok) return true;
-        } catch (error) {
-          console.warn(`Patch failed for ${endpoint}:`, error);
-        }
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/admin/${target.id}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${cleanToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) return { success: true, message: '' };
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
       }
+
+      if (response.status === 401) {
+        return { success: false, message: 'Your session has expired. Please log in again.' };
+      }
+
+      return {
+        success: false,
+        message: formatApiError(data, `The server rejected the change (${response.status}).`)
+      };
+    } catch (error) {
+      console.warn('Patch failed:', error);
+      return { success: false, message: 'Could not reach the server. Check your connection and try again.' };
     }
-    return false;
   };
 
   // Apply a change to one user in the list, selected-user view and session cache.
@@ -293,10 +325,10 @@ export default function UsersPage() {
     Object.keys(payload).forEach((k) => { snapshot[k] = target[k]; });
 
     applyLocalUpdate(target, payload);
-    const success = await patchUser(target, payload);
+    const result = await patchUser(target, payload);
 
-    if (!success) applyLocalUpdate(target, snapshot);
-    return success;
+    if (!result.success) applyLocalUpdate(target, snapshot);
+    return result;
   };
 
   const executeSuspendUser = async (target, form) => {
@@ -309,17 +341,17 @@ export default function UsersPage() {
       suspension_notes: form.notes.trim()
     };
 
-    const success = await applyWithRollback(target, payload);
+    const result = await applyWithRollback(target, payload);
 
     setIsSubmittingSuspension(false);
     setIsSuspendModalOpen(false);
 
-    if (success) {
+    if (result.success) {
       setErrorMsg('');
       setNotificationMsg(`${getFullName(target)} has been suspended.`);
     } else {
       setNotificationMsg('');
-      setErrorMsg("The server rejected the change, so nothing was updated. Please try again.");
+      setErrorMsg(result.message || "The server rejected the change, so nothing was updated. Please try again.");
     }
   };
 
@@ -331,14 +363,14 @@ export default function UsersPage() {
       suspension_notes: ''
     };
 
-    const success = await applyWithRollback(target, payload);
+    const result = await applyWithRollback(target, payload);
 
-    if (success) {
+    if (result.success) {
       setErrorMsg('');
       setNotificationMsg(`${getFullName(target)} has been re-activated.`);
     } else {
       setNotificationMsg('');
-      setErrorMsg("The server rejected the change, so nothing was updated. Please try again.");
+      setErrorMsg(result.message || "The server rejected the change, so nothing was updated. Please try again.");
     }
   };
 
