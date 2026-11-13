@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff } from 'lucide-react';
 
 const targetHostname = window.location.hostname || '127.0.0.1';
 
@@ -23,13 +23,20 @@ export default function AdminLogin() {
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotMessage, setForgotMessage] = useState('');
 
+  const clearAuthStorage = () => {
+    localStorage.removeItem('ac_token');
+    localStorage.removeItem('ac_user');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('is_superuser');
+    localStorage.removeItem('username');
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
     try {
-      // const response = await fetch('https://api.aksyon.online/api/users/login/', {
       const response = await fetch(`${API_BASE}/api/users/login/`, {
         method: 'POST',
         mode: 'cors',
@@ -49,38 +56,54 @@ export default function AdminLogin() {
       }
 
       if (response.ok) {
-        // 1. Extract Token safely
-        const token = data.token || data.key || data.access;
-        localStorage.setItem('ac_token', token);
-
-        // 2. Extract full User Object
+        // 1. Extract full User Object first
         const extractedUser = data.user || data.account || data;
         const normalizedUsername = (extractedUser.username || formData.email).trim();
+
+        // Do NOT default unknown roles to 'ADMIN'
         const rawRole = extractedUser.role
-          ? String(extractedUser.role).toUpperCase()
-          : (normalizedUsername === 'g2c405' ? 'PRIVILEGED_ADMIN' : 'ADMIN');
+          ? String(extractedUser.role).toUpperCase().trim()
+          : (normalizedUsername === 'g2c405' ? 'PRIVILEGED_ADMIN' : '');
 
         const isSuper = Boolean(
           extractedUser.is_superuser === true ||
           rawRole === 'PRIVILEGED_ADMIN' ||
+          rawRole === 'PRIVILEGED ADMIN' ||
           rawRole === 'SUPERADMIN' ||
           normalizedUsername === 'g2c405'
         );
 
+        const isRegularAdmin = Boolean(
+          rawRole === 'ADMIN' ||
+          extractedUser.is_staff === true
+        );
+
+        // 2. Block regular users / residents before storing token
+        if (!isSuper && !isRegularAdmin) {
+          clearAuthStorage();
+          setError('Access Denied: Only Administrators are authorized to access this portal.');
+          return;
+        }
+
+        // 3. Extract and persist Token after verifying admin role
+        const token = data.token || data.key || data.access;
+        localStorage.setItem('ac_token', token);
+
+        const finalRole = isSuper ? 'PRIVILEGED_ADMIN' : 'ADMIN';
         const normalizedUser = {
           ...extractedUser,
           username: normalizedUsername,
-          role: rawRole,
+          role: finalRole,
           is_superuser: isSuper,
         };
 
-        // 3. Persist individual flags so ProtectedRoute can inspect them immediately
+        // 4. Persist individual flags so ProtectedRoute can inspect them immediately
         localStorage.setItem('ac_user', JSON.stringify(normalizedUser));
-        localStorage.setItem('user_role', rawRole);
+        localStorage.setItem('user_role', finalRole);
         localStorage.setItem('is_superuser', String(isSuper));
         localStorage.setItem('username', normalizedUsername);
 
-        // 4. Route accurately according to privilege level
+        // 5. Route accurately according to privilege level
         if (isSuper) {
           navigate('/superadmin', { replace: true });
         } else {
@@ -110,7 +133,6 @@ export default function AdminLogin() {
     setForgotError('');
 
     try {
-      // const response = await fetch('https://api.aksyon.online/api/users/forgot-password/', {
       const response = await fetch(`${API_BASE}/api/users/forgot-password/`, {
         method: 'POST',
         headers: {
@@ -125,7 +147,7 @@ export default function AdminLogin() {
 
       if (response.ok) {
         setForgotMessage(
-          data.message || 
+          data.message ||
           'If an account with that email exists, a password reset link has been dispatched to your inbox.'
         );
         setForgotSuccess(true);
@@ -162,23 +184,23 @@ export default function AdminLogin() {
       {/* Login Card */}
       <div className="bg-[#2a2a2a] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 border border-white/10">
         {/* Header Banner */}
-          <div className="bg-[#b32d2d] p-8 text-center text-white">
-            <div className="w-20 h-20 mx-auto rounded-full overflow-hidden bg-white/10 flex items-center justify-center mb-3 shadow-md">
-              <img 
-                src="/aksyonlogos.png" 
-                alt="AKSYON Logo" 
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <h1 className="text-2xl font-black tracking-tight uppercase">Aksyon</h1>
-            <p className="text-red-100 text-sm mt-1 font-medium">Command Center Portal</p>
-          </div>          
+        <div className="bg-[#b32d2d] p-8 text-center text-white">
+          <div className="w-20 h-20 mx-auto rounded-full overflow-hidden bg-white/10 flex items-center justify-center mb-3 shadow-md">
+            <img
+              src="/aksyonlogos.png"
+              alt="AKSYON Logo"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <h1 className="text-2xl font-black tracking-tight uppercase">Aksyon</h1>
+          <p className="text-red-100 text-sm mt-1 font-medium">Command Center Portal</p>
+        </div>
 
         {/* Input Interactive Box Area */}
         <div className="p-8">
           {error && (
             <div className="mb-6 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg flex items-center gap-3 text-sm font-bold">
-              <AlertCircle size={18} /> {error}
+              <AlertCircle size={18} className="shrink-0" /> {error}
             </div>
           )}
 

@@ -15,7 +15,7 @@ const BARANGAY_ONLY_PATHS = [
   '/dashboard',
 ];
 
-// Shared pages (/profile, /faqs, ...) are allowed for everyone who is logged in.
+// Shared pages (/profile, /faqs, ...) are allowed for authorized admins who are logged in.
 
 const matchesPath = (currentPath, base) =>
   currentPath === base || currentPath.startsWith(`${base}/`);
@@ -34,6 +34,14 @@ const readStoredUser = () => {
   return {};
 };
 
+const clearAuthStorage = () => {
+  localStorage.removeItem('ac_token');
+  localStorage.removeItem('ac_user');
+  localStorage.removeItem('user_role');
+  localStorage.removeItem('is_superuser');
+  localStorage.removeItem('username');
+};
+
 export default function ProtectedRoute() {
   const location = useLocation();
   const token = localStorage.getItem('ac_token');
@@ -47,18 +55,31 @@ export default function ProtectedRoute() {
 
   const userRole = String(
     localStorage.getItem('user_role') || storedUser.role || ''
-  ).toUpperCase();
+  ).toUpperCase().trim();
 
   const isSuperuser =
     localStorage.getItem('is_superuser') === 'true' || storedUser.is_superuser === true;
 
-  const username = localStorage.getItem('username') || storedUser.username || '';
+  const isStaff = storedUser.is_staff === true;
+
+  const username = (localStorage.getItem('username') || storedUser.username || '').trim();
 
   const isPrivileged =
     userRole === 'PRIVILEGED_ADMIN' ||
+    userRole === 'PRIVILEGED ADMIN' ||
     userRole === 'SUPERADMIN' ||
     isSuperuser ||
     username === 'g2c405';
+
+  const isRegularAdmin =
+    userRole === 'ADMIN' ||
+    isStaff;
+
+  // Block regular users / residents from accessing any protected page
+  if (!isPrivileged && !isRegularAdmin) {
+    clearAuthStorage();
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
   const currentPath = location.pathname.toLowerCase();
 
@@ -68,7 +89,6 @@ export default function ProtectedRoute() {
   }
 
   // 2. Regular admin must NOT access superadmin-only pages
-  //    (redirect to /analytics - the /dashboard route is no longer in the navigation)
   if (!isPrivileged && PRIVILEGED_ONLY_PATHS.some((p) => matchesPath(currentPath, p))) {
     return <Navigate to="/analytics" replace />;
   }
