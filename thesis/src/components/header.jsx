@@ -70,7 +70,6 @@ export default function AdminLayout({ children }) {
         { path: '/privileged-emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
         { path: '/backups', label: 'Backups', icon: <Database size={22} /> },
         { path: '/logs', label: 'Logs', icon: <ClipboardList size={22} /> },
-        { path: '/faq', label: 'FAQs', icon: <HelpCircle size={22} /> },
       ]
     : [
         { path: '/analytics', label: 'Analytics', icon: <LayoutGrid size={22} /> },
@@ -80,7 +79,6 @@ export default function AdminLayout({ children }) {
         { path: '/users', label: 'Users', icon: <Users size={22} /> },
         { path: '/emergency-units', label: 'Emergency Units', icon: <Truck size={22} /> },
         { path: '/announcements', label: 'Announcements', icon: <Megaphone size={22} /> },
-        { path: '/faq', label: 'FAQs', icon: <HelpCircle size={22} /> },
       ];
 
   return (
