@@ -2,11 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, AlertCircle, CheckCircle, X, Loader2, Eye, EyeOff } from 'lucide-react';
 
-const targetHostname = window.location.hostname || '127.0.0.1';
-
 const API_BASE = 'https://api.aksyon.online';
-//const API_BASE = `http://${targetHostname}:8000`;
-//Test
 
 export default function AdminLogin() {
   const navigate = useNavigate();
@@ -62,64 +58,82 @@ export default function AdminLogin() {
           return;
         }
 
-        // 1. Check if login response already contains user details
-        let extractedUser = data.user || data.account || (data.role ? data : null);
-
-        // 2. If login only returned a token, fetch the user's profile to get their role
-        if (!extractedUser || !extractedUser.role) {
-          for (const endpoint of ['/api/users/me/', '/api/users/profile/']) {
-            for (const prefix of ['Token', 'Bearer']) {
-              try {
-                const profileRes = await fetch(`${API_BASE}${endpoint}`, {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `${prefix} ${token}`,
-                  },
-                });
-                if (profileRes.ok) {
-                  const profileData = await profileRes.json();
-                  extractedUser = profileData.user || profileData;
-                  break;
-                }
-              } catch {
-                // try next prefix/endpoint
-              }
-            }
-            if (extractedUser?.role) break;
+        // 1. Fetch profile from /api/users/me/ using the returned DRF Token
+        let meData = {};
+        try {
+          const meRes = await fetch(`${API_BASE}/api/users/me/`, {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Token ${token}`,
+            },
+          });
+          if (meRes.ok) {
+            meData = await meRes.json();
           }
+        } catch {
+          // Handled below
         }
 
-        extractedUser = extractedUser || {};
-        const normalizedUsername = (extractedUser.username || formData.email).trim();
-        const rawRole = String(extractedUser.role || '').toUpperCase().trim();
+        const normalizedUsername = (meData.username || formData.email).trim();
+        const rawRole = String(meData.role || '').toUpperCase().trim();
 
-        const isSuper = Boolean(
-          extractedUser.is_superuser === true ||
+        // 2. Check if Privileged Admin (explicit role/flag, known account, or privileged endpoint access)
+        let isSuper = Boolean(
+          meData.is_superuser === true ||
           rawRole === 'PRIVILEGED_ADMIN' ||
           rawRole === 'PRIVILEGED ADMIN' ||
           rawRole === 'SUPERADMIN' ||
           normalizedUsername === 'g2c405'
         );
 
-        const isRegularAdmin = Boolean(
+        // 3. Check if Regular Barangay Admin (explicit role, assigned_barangay field, or /api/users/admin/ permission)
+        let isRegularAdmin = Boolean(
           rawRole === 'ADMIN' ||
-          rawRole === 'BARANGAY_ADMIN' ||
-          extractedUser.is_staff === true
+          meData.is_staff === true ||
+          Boolean(meData.assigned_barangay)
         );
 
-        // 3. Reject regular users / residents
+        // If MeView serializer omitted `role` and `assigned_barangay`, verify role via backend permission classes
+        if (!isSuper && !isRegularAdmin) {
+          try {
+            const adminCheckRes = await fetch(`${API_BASE}/api/users/admin/`, {
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Token ${token}`,
+              },
+            });
+            if (adminCheckRes.ok) {
+              isRegularAdmin = true;
+            } else {
+              // Check if Privileged Admin endpoint allows access (IsPrivilegedAdmin)
+              const privCheckRes = await fetch(`${API_BASE}/api/users/privileged-admin/`, {
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Token ${token}`,
+                },
+              });
+              if (privCheckRes.ok) {
+                isSuper = true;
+              }
+            }
+          } catch {
+            // Keep false if network check fails
+          }
+        }
+
+        // 4. Block regular residents (Role.USER)
         if (!isSuper && !isRegularAdmin) {
           clearAuthStorage();
           setError('Access Denied: Only Administrators are authorized to access this portal.');
           return;
         }
 
-        // 4. Persist session data
+        // 5. Persist verified session data
         localStorage.setItem('ac_token', token);
 
         const finalRole = isSuper ? 'PRIVILEGED_ADMIN' : 'ADMIN';
         const normalizedUser = {
-          ...extractedUser,
+          ...meData,
           username: normalizedUsername,
           role: finalRole,
           is_superuser: isSuper,
@@ -130,7 +144,7 @@ export default function AdminLogin() {
         localStorage.setItem('is_superuser', String(isSuper));
         localStorage.setItem('username', normalizedUsername);
 
-        // 5. Navigate based on privilege
+        // 6. Navigate to the appropriate dashboard
         if (isSuper) {
           navigate('/superadmin', { replace: true });
         } else {
