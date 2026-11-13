@@ -15,6 +15,7 @@ import AdminProfilePage from './pages/adminProfilePage.jsx';
 import DuplicatesPage from './pages/duplicatesPage.jsx';
 import FaqPage from './pages/faqs.jsx';
 import BackupsPage from './superadmin/backups.jsx';
+import LogsPage from './superadmin/logsPage.jsx';
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/announcements" element={<AnnouncementPage />} />
           <Route path="/duplicates" element={<DuplicatesPage />} />
           <Route path="/profile" element={<AdminProfilePage />} />
+          <Route path="/logs" element={<LogsPage/>}/>
           <Route path="/faq" element={<FaqPage/>}/>
         </Route>
       </Routes>
