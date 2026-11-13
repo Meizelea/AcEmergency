@@ -56,14 +56,42 @@ export default function AdminLogin() {
       }
 
       if (response.ok) {
-        // 1. Extract full User Object first
-        const extractedUser = data.user || data.account || data;
-        const normalizedUsername = (extractedUser.username || formData.email).trim();
+        const token = data.token || data.key || data.access;
+        if (!token) {
+          setError('Login succeeded, but no authentication token was returned.');
+          return;
+        }
 
-        // Do NOT default unknown roles to 'ADMIN'
-        const rawRole = extractedUser.role
-          ? String(extractedUser.role).toUpperCase().trim()
-          : (normalizedUsername === 'g2c405' ? 'PRIVILEGED_ADMIN' : '');
+        // 1. Check if login response already contains user details
+        let extractedUser = data.user || data.account || (data.role ? data : null);
+
+        // 2. If login only returned a token, fetch the user's profile to get their role
+        if (!extractedUser || !extractedUser.role) {
+          for (const endpoint of ['/api/users/me/', '/api/users/profile/']) {
+            for (const prefix of ['Token', 'Bearer']) {
+              try {
+                const profileRes = await fetch(`${API_BASE}${endpoint}`, {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `${prefix} ${token}`,
+                  },
+                });
+                if (profileRes.ok) {
+                  const profileData = await profileRes.json();
+                  extractedUser = profileData.user || profileData;
+                  break;
+                }
+              } catch {
+                // try next prefix/endpoint
+              }
+            }
+            if (extractedUser?.role) break;
+          }
+        }
+
+        extractedUser = extractedUser || {};
+        const normalizedUsername = (extractedUser.username || formData.email).trim();
+        const rawRole = String(extractedUser.role || '').toUpperCase().trim();
 
         const isSuper = Boolean(
           extractedUser.is_superuser === true ||
@@ -75,18 +103,18 @@ export default function AdminLogin() {
 
         const isRegularAdmin = Boolean(
           rawRole === 'ADMIN' ||
+          rawRole === 'BARANGAY_ADMIN' ||
           extractedUser.is_staff === true
         );
 
-        // 2. Block regular users / residents before storing token
+        // 3. Reject regular users / residents
         if (!isSuper && !isRegularAdmin) {
           clearAuthStorage();
           setError('Access Denied: Only Administrators are authorized to access this portal.');
           return;
         }
 
-        // 3. Extract and persist Token after verifying admin role
-        const token = data.token || data.key || data.access;
+        // 4. Persist session data
         localStorage.setItem('ac_token', token);
 
         const finalRole = isSuper ? 'PRIVILEGED_ADMIN' : 'ADMIN';
@@ -97,13 +125,12 @@ export default function AdminLogin() {
           is_superuser: isSuper,
         };
 
-        // 4. Persist individual flags so ProtectedRoute can inspect them immediately
         localStorage.setItem('ac_user', JSON.stringify(normalizedUser));
         localStorage.setItem('user_role', finalRole);
         localStorage.setItem('is_superuser', String(isSuper));
         localStorage.setItem('username', normalizedUsername);
 
-        // 5. Route accurately according to privilege level
+        // 5. Navigate based on privilege
         if (isSuper) {
           navigate('/superadmin', { replace: true });
         } else {
