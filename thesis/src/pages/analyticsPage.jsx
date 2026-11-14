@@ -91,7 +91,7 @@ const getBarangayCenter = (name) => {
 };
 
 // How many cluster rows fit in the PDF's DBSCAN page table
-const PRINT_MAX_CLUSTER_ROWS = 14;
+const PRINT_MAX_CLUSTER_ROWS = 12;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -141,25 +141,19 @@ const readCachedDashboard = () => {
   }
 };
 
-// Tries "Token" auth first, then "Bearer" (only retries on 401).
+// DRF TokenAuthentication only accepts the "Token" keyword, so there is no Bearer retry.
 async function authFetch(url, token, options = {}) {
   const cleanToken = String(token || '').replace(/^(Token|Bearer)\s+/i, '').trim();
   if (!cleanToken) return null;
 
-  let lastResponse = null;
-  for (const prefix of ['Token', 'Bearer']) {
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `${prefix} ${cleanToken}`,
-        ...(options.headers || {})
-      }
-    });
-    if (res.status !== 401) return res;
-    lastResponse = res;
-  }
-  return lastResponse;
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Token ${cleanToken}`,
+      ...(options.headers || {})
+    }
+  });
 }
 
 // Fills in missing buckets with 0 for smooth trend display
@@ -376,8 +370,6 @@ export default function AnalyticsPage() {
     const cached = readCachedDashboard();
     return cached?.query === DEFAULT_QUERY ? cached.data : null;
   });
-  const [isLoading, setIsLoading] = useState(() => dashboard === null);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
 
   const [timeRange, setTimeRange] = useState(DEFAULT_PERIOD);
@@ -385,9 +377,6 @@ export default function AnalyticsPage() {
   const [toDate, setToDate] = useState('');
 
   const requestIdRef = useRef(0);
-
-  // Active vs Suspended residents
-  const [residentCounts, setResidentCounts] = useState(null);
 
   // ---- DBSCAN (POST /dashboard/dbscan/) ----
   const [dbscan, setDbscan] = useState(null);
@@ -410,7 +399,6 @@ export default function AnalyticsPage() {
     if (!query) return;
 
     const requestId = ++requestIdRef.current;
-    setIsSyncing(true);
 
     try {
       const res = await authFetch(`${API_BASE_URL}${ANALYTICS_DASHBOARD_URL}?${query}`, token);
@@ -435,32 +423,8 @@ export default function AnalyticsPage() {
       if (requestId !== requestIdRef.current) return;
       console.warn('Analytics fetch failed:', err);
       setError('Could not reach the server.');
-    } finally {
-      if (requestId === requestIdRef.current) {
-        setIsLoading(false);
-        setIsSyncing(false);
-      }
     }
   }, [token, timeRange, fromDate, toDate]);
-
-  const fetchResidentCounts = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await authFetch(`${API_BASE_URL}/api/users/admin/`, token);
-      if (res && res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : (data?.results || []);
-        const suspended = list.filter((u) => u.is_active === false).length;
-        setResidentCounts({ active: list.length - suspended, suspended });
-      }
-    } catch (err) {
-      console.warn('Resident counts fetch failed:', err);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    fetchResidentCounts();
-  }, [fetchResidentCounts]);
 
   useEffect(() => {
     if (!token) navigate('/login');
@@ -520,15 +484,6 @@ export default function AnalyticsPage() {
       ? formatYMD(t.start_date)
       : `From ${formatYMD(t.start_date)} to ${formatYMD(t.end_date)}`;
   }, [dashboard, timeRange]);
-
-  const residentPieData = useMemo(
-    () =>
-      [
-        { name: 'Active', value: residentCounts?.active ?? 0, color: '#16a34a' },
-        { name: 'Suspended', value: residentCounts?.suspended ?? 0, color: '#dc2626' }
-      ].filter((d) => d.value > 0),
-    [residentCounts]
-  );
 
   const trendData = useMemo(() => buildTrendSeries(dashboard?.report_trend), [dashboard]);
 
@@ -685,73 +640,75 @@ export default function AnalyticsPage() {
         <div id="aksyon-print-root">
 
           {/* PAGE 1: ANALYTICS */}
-          <div className="aksyon-print-page bg-white box-border flex flex-col justify-between" style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden' }}>
+          <div
+            className="aksyon-print-page bg-white box-border flex flex-col"
+            style={{ width: '210mm', height: '296mm', padding: '10mm', overflow: 'hidden', gap: '10px' }}
+          >
 
-            {/* HEADER + CARDS */}
-            <div className="space-y-2">
-              <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
-                <div>
-                  <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
-                  <p className="text-[10px] text-red-100 font-medium">Analytics Report</p>
-                </div>
-                <div className="text-right text-[10px] font-bold">
-                  <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
-                  {periodLabel && <div className="text-[9px] text-red-100 font-normal">{periodLabel}</div>}
-                  <div className="text-[9px] text-red-100 font-normal">
-                    Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
-                  </div>
-                </div>
+            {/* HEADER */}
+            <div className="bg-[#b32d2d] text-white p-3 rounded-lg flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-black uppercase tracking-tight">AKSYON</h1>
+                <p className="text-[10px] text-red-100 font-medium">Analytics Report</p>
               </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="border border-gray-200 rounded-lg p-2.5">
-                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
-                  <div className="text-xl font-black text-gray-900 my-0.5">{totalUsers}</div>
-                  <span className="text-[8px] text-gray-400">Registered residents in this barangay</span>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-2.5">
-                  <span className="text-[9px] font-bold text-gray-500 uppercase block">System Reports</span>
-                  <div className="text-xl font-black text-gray-900 my-0.5">{totalReports}</div>
-                  <span className="text-[8px] text-gray-400">Submissions in Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-2.5">
-                  <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
-                  <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
-                  <span className="text-[8px] text-gray-400">Assigned Barangay</span>
-                </div>
-              </div>
-
-              {/* PDF STATUS CARDS - Clean Readable White Text */}
-              <div className="grid grid-cols-4 gap-2">
-                <div className="bg-[#fde68a] text-[#854d0e] p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
-                  <div className="text-xl font-black my-0.5 text-[#854d0e]">{pendingOverall}</div>
-                  <span className="text-[8px] text-[#a16207]">Pending Incident Reports</span>
-                </div>
-                <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
-                  <div className="text-xl font-black my-0.5 text-white">{inProgressOverall}</div>
-                  <span className="text-[8px] text-white/90">Ongoing Incident Reports</span>
-                </div>
-                <div className="bg-[#059669] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Resolved</span>
-                  <div className="text-xl font-black my-0.5 text-white">{resolvedOverall}</div>
-                  <span className="text-[8px] text-white/90">Resolved Incident Reports</span>
-                </div>
-                <div className="bg-[#6b7280] text-white p-2.5 rounded-lg">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-white">Dismissed</span>
-                  <div className="text-xl font-black my-0.5 text-white">{dismissedOverall}</div>
-                  <span className="text-[8px] text-white/90">Dismissed Reports</span>
+              <div className="text-right text-[10px] font-bold">
+                <div>Jurisdiction: Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                {periodLabel && <div className="text-[9px] text-red-100 font-normal">{periodLabel}</div>}
+                <div className="text-[9px] text-red-100 font-normal">
+                  Generated: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
                 </div>
               </div>
             </div>
 
-            {/* TRENDS + PEAK INCIDENT HOURS */}
+            {/* SUMMARY CARDS */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="border border-gray-200 rounded-lg p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">Total System Users</span>
+                <div className="text-xl font-black text-gray-900 my-0.5">{totalUsers}</div>
+                <span className="text-[8px] text-gray-400">Registered residents in this barangay</span>
+              </div>
+              <div className="border border-gray-200 rounded-lg p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">System Reports</span>
+                <div className="text-xl font-black text-gray-900 my-0.5">{totalReports}</div>
+                <span className="text-[8px] text-gray-400">Submissions in Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
+              </div>
+              <div className="border border-gray-200 rounded-lg p-2.5">
+                <span className="text-[9px] font-bold text-gray-500 uppercase block">Covered Jurisdiction</span>
+                <div className="text-sm font-black text-gray-900 my-0.5">Brgy. {assignedBarangay || 'Santa Trinidad'}</div>
+                <span className="text-[8px] text-gray-400">Assigned Barangay</span>
+              </div>
+            </div>
+
+            {/* STATUS CARDS */}
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-[#fde68a] text-[#854d0e] p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-[#854d0e]">Pending</span>
+                <div className="text-xl font-black my-0.5 text-[#854d0e]">{pendingOverall}</div>
+                <span className="text-[8px] text-[#a16207]">Pending Incident Reports</span>
+              </div>
+              <div className="bg-[#109EEF] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white">Ongoing</span>
+                <div className="text-xl font-black my-0.5 text-white">{inProgressOverall}</div>
+                <span className="text-[8px] text-white/90">Ongoing Incident Reports</span>
+              </div>
+              <div className="bg-[#059669] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white">Resolved</span>
+                <div className="text-xl font-black my-0.5 text-white">{resolvedOverall}</div>
+                <span className="text-[8px] text-white/90">Resolved Incident Reports</span>
+              </div>
+              <div className="bg-[#6b7280] text-white p-2.5 rounded-lg">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white">Dismissed</span>
+                <div className="text-xl font-black my-0.5 text-white">{dismissedOverall}</div>
+                <span className="text-[8px] text-white/90">Dismissed Reports</span>
+              </div>
+            </div>
+
+            {/* TRENDS + PEAK INCIDENT HOURS (same card height so the row lines up) */}
             <div className="grid grid-cols-2 gap-2">
               <div className="border border-gray-200 rounded-lg p-3">
                 <h3 className="font-bold text-xs text-gray-900">Report Trends</h3>
-                {periodLabel && <p className="text-[8px] text-gray-500 font-bold mb-1">{periodLabel}</p>}
-                <AreaChart width={325} height={240} data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <p className="text-[8px] text-gray-500 font-bold mb-1" style={{ minHeight: 12 }}>{periodLabel || '\u00A0'}</p>
+                <AreaChart width={326} height={320} data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="printColorReports" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
@@ -766,52 +723,50 @@ export default function AnalyticsPage() {
               </div>
 
               <div className="border border-gray-200 rounded-lg p-3">
-                <h4 className="font-bold text-xs text-gray-900 mb-1">Peak Incident Hours</h4>
-                <BarChart width={325} height={240} data={hourlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <h4 className="font-bold text-xs text-gray-900">Peak Incident Hours</h4>
+                <p className="text-[8px] text-gray-500 font-bold mb-1" style={{ minHeight: 12 }}>Reports by time of day</p>
+                <BarChart width={326} height={320} data={hourlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                   <XAxis dataKey="slot" tick={{ fontSize: 7, fill: '#6b7280', fontWeight: 600 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
-                  <Bar isAnimationActive={false} dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={30} />
+                  <Bar isAnimationActive={false} dataKey="count" fill="#b32d2d" radius={[2, 2, 0, 0]} maxBarSize={40} />
                 </BarChart>
-                <div className="text-[8px] text-gray-400 font-medium text-right mt-1">
-                  Dispatch call density by time of day
-                </div>
               </div>
             </div>
 
             {/* DONUTS */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
-                <h4 className="font-bold text-[10px] text-gray-900 self-start">Report Status</h4>
-                <div className="relative" style={{ width: 210, height: 140 }}>
-                  <PieChart width={210} height={140}>
-                    <Pie isAnimationActive={false} data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="border border-gray-200 rounded-lg p-3 flex flex-col items-center">
+                <h4 className="font-bold text-xs text-gray-900 self-start">Report Status</h4>
+                <div className="relative" style={{ width: 326, height: 200 }}>
+                  <PieChart width={326} height={200}>
+                    <Pie isAnimationActive={false} data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={76} paddingAngle={3}>
                       {statusPieData.map((entry, idx) => (
                         <Cell key={`print-cell-${idx}`} fill={entry.color} />
                       ))}
                     </Pie>
                   </PieChart>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-sm font-black text-gray-900">{totalReports}</span>
-                    <span className="text-[7px] uppercase font-bold text-gray-400">Total</span>
+                    <span className="text-lg font-black text-gray-900">{totalReports}</span>
+                    <span className="text-[8px] uppercase font-bold text-gray-400">Total</span>
                   </div>
                 </div>
-                <div className="w-full flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#fde68a' }}></span> Pending</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Dismissed</span>
+                <div className="w-full flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1.5">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#fde68a' }}></span> Pending ({pendingOverall})</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span> Ongoing ({inProgressOverall})</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Resolved ({resolvedOverall})</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Dismissed ({dismissedOverall})</span>
                 </div>
               </div>
 
-              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
-                <h4 className="font-bold text-[10px] text-gray-900 self-start">Emergency Categories</h4>
-                <div className="relative" style={{ width: 210, height: 140 }}>
+              <div className="border border-gray-200 rounded-lg p-3 flex flex-col items-center">
+                <h4 className="font-bold text-xs text-gray-900 self-start">Emergency Categories</h4>
+                <div className="relative" style={{ width: 326, height: 200 }}>
                   {incidentTypeData.length === 0 ? (
                     <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-400">No records</div>
                   ) : (
-                    <PieChart width={210} height={140}>
-                      <Pie isAnimationActive={false} data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
+                    <PieChart width={326} height={200}>
+                      <Pie isAnimationActive={false} data={incidentTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={76} paddingAngle={3}>
                         {incidentTypeData.map((entry, idx) => (
                           <Cell key={`print-cat-${idx}`} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                         ))}
@@ -819,44 +774,25 @@ export default function AnalyticsPage() {
                     </PieChart>
                   )}
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-sm font-black text-gray-900">{incidentTypeData.length}</span>
-                    <span className="text-[7px] uppercase font-bold text-gray-400">Categories</span>
+                    <span className="text-lg font-black text-gray-900">{incidentTypeData.length}</span>
+                    <span className="text-[8px] uppercase font-bold text-gray-400">Categories</span>
                   </div>
                 </div>
-                <div className="w-full flex flex-wrap justify-center gap-x-1.5 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
+                <div className="w-full flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1.5">
                   {incidentTypeData.map((item, idx) => (
-                    <span key={`print-cat-label-${item.name}`} className="flex items-center gap-0.5">
+                    <span key={`print-cat-label-${item.name}`} className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}></span>
-                      {item.name}
+                      {item.name} ({item.value})
                     </span>
                   ))}
                 </div>
               </div>
+            </div>
 
-              <div className="border border-gray-200 rounded-lg p-2.5 flex flex-col items-center">
-                <h4 className="font-bold text-[10px] text-gray-900 self-start">Active vs Suspended Residents</h4>
-                <div className="relative" style={{ width: 210, height: 140 }}>
-                  {residentPieData.length === 0 ? (
-                    <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-400">No records</div>
-                  ) : (
-                    <PieChart width={210} height={140}>
-                      <Pie isAnimationActive={false} data={residentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3}>
-                        {residentPieData.map((entry, idx) => (
-                          <Cell key={`print-res-${idx}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  )}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-sm font-black text-gray-900">{(residentCounts?.active ?? 0) + (residentCounts?.suspended ?? 0)}</span>
-                    <span className="text-[7px] uppercase font-bold text-gray-400">Residents</span>
-                  </div>
-                </div>
-                <div className="w-full flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[8px] font-bold text-gray-500 border-t border-gray-100 pt-1">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> Active ({residentCounts?.active ?? 0})</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Suspended ({residentCounts?.suspended ?? 0})</span>
-                </div>
-              </div>
+            {/* FOOTER */}
+            <div className="mt-auto flex justify-between border-t border-gray-100 pt-1 text-[8px] text-gray-400 font-medium">
+              <span>AKSYON Analytics Report - Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
+              <span>{dbscan ? 'Page 1 of 2' : 'Page 1'}</span>
             </div>
 
           </div>
@@ -913,7 +849,7 @@ export default function AnalyticsPage() {
                     Not enough geotagged reports to form clusters.
                   </div>
                 ) : (
-                  <div className="relative isolate rounded-lg overflow-hidden border border-gray-200" style={{ width: 690, height: 380 }}>
+                  <div className="relative isolate rounded-lg overflow-hidden border border-gray-200" style={{ width: 690, height: 340 }}>
                     <PrintClusterMap
                       center={barangayCenter}
                       groups={clusterGroups}
@@ -923,7 +859,7 @@ export default function AnalyticsPage() {
                   </div>
                 )}
                 <div className="text-[8px] text-gray-400 font-medium mt-1">
-                  Groups nearby reports (within 500 m, at least 2 reports) into geographic hotspots.
+                  Groups nearby reports (within 200 m, at least 3 reports) into geographic hotspots.
                 </div>
               </div>
 
@@ -969,6 +905,11 @@ export default function AnalyticsPage() {
                 </div>
               )}
 
+              <div className="mt-auto flex justify-between border-t border-gray-100 pt-1 text-[8px] text-gray-400 font-medium">
+                <span>AKSYON DBSCAN Incident Cluster Report - Brgy. {assignedBarangay || 'Santa Trinidad'}</span>
+                <span>Page 2 of 2</span>
+              </div>
+
             </div>
           )}
 
@@ -993,7 +934,7 @@ export default function AnalyticsPage() {
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <button
               onClick={handleDownloadPDF}
-              disabled={isLoading || !dashboard || isPreparingPdf || dbscanLoading}
+              disabled={!dashboard || isPreparingPdf || dbscanLoading}
               title="Page 1: analytics. Page 2: DBSCAN clusters"
               className="bg-[#b32d2d] hover:bg-[#8e2323] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
@@ -1002,13 +943,12 @@ export default function AnalyticsPage() {
             </button>
 
             <button
-              onClick={() => { fetchDashboard(); fetchResidentCounts(); }}
-              disabled={isSyncing}
+              onClick={() => fetchDashboard()}
               title="Reloads general analytics"
               className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin text-[#b32d2d]" : ""} />
-              {isSyncing ? "Refreshing..." : "Refresh"}
+              <RefreshCw size={14} />
+              Refresh
             </button>
           </div>
         </div>
@@ -1144,7 +1084,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* ROW 4: BREAKDOWN CARDS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
               <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Report Status</h4>
               <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
@@ -1203,33 +1143,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-xs flex flex-col items-center justify-between">
-              <h4 className="font-bold text-xs text-gray-900 self-start mb-2">Active vs Suspended Residents</h4>
-              <div className="h-36 w-full min-w-0 flex items-center justify-center relative">
-                {residentPieData.length === 0 ? (
-                  <span className="text-xs font-bold text-gray-400">No records</span>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={residentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={50} paddingAngle={4}>
-                        {residentPieData.map((entry, idx) => (
-                          <Cell key={`web-res-${idx}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '12px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-base font-black text-gray-900">{(residentCounts?.active ?? 0) + (residentCounts?.suspended ?? 0)}</span>
-                  <span className="text-[8px] uppercase font-bold text-gray-400">Residents</span>
-                </div>
-              </div>
-              <div className="w-full flex flex-wrap justify-around gap-1 text-[9px] font-bold text-gray-500 border-t border-gray-100 pt-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600"></span> Active ({residentCounts?.active ?? 0})</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600"></span> Suspended ({residentCounts?.suspended ?? 0})</span>
-              </div>
-            </div>
           </div>
 
           {/* ROW 5: DBSCAN CLUSTERS */}
@@ -1242,7 +1155,7 @@ export default function AnalyticsPage() {
                 </h3>
                 <p className="text-[11px] text-gray-500 font-medium mt-0.5 flex items-start gap-1">
                   <Info size={12} className="shrink-0 mt-0.5" />
-                  Groups nearby reports (within 500 m, at least 2 reports) into geographic hotspots.
+                  Groups nearby reports (within 200 m, at least 3 reports) into geographic hotspots.
                 </p>
               </div>
 
@@ -1254,7 +1167,7 @@ export default function AnalyticsPage() {
                 )}
                 <button
                   onClick={runDbscan}
-                  disabled={dbscanLoading || isLoading}
+                  disabled={dbscanLoading}
                   className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {dbscanLoading ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
